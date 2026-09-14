@@ -130,40 +130,70 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     
     return primitives;
 }
-
-function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity } = config;
+    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
-        if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+        const z = level * levelHeight;
         
-        const z = level * levelHeight + levelHeight / 2;
-        
+        // Сначала определяем "сырую" карту яруса
+        const rawMap = [];
+        for (let gx = 0; gx < gridSize; gx++) {
+            rawMap[gx] = [];
+            for (let gy = 0; gy < gridSize; gy++) {
+                // Базовый хеш для этой ячейки
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                rawMap[gx][gy] = baseHash < roomDensity;
+            }
+        }
+
+        // Применяем простое правило сглаживания (Cellular Automata)
+        // Если ячейка пустая, но у нее 3+ соседа-платформы, она тоже становится платформой
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed) < wallDensity) {
+                let isPlatform = rawMap[gx][gy];
+                
+                if (!isPlatform) {
+                    let neighbors = 0;
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            if (dx === 0 && dy === 0) continue;
+                            
+                            const nx = gx + dx;
+                            const ny = gy + dy;
+                            
+                            // Проверяем границы чанка
+                            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
+                                if (rawMap[nx][ny]) neighbors++;
+                            } else {
+                                // Для границ используем edgeAgreement или просто считаем, что там есть платформа
+                                // чтобы края чанка не выглядели обрубленными
+                                neighbors++; 
+                            }
+                        }
+                    }
+                    
+                    // Если вокруг много платформ, заполняем дыру
+                    if (neighbors >= 5) {
+                        isPlatform = true;
+                    }
+                }
+
+                if (isPlatform) {
                     primitives.push({
                         type: 'box',
-                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z },
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: bounds.min.y + (gy + 0.5) * cellSize, 
+                            z 
+                        },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize * 0.2, y: cellSize * 0.2, z: levelHeight },
-                        paletteSlot: 'baseDark',
-                        flags: {},
-                        role: 'frame'
-                    });
-                }
-                
-                if (hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed) < pillarDensity) {
-                    primitives.push({
-                        type: 'cylinder',
-                        position: { x: bounds.min.x + gx * cellSize, y: bounds.min.y + gy * cellSize, z },
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize * 0.15, y: cellSize * 0.15, z: levelHeight },
-                        paletteSlot: 'accent',
+                        scale: { x: cellSize, y: cellSize, z: platformThickness },
+                        paletteSlot: 'base',
                         flags: {},
                         role: 'frame'
                     });
@@ -171,6 +201,7 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
     }
+    
     return primitives;
 }
 /**
