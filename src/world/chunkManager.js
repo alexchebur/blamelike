@@ -270,10 +270,21 @@ class ChunkManager {
                 return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
             
             case 'prism':
+                // Шестиугольная призма
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
             
             case 'sphere':
                 return new THREE.SphereGeometry(0.5, segments, segments);
+
+            // --- Добавленные типы ---
+            
+            case 'obelisk':
+                // Обелиск — это вытянутая четырехгранная пирамида
+                return new THREE.ConeGeometry(0.4, 1, 4); 
+            
+            case 'spire':
+                // Шпиль — очень тонкий и высокий конус
+                return new THREE.ConeGeometry(0.2, 1, 8);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
