@@ -1,13 +1,14 @@
 // @ts-check
 /**
  * ChunkManager — управляет загрузкой/выгрузкой чанков вокруг камеры
- * Реализует LRU-кэш, LOD по дистанции и стриминг в Web Worker
+ * Реализует LRU-кэш, LOD по дистанции и стриминг
  */
 
 import * as THREE from 'three';
 import { createChunkKey, worldToChunk } from '../core/chunkKey.js';
 import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
+import { palettes } from '../core/config.js';
 
 class ChunkManager {
     /**
@@ -16,18 +17,14 @@ class ChunkManager {
     constructor(sceneManager) {
         this.sceneManager = sceneManager;
         
-        // Хранилище активных чанков: Map<key, Chunk>
+        // Хранилище активных чанков: Map<key, THREE.Group>
         this.activeChunks = new Map();
         
-        // LRU-кэш для быстрого доступа
+        // LRU-кэш для данных примитивов (не мешей!)
         this.cache = new ChunkCache(50);
         
         // Текущая позиция камеры (для отслеживания движения)
         this.lastCameraChunk = null;
-        
-        // Очередь генерации (если используем Worker)
-        this.generationQueue = [];
-        this.isGenerating = false;
         
         // Настройки
         this.config = null;
@@ -57,7 +54,7 @@ class ChunkManager {
             currentChunk.cz !== this.lastCameraChunk.cz) {
             
             this.lastCameraChunk = currentChunk;
-            this.updateVisibleChunks(currentChunk, config);
+            this.updateVisibleChunks(currentChunk, config, cameraPos);
         }
     }
     
@@ -65,9 +62,10 @@ class ChunkManager {
      * Обновление видимых чанков вокруг заданной позиции
      * @param {{cx: number, cy: number, cz: number}} centerChunk 
      * @param {Object} config 
+     * @param {THREE.Vector3} cameraPos
      */
-    updateVisibleChunks(centerChunk, config) {
-        const { viewChunksXY, viewChunksZ, chunkSize } = config;
+    updateVisibleChunks(centerChunk, config, cameraPos) {
+        const { viewChunksXY, viewChunksZ } = config;
         
         // Множество ключей чанков, которые должны быть видны
         const desiredChunks = new Set();
@@ -85,7 +83,10 @@ class ChunkManager {
                     
                     // Загружаем чанк если его нет
                     if (!this.activeChunks.has(key)) {
-                        this.loadChunk(cx, cy, cz, config);
+                        this.loadChunk(cx, cy, cz, config, cameraPos);
+                    } else {
+                        // Если чанк уже есть, возможно стоит обновить его LOD
+                        this.updateChunkLOD(key, cameraPos, config);
                     }
                 }
             }
@@ -101,27 +102,39 @@ class ChunkManager {
      * @param {number} cy 
      * @param {number} cz 
      * @param {Object} config 
+     * @param {THREE.Vector3} cameraPos
      */
-    loadChunk(cx, cy, cz, config) {
+    loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         
-        // Проверяем кэш
+        // Проверяем кэш данных (PrimitiveRecord[])
         let chunkData = this.cache.get(key);
         
         if (!chunkData) {
-            // Генерируем чанк
-            console.log(`🔄 Generating chunk [${cx}, ${cy}, ${cz}]`);
+            console.log(`🔄 Generating data for chunk [${cx}, ${cy}, ${cz}]`);
             chunkData = generateChunk(cx, cy, cz, config.seed, config);
             
-            // Сохраняем в кэш
+            // Сохраняем сырые данные в кэш
             this.cache.set(key, chunkData);
         }
         
-        // Создаем визуальное представление чанка
-        const chunk = this.createChunkMesh(chunkData, config);
+        // Создаем визуальное представление (Mesh)
+        const group = this.createChunkMesh(chunkData, config);
         
-        // Добавляем в активные чанки
-        this.activeChunks.set(key, chunk);
+        // Добавляем в активные чанки и сцену
+        this.activeChunks.set(key, group);
+        this.sceneManager.scene.add(group);
+    }
+
+    /**
+     * Обновление LOD существующего чанка (заглушка для будущей логики)
+     * @param {string} key 
+     * @param {THREE.Vector3} cameraPos 
+     * @param {Object} config 
+     */
+    updateChunkLOD(key, cameraPos, config) {
+        // Здесь можно реализовать пересборку меша при изменении дистанции
+        // Например, удалить микро-декор если чанк стал "far"
     }
     
     /**
@@ -158,6 +171,9 @@ class ChunkManager {
         const grouped = {};
         
         for (const prim of primitives) {
+            // Фильтрация по LOD может происходить здесь
+            // if (prim.role === 'micro' && lodLevel === 'far') continue;
+
             const key = `${prim.type}|${prim.paletteSlot}`;
             
             if (!grouped[key]) {
@@ -181,21 +197,23 @@ class ChunkManager {
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
-        // Получаем палитру
-        const palette = this.getPalette(config.palette);
-        const color = palette[slot] || palette.base;
+        // Получаем палитру из конфига
+        const activePalette = palettes[config.palette] || palettes.blame;
+        const colorHex = activePalette[slot] || activePalette.base;
         
-        // Создаем геометрию
+        // Создаем геометрию (общую для всех инстансов)
         const geometry = this.createGeometry(type, config);
         
         // Создаем материал
         const material = new THREE.MeshLambertMaterial({
-            color: new THREE.Color(color),
-            flatShading: true
+            color: new THREE.Color(colorHex),
+            flatShading: true,
+            side: THREE.DoubleSide
         });
         
         // Создаем InstancedMesh
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
+        mesh.frustumCulled = true; // Включаем отсечение по фрустуму
         
         // Устанавливаем матрицы для каждого инстанса
         const dummy = new THREE.Object3D();
@@ -204,11 +222,14 @@ class ChunkManager {
             const item = items[i];
             
             dummy.position.set(item.position.x, item.position.y, item.position.z);
+            
+            // Конвертируем градусы в радианы
             dummy.rotation.set(
                 THREE.MathUtils.degToRad(item.rotation.tiltX || 0),
                 THREE.MathUtils.degToRad(item.rotation.tiltY || 0),
                 THREE.MathUtils.degToRad(item.rotation.twistZ || 0)
             );
+            
             dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
             
             dummy.updateMatrix();
@@ -243,14 +264,12 @@ class ChunkManager {
                 return new THREE.OctahedronGeometry(0.5);
             
             case 'capsule':
-                // Капсула как комбинация цилиндра и двух полусфер
                 return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
             
             case 'torus':
                 return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
             
             case 'prism':
-                // Призма как цилиндр с малым количеством сегментов
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
             
             case 'sphere':
@@ -263,58 +282,6 @@ class ChunkManager {
     }
     
     /**
-     * Получение активной палитры
-     * @param {string} paletteName 
-     * @returns {Object}
-     */
-    getPalette(paletteName) {
-        const palettes = {
-            blame: {
-                base: '#2a2a2a',
-                baseLight: '#3a3a3a',
-                baseDark: '#1a1a1a',
-                accent: '#4a4a4a',
-                glow: '#ff6600',
-                shadow: '#0a0a0a'
-            },
-            rusted: {
-                base: '#4a3728',
-                baseLight: '#5c4533',
-                baseDark: '#3a2a1f',
-                accent: '#8b4513',
-                glow: '#ff4500',
-                shadow: '#1a0f0a'
-            },
-            coldSpace: {
-                base: '#1a2a3a',
-                baseLight: '#2a3a4a',
-                baseDark: '#0a1a2a',
-                accent: '#4a6a8a',
-                glow: '#00ffff',
-                shadow: '#050a0f'
-            },
-            sandCity: {
-                base: '#8b7355',
-                baseLight: '#a08968',
-                baseDark: '#6b5344',
-                accent: '#d4a574',
-                glow: '#ffd700',
-                shadow: '#3a2a1a'
-            },
-            neonCyber: {
-                base: '#1a1a2e',
-                baseLight: '#2a2a3e',
-                baseDark: '#0a0a1e',
-                accent: '#ff00ff',
-                glow: '#00ff00',
-                shadow: '#050510'
-            }
-        };
-        
-        return palettes[paletteName] || palettes.blame;
-    }
-    
-    /**
      * Выгрузка неиспользуемых чанков
      * @param {Set} desiredKeys - множество ключей чанков, которые должны остаться
      */
@@ -324,13 +291,11 @@ class ChunkManager {
                 // Удаляем из сцены
                 this.sceneManager.scene.remove(chunk);
                 
-                // Освобождаем память
+                // Освобождаем память (геометрию и материалы)
                 this.disposeChunk(chunk);
                 
                 // Удаляем из активных
                 this.activeChunks.delete(key);
-                
-                console.log(`🗑️ Unloaded chunk ${key}`);
             }
         }
     }
