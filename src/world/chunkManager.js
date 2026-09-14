@@ -139,27 +139,48 @@ class ChunkManager {
     
     /**
      * Создание Three.js мешей из данных чанка
-     * @param {Array} primitives - массив PrimitiveRecord
-     * @param {Object} config 
-     * @returns {THREE.Group} группа с InstancedMesh
      */
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
         
-        // Группируем примитивы по типу и paletteSlot
+        // Группируем примитивы
         const grouped = this.groupPrimitives(primitives);
         
-        // Для каждой группы создаем InstancedMesh
         for (const [typeSlot, items] of Object.entries(grouped)) {
             const [type, slot] = typeSlot.split('|');
-            const mesh = this.createInstancedMesh(type, slot, items, config);
             
-            if (mesh) {
-                group.add(mesh);
+            // Если это линия (специальный тип для отладки)
+            if (type === 'line') {
+                const line = this.createLineSegments(items, config);
+                if (line) group.add(line);
+            } else {
+                // Обычный InstancedMesh
+                const mesh = this.createInstancedMesh(type, slot, items, config);
+                if (mesh) group.add(mesh);
             }
         }
         
         return group;
+    }
+
+    /**
+     * Создание линий связей
+     */
+    createLineSegments(items, config) {
+        if (items.length === 0) return null;
+
+        const points = [];
+        for (const item of items) {
+            // Предполагаем, что в scale.z у нас хранится "вес" связи или просто длина
+            // А в position - центр моста. Для простоты нарисуем линию от центра к центру соседа.
+            // Но пока у нас в items только центр. 
+            // Давай сделаем проще: нарисуем точку в центре каждого моста.
+            points.push(new THREE.Vector3(item.position.x, item.position.y, item.position.z));
+        }
+
+        // Для полноценных линий нам нужны пары точек. 
+        // Пока оставим это как заглушку, а лучше добавим "Debug Mode" в генератор.
+        return null; 
     }
     
     /**
