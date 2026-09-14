@@ -142,7 +142,9 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
+/**
+ * Этап C: Генерация соединений с гарантией связности и учетом границ
+ */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
@@ -151,43 +153,62 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
+        // Пропускаем ярус, если он не существует
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+        
         const z = level * levelHeight;
         
         // 1. Собираем координаты всех платформ этого яруса
         const platforms = [];
+        const platformSet = new Set(); // Для быстрого поиска
+        
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
-                    platforms.push({ gx, gy, x: gx, y: gy }); // храним индексы сетки
+                    platforms.push({ gx, gy });
+                    platformSet.add(`${gx},${gy}`);
                 }
             }
         }
 
         if (platforms.length < 2) continue;
 
-        // 2. Алгоритм минимального остовного дерева (упрощенный) для связности
+        // 2. Алгоритм связности (упрощенный Prim's algorithm)
         const connected = new Set();
         connected.add(`${platforms[0].gx},${platforms[0].gy}`);
         
-        let attempts = 0;
-        while (connected.size < platforms.length && attempts < 100) {
-            attempts++;
-            // Берем случайную уже подключенную платформу
-            const sourceKey = Array.from(connected)[Math.floor(rng() * connected.size)];
+        // Список потенциальных ребер для соединения
+        const edgesToAdd = [];
+
+        let safetyCounter = 0;
+        while (connected.size < platforms.length && safetyCounter < 500) {
+            safetyCounter++;
+            
+            // Выбираем случайную уже подключенную платформу
+            const connectedKeys = Array.from(connected);
+            const sourceKey = connectedKeys[Math.floor(rng() * connectedKeys.length)];
             const [sx, sy] = sourceKey.split(',').map(Number);
             
-            // Ищем ближайшего неподключенного соседа
+            // Ищем ближайшего неподключенного соседа (в радиусе 2 клеток)
             let nearest = null;
             let minDist = Infinity;
             
-            for (const p of platforms) {
-                const key = `${p.gx},${p.gy}`;
-                if (!connected.has(key)) {
-                    const dist = Math.abs(p.gx - sx) + Math.abs(p.gy - sy); // Манхэттенское расстояние
-                    if (dist < minDist && dist <= 2) { // Соединяем только близких соседей
-                        minDist = dist;
-                        nearest = p;
+            // Проверяем всех соседей в квадрате 5x5 вокруг source
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const nx = sx + dx;
+                    const ny = sy + dy;
+                    const key = `${nx},${ny}`;
+                    
+                    // Если эта платформа существует и еще не подключена
+                    if (platformSet.has(key) && !connected.has(key)) {
+                        const dist = Math.abs(dx) + Math.abs(dy); // Манхэттенское расстояние
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearest = { gx: nx, gy: ny };
+                        }
                     }
                 }
             }
@@ -195,23 +216,61 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             if (nearest) {
                 connected.add(`${nearest.gx},${nearest.gy}`);
                 
-                // Строим мост
-                const x1 = bounds.min.x + (sx + 0.5) * cellSize;
-                const y1 = bounds.min.y + (sy + 0.5) * cellSize;
-                const x2 = bounds.min.x + (nearest.gx + 0.5) * cellSize;
-                const y2 = bounds.min.y + (nearest.gy + 0.5) * cellSize;
-                
-                const midX = (x1 + x2) / 2;
-                const midY = (y1 + y2) / 2;
-                const dist = Math.sqrt(Math.pow(x2-x1, 2) + Math.pow(y2-y1, 2));
-                
-                // Вычисляем угол поворота моста
-                const angle = Math.atan2(y2 - y1, x2 - x1);
-                
-                primitives.push({
+                // Добавляем ребро в список для постройки
+                edgesToAdd.push({
+                    sx, sy, 
+                    tx: nearest.gx, ty: nearest.gy
+                });
+            }
+        }
+
+        // 3. Постройка мостов по найденным ребрам
+        for (const edge of edgesToAdd) {
+            const x1 = bounds.min.x + (edge.sx + 0.5) * cellSize;
+            const y1 = bounds.min.y + (edge.sy + 0.5) * cellSize;
+            const x2 = bounds.min.x + (edge.tx + 0.5) * cellSize;
+            const y2 = bounds.min.y + (edge.ty + 0.5) * cellSize;
+            
+            const midX = (x1 + x2) / 2;
+            const midY = (y1 + y2) / 2;
+            
+            // Длина моста
+            const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+            
+            // Угол поворота (в градусах)
+            const angleRad = Math.atan2(y2 - y1, x2 - x1);
+            const angleDeg = angleRad * (180 / Math.PI);
+            
+            primitives.push({
+                type: 'box',
+                position: { x: midX, y: midY, z: z + 1 }, // Чуть выше платформы
+                rotation: { tiltX: 0, tiltY: 0, twistZ: angleDeg },
+                scale: { x: dist, y: cellSize * 0.2, z: 0.5 }, // Тонкая балка
+                paletteSlot: 'accent',
+                flags: {},
+                role: 'connector'
+            });
+        }
+
+        // 4. Граничные соединения (EdgeAgreement)
+        // Проверяем правую границу (X+)
+        const rightDecisions = edgeAgreement.getBoundaryDecisions(cx, cy, cz, 'x', 1, seed, config);
+        for (let i = 0; i < gridSize; i++) {
+            const decision = rightDecisions[i];
+            // Если есть платформа внутри чанка на границе И решение говорит о мосте
+            const internalKey = `${gridSize - 1},${i}`;
+            if (platformSet.has(internalKey) && decision.hasPassage) {
+                 // Строим половину моста до границы
+                 const x1 = bounds.min.x + (gridSize - 0.5) * cellSize; // Центр последней ячейки
+                 const y1 = bounds.min.y + (i + 0.5) * cellSize;
+                 const x2 = bounds.max.x; // Граница чанка
+                 
+                 const dist = cellSize / 2;
+                 
+                 primitives.push({
                     type: 'box',
-                    position: { x: midX, y: midY, z: z + 1 },
-                    rotation: { tiltX: 0, tiltY: 0, twistZ: THREE.MathUtils.radToDeg(angle) },
+                    position: { x: (x1 + x2) / 2, y: y1, z: z + 1 },
+                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                     scale: { x: dist, y: cellSize * 0.2, z: 0.5 },
                     paletteSlot: 'accent',
                     flags: {},
@@ -220,9 +279,9 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
     }
+    
     return primitives;
 }
-
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
