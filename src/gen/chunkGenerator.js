@@ -297,26 +297,27 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt } = config;
     
+    if (!pierceWeights || typeof pierceWeights !== 'object') return primitives;
+
     const area = (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y);
     const count = Math.floor(area * scatterDensity / 1000);
     
-    // Подготавливаем массив типов для выбора
-    const pierceTypes = Object.keys(pierceWeights);
-    const weights = Object.values(pierceWeights);
-    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    // Подготавливаем массив для взвешенного выбора
+    const types = Object.entries(pierceWeights).map(([type, weight]) => ({ item: type, weight }));
+    const totalWeight = types.reduce((sum, t) => sum + t.weight, 0);
 
     for (let i = 0; i < count; i++) {
         const pierceHash = hash3D(cx, cy, cz + i * 0.7, seed);
         
         if (pierceHash < scatterDensity) {
-            // Безопасный взвешенный выбор
+            // Взвешенный выбор типа
             let random = rng() * totalWeight;
             let selectedType = 'cylinder';
             
-            for (let t = 0; t < pierceTypes.length; t++) {
-                random -= weights[t];
+            for (const t of types) {
+                random -= t.weight;
                 if (random <= 0) {
-                    selectedType = pierceTypes[t];
+                    selectedType = t.item;
                     break;
                 }
             }
@@ -340,6 +341,7 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
             });
         }
     }
+    
     return primitives;
 }
 
@@ -349,10 +351,15 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { decorDensity } = config;
+
+    // Защита от отсутствия decorDensity
+    if (!decorDensity) return primitives;
     
-    const antennaCount = Math.floor((bounds.max.x - bounds.min.x) * decorDensity.antennas);
+    // Антенны
+    const width = bounds.max.x - bounds.min.x;
+    const antennaCount = Math.floor(width * (decorDensity.antennas || 0));
     for (let i = 0; i < antennaCount; i++) {
-        const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
+        const x = bounds.min.x + rng() * width;
         const y = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
         const z = bounds.max.z - 5;
         
@@ -367,9 +374,10 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         });
     }
     
-    const sphereCount = Math.floor((bounds.max.x - bounds.min.x) * decorDensity.spheres);
+    // Сферы
+    const sphereCount = Math.floor(width * (decorDensity.spheres || 0));
     for (let i = 0; i < sphereCount; i++) {
-        const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
+        const x = bounds.min.x + rng() * width;
         const y = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
         const z = bounds.min.z + rng() * (bounds.max.z - bounds.min.z);
         
@@ -383,6 +391,7 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             role: 'decor'
         });
     }
+    
     return primitives;
 }
 
@@ -392,10 +401,14 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
 function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { microDensity } = config;
-    const microCount = Math.floor((bounds.max.x - bounds.min.x) * microDensity * 10);
+    
+    if (microDensity === undefined || microDensity === null) return primitives;
+
+    const width = bounds.max.x - bounds.min.x;
+    const microCount = Math.floor(width * microDensity * 10);
     
     for (let i = 0; i < microCount; i++) {
-        const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
+        const x = bounds.min.x + rng() * width;
         const y = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
         const z = bounds.min.z + rng() * (bounds.max.z - bounds.min.z);
         
@@ -409,7 +422,7 @@ function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
             role: 'micro'
         });
     }
+    
     return primitives;
 }
-
 export default { generateChunk };
