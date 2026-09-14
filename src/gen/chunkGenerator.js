@@ -154,24 +154,69 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         const z = level * levelHeight;
         
-        for (let gx = 0; gx < gridSize - 1; gx++) {
+        // 1. Собираем координаты всех платформ этого яруса
+        const platforms = [];
+        for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                const leftHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
-                const rightHash = hash3D(cx * gridSize + gx + 1, cy * gridSize + gy, level, seed);
-                
-                if (leftHash < roomDensity && rightHash < roomDensity) {
-                    if (hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy, level + 0.1, seed) < bridgeChance) {
-                        primitives.push({
-                            type: 'box',
-                            position: { x: bounds.min.x + (gx + 1) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z: z + 1 },
-                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            scale: { x: cellSize * 0.3, y: cellSize * 0.8, z: 0.5 },
-                            paletteSlot: 'accent',
-                            flags: {},
-                            role: 'connector'
-                        });
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
+                    platforms.push({ gx, gy, x: gx, y: gy }); // храним индексы сетки
+                }
+            }
+        }
+
+        if (platforms.length < 2) continue;
+
+        // 2. Алгоритм минимального остовного дерева (упрощенный) для связности
+        const connected = new Set();
+        connected.add(`${platforms[0].gx},${platforms[0].gy}`);
+        
+        let attempts = 0;
+        while (connected.size < platforms.length && attempts < 100) {
+            attempts++;
+            // Берем случайную уже подключенную платформу
+            const sourceKey = Array.from(connected)[Math.floor(rng() * connected.size)];
+            const [sx, sy] = sourceKey.split(',').map(Number);
+            
+            // Ищем ближайшего неподключенного соседа
+            let nearest = null;
+            let minDist = Infinity;
+            
+            for (const p of platforms) {
+                const key = `${p.gx},${p.gy}`;
+                if (!connected.has(key)) {
+                    const dist = Math.abs(p.gx - sx) + Math.abs(p.gy - sy); // Манхэттенское расстояние
+                    if (dist < minDist && dist <= 2) { // Соединяем только близких соседей
+                        minDist = dist;
+                        nearest = p;
                     }
                 }
+            }
+            
+            if (nearest) {
+                connected.add(`${nearest.gx},${nearest.gy}`);
+                
+                // Строим мост
+                const x1 = bounds.min.x + (sx + 0.5) * cellSize;
+                const y1 = bounds.min.y + (sy + 0.5) * cellSize;
+                const x2 = bounds.min.x + (nearest.gx + 0.5) * cellSize;
+                const y2 = bounds.min.y + (nearest.gy + 0.5) * cellSize;
+                
+                const midX = (x1 + x2) / 2;
+                const midY = (y1 + y2) / 2;
+                const dist = Math.sqrt(Math.pow(x2-x1, 2) + Math.pow(y2-y1, 2));
+                
+                // Вычисляем угол поворота моста
+                const angle = Math.atan2(y2 - y1, x2 - x1);
+                
+                primitives.push({
+                    type: 'box',
+                    position: { x: midX, y: midY, z: z + 1 },
+                    rotation: { tiltX: 0, tiltY: 0, twistZ: THREE.MathUtils.radToDeg(angle) },
+                    scale: { x: dist, y: cellSize * 0.2, z: 0.5 },
+                    paletteSlot: 'accent',
+                    flags: {},
+                    role: 'connector'
+                });
             }
         }
     }
