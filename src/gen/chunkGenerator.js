@@ -70,26 +70,56 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
-function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
+    const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
     
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
-        const z = level * levelHeight;
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+        
+        // Центр яруса по Z
+        const zLevel = level * levelHeight;
+        // Смещение центра стены, чтобы она стояла на платформе
+        const zWall = zLevel + (levelHeight + platformThickness) / 2; 
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
+                // Проверяем наличие платформы под стеной
+                const hasFloor = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity;
+                
+                // Генерация стен (только если есть пол или мы хотим "висячие" стены)
+                const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
+                if (wallHash < wallDensity) {
+                    const x = bounds.min.x + (gx + 0.5) * cellSize;
+                    const y = bounds.min.y + (gy + 0.5) * cellSize;
+                    
+                    // Делаем стену плоской: растягиваем по X, сужаем по Y
                     primitives.push({
                         type: 'box',
-                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z },
+                        position: { x, y, z: zWall },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: platformThickness },
-                        paletteSlot: 'base',
+                        scale: { x: cellSize * 0.9, y: cellSize * 0.1, z: levelHeight },
+                        paletteSlot: 'baseDark',
+                        flags: {},
+                        role: 'frame'
+                    });
+                }
+                
+                // Колонны (остаются квадратными)
+                const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed);
+                if (pillarHash < pillarDensity) {
+                    const x = bounds.min.x + gx * cellSize;
+                    const y = bounds.min.y + gy * cellSize;
+                    
+                    primitives.push({
+                        type: 'cylinder',
+                        position: { x, y, z: zWall },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize * 0.15, y: cellSize * 0.15, z: levelHeight },
+                        paletteSlot: 'accent',
                         flags: {},
                         role: 'frame'
                     });
@@ -97,6 +127,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
     }
+    
     return primitives;
 }
 
