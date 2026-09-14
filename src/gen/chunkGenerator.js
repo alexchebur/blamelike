@@ -6,7 +6,7 @@
  */
 
 import { createRNG, hash3D } from '../core/rng.js';
-import { worldToChunk, chunkToBounds } from '../core/chunkKey.js';
+import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 
 /**
@@ -38,14 +38,6 @@ export function generateChunk(cx, cy, cz, seed, config) {
     
     // Границы чанка в мировых координатах
     const bounds = chunkToBounds(cx, cy, cz, config.chunkSize);
-    const minX = bounds.min.x;
-    const maxX = bounds.max.x;
-    const minY = bounds.min.y;
-    const maxY = bounds.max.y;
-    const minZ = bounds.min.z;
-    const maxZ = bounds.max.z;
-    
-    // Размер ячейки сетки внутри чанка
     const cellSize = config.chunkSize / config.gridSize;
     
     // Счетчик инстансов для бюджета
@@ -64,7 +56,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += rooms.length;
     }
     
-    // === ЭТАП C: Соединения (мосты, лестницы) ===
+    // === ЭТАП C: Соединения (с учетом EdgeAgreement) ===
     if (instanceCount < maxInstances) {
         const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...connections);
@@ -92,48 +84,38 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += decor.length;
     }
     
-    // === ЭТАП G: Микро-декор (только если включен и есть бюджет) ===
+    // === ЭТАП G: Микро-декор ===
     if (config.enableMicro && instanceCount < maxInstances) {
         const micro = generateMicro(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...micro);
         instanceCount += micro.length;
     }
     
-    console.log(`Chunk [${cx},${cy},${cz}] generated: ${primitives.length} primitives`);
-    
     return primitives;
 }
 
 /**
  * Этап A: Генерация платформ (ярусов)
- * @returns {PrimitiveRecord[]}
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, zMin, zMax, platformThickness } = config;
+    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
-    // Определяем диапазон ярусов для этого чанка
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
         const z = level * levelHeight;
         
-        // Проверяем, существует ли этот ярус (levelDensity через хеш)
-        const levelHash = hash3D(cx, cy, level, seed);
-        if (levelHash > config.roomDensity) continue; // Пропускаем редкие ярусы
-        
-        // Создаем платформу как тонкую плиту
-        // Разбиваем на ячейки для создания отверстий
-        const gridSize = config.gridSize;
+        // Проверка существования яруса
+        if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                // Решаем, есть ли платформа в этой ячейке
+                // Используем хеш ячейки для определения наличия пола
                 const cellHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 
-                if (cellHash < config.roomDensity) {
-                    // Есть платформа
+                if (cellHash < roomDensity) {
                     const x = bounds.min.x + (gx + 0.5) * cellSize;
                     const y = bounds.min.y + (gy + 0.5) * cellSize;
                     
@@ -156,29 +138,24 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 /**
  * Этап B: Генерация комнат и стен
- * @returns {PrimitiveRecord[]}
  */
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { wallDensity, pillarDensity, levelHeight, zMin, zMax } = config;
+    const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity } = config;
     
-    // Для каждого яруса создаем стены по периметру комнат
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
-        const z = level * levelHeight + levelHeight / 2; // Центр между ярусами
-        
-        // Стены по границам ячеек
-        const gridSize = config.gridSize;
+        if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+
+        const z = level * levelHeight + levelHeight / 2;
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                // Проверяем, нужна ли стена здесь
+                // Стены
                 const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
-                
                 if (wallHash < wallDensity) {
-                    // Вертикальная стена
                     const x = bounds.min.x + (gx + 0.5) * cellSize;
                     const y = bounds.min.y + (gy + 0.5) * cellSize;
                     
@@ -217,34 +194,32 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C: Генерация соединений (мосты, лестницы)
- * @returns {PrimitiveRecord[]}
+ * Этап C: Генерация соединений с использованием EdgeAgreement
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { bridgeChance, stairsChance, levelHeight } = config;
+    const { gridSize, levelHeight } = config;
     
-    // Мосты между соседними платформами на одном уровне
+    // Проверяем границы чанка для мостов
+    // Пример: правая граница по оси X
+    const rightBoundaryDecisions = edgeAgreement.getBoundaryDecisions(cx, cy, cz, 'x', 1, seed, config);
+    
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
         const z = level * levelHeight;
-        
-        // Проходим по сетке и ищем пары платформ
-        const gridSize = config.gridSize;
-        
+        if (hash3D(cx, cy, level, seed) > config.roomDensity) continue;
+
+        // Внутренние мосты (между ячейками внутри чанка)
         for (let gx = 0; gx < gridSize - 1; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                // Проверяем наличие платформ слева и справа
                 const leftHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 const rightHash = hash3D(cx * gridSize + gx + 1, cy * gridSize + gy, level, seed);
                 
                 if (leftHash < config.roomDensity && rightHash < config.roomDensity) {
-                    // Обе платформы есть, можем добавить мост
                     const bridgeHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy, level + 0.1, seed);
-                    
-                    if (bridgeHash < bridgeChance) {
+                    if (bridgeHash < config.bridgeChance) {
                         const x = bounds.min.x + (gx + 1) * cellSize;
                         const y = bounds.min.y + (gy + 0.5) * cellSize;
                         
@@ -261,31 +236,44 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 }
             }
         }
+
+        // Граничные мосты (используем EdgeAgreement)
+        for (let i = 0; i < gridSize; i++) {
+            const decision = rightBoundaryDecisions[i];
+            if (decision.hasPassage && decision.connectionType === 'bridge') {
+                const gy = i;
+                const x = bounds.max.x; // На самой границе
+                const y = bounds.min.y + (gy + 0.5) * cellSize;
+                
+                primitives.push({
+                    type: 'box',
+                    position: { x, y, z + 1 },
+                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                    scale: { x: cellSize * 0.3, y: cellSize * 0.8, z: 0.5 },
+                    paletteSlot: 'accent',
+                    flags: {},
+                    role: 'connector'
+                });
+            }
+        }
     }
     
     return primitives;
 }
 
 /**
- * Этап D: Монолиты (крупные структуры)
- * @returns {PrimitiveRecord[]}
+ * Этап D: Монолиты
  */
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
     
-    // Несколько попыток разместить монолит
-    const attempts = 3;
-    
-    for (let i = 0; i < attempts; i++) {
+    for (let i = 0; i < 3; i++) {
         const megaHash = hash3D(cx, cy, cz + i * 0.3, seed);
-        
         if (megaHash < megaBlockChance) {
-            // Размещаем монолит
             const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
             const y = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
             const z = bounds.min.z + (bounds.max.z - bounds.min.z) / 2;
-            
             const height = (megaBlockMinHeight + rng() * (megaBlockMaxHeight - megaBlockMinHeight)) * levelHeight;
             
             primitives.push({
@@ -299,29 +287,23 @@ function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
             });
         }
     }
-    
     return primitives;
 }
 
 /**
  * Этап E: Протыкающие фигуры
- * @returns {PrimitiveRecord[]}
  */
 function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt } = config;
     
-    // Количество протыкающих фигур
     const area = (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y);
     const count = Math.floor(area * scatterDensity / 1000);
     
     for (let i = 0; i < count; i++) {
         const pierceHash = hash3D(cx, cy, cz + i * 0.7, seed);
-        
         if (pierceHash < scatterDensity) {
-            // Выбираем тип фигуры
             const types = Object.entries(pierceWeights).map(([type, weight]) => ({ item: type, weight }));
-            // Упрощенный weightedRandom
             const totalWeight = types.reduce((sum, t) => sum + t.weight, 0);
             let random = rng() * totalWeight;
             let selectedType = 'cylinder';
@@ -337,7 +319,6 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
             const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
             const y = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
             const z = bounds.min.z + (bounds.max.z - bounds.min.z) / 2;
-            
             const height = pierceMinHeight + rng() * (pierceMaxHeight - pierceMinHeight);
             const tiltX = (rng() - 0.5) * 2 * pierceMaxTilt;
             const tiltY = (rng() - 0.5) * 2 * pierceMaxTilt;
@@ -353,19 +334,16 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
             });
         }
     }
-    
     return primitives;
 }
 
 /**
  * Этап F: Крупный декор
- * @returns {PrimitiveRecord[]}
  */
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { decorDensity } = config;
     
-    // Антенны
     const antennaCount = Math.floor((bounds.max.x - bounds.min.x) * decorDensity.antennas);
     for (let i = 0; i < antennaCount; i++) {
         const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
@@ -383,7 +361,6 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         });
     }
     
-    // Сферы
     const sphereCount = Math.floor((bounds.max.x - bounds.min.x) * decorDensity.spheres);
     for (let i = 0; i < sphereCount; i++) {
         const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
@@ -400,19 +377,15 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             role: 'decor'
         });
     }
-    
     return primitives;
 }
 
 /**
  * Этап G: Микро-декор
- * @returns {PrimitiveRecord[]}
  */
 function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { microDensity } = config;
-    
-    // Болты и мелкие детали
     const microCount = Math.floor((bounds.max.x - bounds.min.x) * microDensity * 10);
     
     for (let i = 0; i < microCount; i++) {
@@ -430,7 +403,6 @@ function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
             role: 'micro'
         });
     }
-    
     return primitives;
 }
 
