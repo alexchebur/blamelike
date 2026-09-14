@@ -300,18 +300,23 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     const area = (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y);
     const count = Math.floor(area * scatterDensity / 1000);
     
+    // Подготавливаем массив типов для выбора
+    const pierceTypes = Object.keys(pierceWeights);
+    const weights = Object.values(pierceWeights);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+
     for (let i = 0; i < count; i++) {
         const pierceHash = hash3D(cx, cy, cz + i * 0.7, seed);
+        
         if (pierceHash < scatterDensity) {
-            const types = Object.entries(pierceWeights).map(([type, weight]) => ({ item: type, weight }));
-            const totalWeight = types.reduce((sum, t) => sum + t.weight, 0);
+            // Безопасный взвешенный выбор
             let random = rng() * totalWeight;
             let selectedType = 'cylinder';
             
-            for (const t of types) {
-                random -= t.weight;
+            for (let t = 0; t < pierceTypes.length; t++) {
+                random -= weights[t];
                 if (random <= 0) {
-                    selectedType = t.item;
+                    selectedType = pierceTypes[t];
                     break;
                 }
             }
@@ -319,6 +324,7 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
             const x = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
             const y = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
             const z = bounds.min.z + (bounds.max.z - bounds.min.z) / 2;
+            
             const height = pierceMinHeight + rng() * (pierceMaxHeight - pierceMinHeight);
             const tiltX = (rng() - 0.5) * 2 * pierceMaxTilt;
             const tiltY = (rng() - 0.5) * 2 * pierceMaxTilt;
