@@ -285,6 +285,7 @@ class ChunkManager {
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
 
+            // --- Лестницы (процедурные ступени) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
@@ -302,8 +303,11 @@ class ChunkManager {
 
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
-                    // Смещаем каждую ступеньку вверх и "на себя" (по отрицательному Z)
-                    stepGeo.translate(0, i * stepH + stepH / 2, -i * stepD);
+                    // Смещаем ступеньку относительно центра лестницы
+                    const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    const zPos = (stepsCount * stepD) / 2 - (i * stepD) - (stepD / 2);
+                    
+                    stepGeo.translate(0, yPos, zPos);
                     geometries.push(stepGeo);
                 }
                 
