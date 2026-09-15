@@ -285,33 +285,20 @@ class ChunkManager {
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
 
-            // --- Лестницы (процедурные ступени) ---
+            // --- Рампы (вместо сложных лестниц) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                // Фиксированные параметры ступени
-                const stepH = 1.5; 
-                const stepD = 1.5;  
+                const totalHeight = levels * config.levelHeight;
+                // Длина рампы рассчитывается исходя из угла 45 градусов (длина = высоте)
+                // Или можно сделать более пологой, умножив на коэффициент
+                const rampLength = totalHeight; 
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
                 
-                const totalHeight = levels * config.levelHeight;
-                const stepsCount = Math.floor(totalHeight / stepH);
-                
-                const geometries = [];
-
-                for (let i = 0; i < stepsCount; i++) {
-                    const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
-                    // Смещаем ступеньку относительно центра лестницы
-                    const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
-                    const zPos = (stepsCount * stepD) / 2 - (i * stepD) - (stepD / 2);
-                    
-                    stepGeo.translate(0, yPos, zPos);
-                    geometries.push(stepGeo);
-                }
-                
-                return mergeGeometries(geometries);
+                // Создаем тонкую плиту
+                return new THREE.BoxGeometry(width, 0.5, rampLength);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
