@@ -519,9 +519,9 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 type: `stair_${targetLevels}`,
                                 position: { x: centerX, y: centerY, z: centerZ },
                                 rotation: { 
-                                    tiltX: -Math.atan2(dz, Math.sqrt(dx*dx + dy*dy)) * (180 / Math.PI), // Наклон вверх
+                                    tiltX: 0, // УБИРАЕМ НАКЛОН! Геометрия сама поднимается.
                                     tiltY: 0, 
-                                    twistZ: rotZ // Поворот в плане
+                                    twistZ: rotZ 
                                 },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
