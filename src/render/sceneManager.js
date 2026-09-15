@@ -28,6 +28,10 @@ class SceneManager {
         
         // Туман
         this.fog = null;
+
+        // === ВИЗУАЛИЗАЦИЯ ОСЕЙ ДЛЯ ОТЛАДКИ ===
+        this.axisHelper = null;
+        // =====================================
         
         this.init();
     }
@@ -50,7 +54,6 @@ class SceneManager {
             0.1,
             2000 // Дальность отсечения
         );
-        this.camera.position.set(0, 50, 100);
         
         // 4. Создаем рендерер
         this.renderer = new THREE.WebGLRenderer({ 
@@ -65,18 +68,27 @@ class SceneManager {
         this.container.appendChild(this.renderer.domElement);
         
         // 5. Добавляем управление камерой (OrbitControls)
-        // ... после создания controls
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.maxDistance = 500;
         this.controls.minDistance = 10;
         
-        // === ДОБАВИТЬ ЭТОТ БЛОК ===
-        this.controls.target.set(0, 0, 0); // Камера будет вращаться вокруг этой точки
-        this.camera.position.set(0, 100, 0); // Поднимаем камеру высоко вверх
-        this.controls.update(); // Применяем изменения сразу
-        // ========================
+        // === НАЧАЛЬНАЯ ОРИЕНТАЦИЯ КАМЕРЫ (СТРОГО СВЕРХУ) ===
+        this.controls.target.set(0, 0, 0); 
+        this.camera.position.set(0, 150, 0); 
+        this.controls.update(); 
+        // ==============================================
+        
+        // === СОЗДАНИЕ МАНIFESTA ОСЕЙ ===
+        // Длина осей 30 единиц. Красный=X, Зеленый=Y, Синий=Z
+        this.axisHelper = new THREE.AxesHelper(30);
+        // Делаем линии чуть толще через материал (работает в новых версиях Three.js)
+        if (this.axisHelper.material) {
+            this.axisHelper.material.linewidth = 2; 
+        }
+        this.scene.add(this.axisHelper);
+        // ================================
         
         // 6. Настраиваем освещение
         this.setupLighting();
@@ -163,9 +175,31 @@ class SceneManager {
     
     /**
      * Рендеринг текущего кадра
+     * Вызывается каждый кадр в главном цикле приложения
      */
     render() {
         this.controls.update();
+
+        // === ОБНОВЛЕНИЕ ПОЗИЦИИ ОСЕЙ ПЕРЕД КАМЕРОЙ ===
+        if (this.axisHelper && this.camera) {
+            // Получаем направление взгляда камеры
+            const direction = new THREE.Vector3();
+            this.camera.getWorldDirection(direction);
+            
+            // Ставим оси на расстоянии 60 единиц перед камерой
+            // Это гарантирует, что они всегда видны, но не перекрывают ближний план
+            const axisPos = new THREE.Vector3()
+                .copy(this.camera.position)
+                .add(direction.multiplyScalar(60)); 
+                
+            this.axisHelper.position.copy(axisPos);
+            
+            // ВАЖНО: Мы НЕ копируем кватернион камеры. 
+            // Оси должны сохранять мировую ориентацию (Y всегда вверх), 
+            // чтобы служить надежным компасом при калибровке лестниц.
+        }
+        // ==============================================
+
         this.renderer.render(this.scene, this.camera);
     }
 }
