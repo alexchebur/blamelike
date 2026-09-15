@@ -55,8 +55,8 @@ class ControlPanel {
         connFolder.add(this.config, 'stairsChance', 0, 1, 0.05).name('Stairs Chance');
         connFolder.add(this.config, 'stairWidthRatio', 0.05, 0.3, 0.01).name('Stair Width');
 
-        // === 🔍 ОТЛАДКА ЛЕСТНИЦ (Новая секция) ===
-        const debugStairsFolder = connFolder.addFolder('🔍 Stair Debug');
+        // === 🔍 ОТЛАДКА ЛЕСТНИЦ (Новая секция для диагностики) ===
+        const debugStairsFolder = connFolder.addFolder(' Stair Debug');
         
         // Визуальные маркеры точек привязки
         debugStairsFolder.add(this.config, 'showStairStarts').name('Show Start Points (Green)')
@@ -77,7 +77,7 @@ class ControlPanel {
         debugStairsFolder.open();
         // ==============================================
 
-        // ===  ТЮНИНГ УГЛОВ (Старая секция, оставлена для финальной подгонки) ===
+        // === 🔧 ТЮНИНГ УГЛОВ (Оставлена для финальной подгонки) ===
         const tuningStairsFolder = connFolder.addFolder('🔧 Stair Tuning');
         tuningStairsFolder.add(this.config, 'stairTwistOffset', -180, 180, 1).name('Twist Z Offset');
         tuningStairsFolder.add(this.config, 'stairTiltOffset', -90, 90, 1).name('Tilt X Offset');
