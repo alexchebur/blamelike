@@ -26,9 +26,6 @@ class ControlPanel {
         this.init();
     }
     
-    /**
-     * Инициализация панели управления
-     */
     init() {
         this.gui = new GUI({ title: 'Blame! Generator' });
         
@@ -58,11 +55,32 @@ class ControlPanel {
         connFolder.add(this.config, 'stairsChance', 0, 1, 0.05).name('Stairs Chance');
         connFolder.add(this.config, 'stairWidthRatio', 0.05, 0.3, 0.01).name('Stair Width');
 
-        // === ОТЛАДКА ЛЕСТНИЦ (корректная привязка к config) ===
-        const debugStairsFolder = connFolder.addFolder('🔧 Stair Tuning');
-        debugStairsFolder.add(this.config, 'stairTwistOffset', -180, 180, 1).name('Twist Z Offset');
-        debugStairsFolder.add(this.config, 'stairTiltOffset', -90, 90, 1).name('Tilt X Offset');
+        // === 🔍 ОТЛАДКА ЛЕСТНИЦ (Новая секция) ===
+        const debugStairsFolder = connFolder.addFolder('🔍 Stair Debug');
+        
+        // Визуальные маркеры точек привязки
+        debugStairsFolder.add(this.config, 'showStairStarts').name('Show Start Points (Green)')
+            .onChange(() => this.onRegenerate());
+        debugStairsFolder.add(this.config, 'showStairEnds').name('Show End Points (Blue)')
+            .onChange(() => this.onRegenerate());
+        debugStairsFolder.add(this.config, 'showStairCenters').name('Show Mesh Centers (Yellow)')
+            .onChange(() => this.onRegenerate());
+            
+        // Геометрические коррекции (вместо ручной настройки углов)
+        debugStairsFolder.add(this.config, 'stairPivotOffsetX', -2, 2, 0.1).name('Pivot Offset X')
+            .onChange(() => this.onRegenerate());
+        debugStairsFolder.add(this.config, 'stairPivotOffsetY', -2, 2, 0.1).name('Pivot Offset Y')
+            .onChange(() => this.onRegenerate());
+        debugStairsFolder.add(this.config, 'stairLengthScale', 0.5, 1.5, 0.05).name('Length Scale')
+            .onChange(() => this.onRegenerate());
+            
         debugStairsFolder.open();
+        // ==============================================
+
+        // ===  ТЮНИНГ УГЛОВ (Старая секция, оставлена для финальной подгонки) ===
+        const tuningStairsFolder = connFolder.addFolder('🔧 Stair Tuning');
+        tuningStairsFolder.add(this.config, 'stairTwistOffset', -180, 180, 1).name('Twist Z Offset');
+        tuningStairsFolder.add(this.config, 'stairTiltOffset', -90, 90, 1).name('Tilt X Offset');
         // ==============================================        
         
         // Веса высот лестниц
@@ -112,7 +130,7 @@ class ControlPanel {
         // --- Actions ---
         const actionsFolder = this.gui.addFolder('Actions');
         actionsFolder.add({ regenerate: () => this.onRegenerate() }, 'regenerate').name('🎲 Regenerate');
-        actionsFolder.add({ newSeed: () => this.onNewSeed() }, 'newSeed').name('🎲 New Seed');
+        actionsFolder.add({ newSeed: () => this.onNewSeed() }, 'newSeed').name(' New Seed');
         
         // Открываем основные папки для удобства
         worldFolder.open();
