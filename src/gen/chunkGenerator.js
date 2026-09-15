@@ -346,7 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация лестниц
+ * Этап C.1: Генерация рамп (соединение уровней)
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -356,12 +356,9 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
-    
-    // Параметры шага (должны совпадать с chunkManager)
-    const stepH = 1.5;
-    const stepD = 1.5;
 
     for (let level = startLevel; level < endLevel; level++) {
+        // Определяем высоту рампы
         const heightRoll = rng();
         let targetLevels = 1;
         const w1 = stairHeights.oneLevel || 0.6;
@@ -412,19 +409,19 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             const startZ = level * levelHeight;
 
                             const totalHeight = targetLevel * levelHeight - startZ;
-                            const stepsCount = Math.floor(totalHeight / stepH);
-                            const totalDepth = stepsCount * stepD;
+                            const rampLength = totalHeight; // При угле 45 градусов длина равна высоте
 
-                            // Центр лестницы (середина пути)
-                            const centerX = startX + (Math.cos(dir.rot * Math.PI / 180) * totalDepth) / 2;
-                            const centerY = startY + (Math.sin(dir.rot * Math.PI / 180) * totalDepth) / 2;
+                            // Центр рампы (середина пути)
+                            // Смещаем центр на половину длины в направлении подъема
+                            const centerX = startX + (dir.dx * rampLength) / 2;
+                            const centerY = startY + (dir.dy * rampLength) / 2;
                             const centerZ = startZ + totalHeight / 2;
 
                             primitives.push({
                                 type: `stair_${targetLevels}`,
                                 position: { x: centerX, y: centerY, z: centerZ },
                                 rotation: { 
-                                    tiltX: -45, // Фиксированный угол
+                                    tiltX: -45, // Фиксированный угол 45 градусов
                                     tiltY: 0, 
                                     twistZ: dir.rot 
                                 },
