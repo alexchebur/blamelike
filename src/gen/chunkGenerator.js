@@ -356,25 +356,26 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
  * Этап C.1: Генерация лестниц (с фиксированными высотами 1, 2, 3 уровня)
  * Лестницы ставятся у края платформы и ведут к платформе уровнем выше.
  */
+/**
+ * Этап C.1: Генерация лестниц (с фиксированными высотами 1, 2, 3 уровня)
+ */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights } = config;
     
-    // Защита от отсутствия настроек лестниц
     if (!stairHeights) return primitives;
-
-    // Параметры геометрии лестницы (должны совпадать с chunkManager.js)
-    const stepH = 1.5;
-    const stepD = 1.5;
 
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
+    // Параметры шага (должны совпадать с chunkManager)
+    const stepH = 1.5;
+    const stepD = 1.5;
+
     for (let level = startLevel; level < endLevel; level++) {
-        // Определяем целевую высоту (1, 2 или 3 уровня вверх)
+        // Определяем высоту лестницы
         const heightRoll = rng();
         let targetLevels = 1;
-        
         const w1 = stairHeights.oneLevel || 0.6;
         const w2 = stairHeights.twoLevels || 0.3;
         
@@ -384,93 +385,89 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         const targetLevel = level + targetLevels;
         if (targetLevel > endLevel) continue;
 
-        // Проходим по сетке и ищем края платформ
+        // Проходим по сетке в поисках краев
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                // Есть ли платформа снизу?
-                const hasBottom = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity;
-                if (!hasBottom) continue;
+                // 1. Есть ли платформа снизу?
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
                 
-                // Есть ли платформа сверху (целевая)?
-                const hasTop = hash3D(cx * gridSize + gx, cy * gridSize + gy, targetLevel, seed) < roomDensity;
-                
-                // Проверяем наличие препятствий на промежуточных уровнях
-                let hasObstacles = false;
+                // 2. Есть ли платформа сверху?
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, targetLevel, seed) >= roomDensity) continue;
+
+                // 3. Нет ли препятствий посередине?
+                let hasObstacle = false;
                 for (let l = level + 1; l < targetLevel; l++) {
                     if (hash3D(cx * gridSize + gx, cy * gridSize + gy, l, seed) < roomDensity) {
-                        hasObstacles = true;
-                        break;
+                        hasObstacle = true; break;
                     }
                 }
-                
-                // Если есть препятствие или нет целевой платформы, пропускаем
-                if (hasObstacles || !hasTop) continue;
+                if (hasObstacle) continue;
 
-                // Ищем свободное место рядом для лестницы (край платформы)
-                // Проверяем 4 направления: +X, -X, +Y, -Y
-                const directions = [
-                    { dx: 1, dy: 0, rot: 90 },   // Вправо
+                // 4. Ищем направление для лестницы (край платформы)
+                // Мы хотим, чтобы лестница шла ОТ текущей клетки к соседней
+                const dirs = [
+                    { dx: 1, dy: 0, rot: 90 },  // Вправо
                     { dx: -1, dy: 0, rot: -90 }, // Влево
                     { dx: 0, dy: 1, rot: 0 },    // Вперед
                     { dx: 0, dy: -1, rot: 180 }  // Назад
                 ];
 
-                for (const dir of directions) {
+                for (const dir of dirs) {
                     const nx = gx + dir.dx;
                     const ny = gy + dir.dy;
-                    
-                    // Проверяем границы чанка
+
+                    // Проверка границ чанка
                     if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
+
+                    // Проверяем, есть ли там платформа на ВЕРХНЕМ уровне (куда ведем лестницу)
+                    // Или хотя бы пустота, чтобы лестница не упиралась в стену
+                    const topNeighborHash = hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed);
                     
-                    // Проверяем, что соседняя клетка пуста (это край платформы)
-                    const neighborHash = hash3D(cx * gridSize + nx, cy * gridSize + ny, level, seed);
+                    // Если сверху в направлении лестницы есть платформа — отлично, можно вести на неё
+                    // Если там нет платформы, лестница будет висеть в воздухе (но это лучше, чем в стене)
                     
-                    if (neighborHash >= roomDensity) {
-                        // Нашли край! Проверяем шанс генерации
-                        if (rng() < stairsChance) {
-                            // Координаты старта (на краю нижней платформы)
-                            const startX = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
-                            const startY = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
-                            const startZ = level * levelHeight;
-                            
-                            // Координаты финиша (на краю верхней платформы)
-                            // Лестница ведет в ту же сторону, что и край
-                            const endX = startX + dir.dx * cellSize; 
-                            const endY = startY + dir.dy * cellSize;
-                            const endZ = targetLevel * levelHeight;
+                    if (rng() < stairsChance) {
+                        // Координаты старта (на краю нижней платформы)
+                        // Сдвигаем на 0.5 клетки к краю
+                        const startX = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
+                        const startY = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
+                        const startZ = level * levelHeight; // Пол нижней платформы
 
-                            // Расчет параметров лестницы
-                            const totalHeight = endZ - startZ;
-                            const stepsCount = Math.floor(totalHeight / stepH);
-                            const totalDepth = stepsCount * stepD;
-                            
-                            // Угол наклона
-                            const angleRad = Math.atan2(totalHeight, totalDepth);
-                            const angleDeg = angleRad * (180 / Math.PI);
+                        // Расчет длины и позиции
+                        const totalHeight = targetLevel * levelHeight - startZ;
+                        const stepsCount = Math.floor(totalHeight / stepH);
+                        const totalDepth = stepsCount * stepD;
 
-                            // Позиция центра лестницы (середина пути)
-                            // Смещаем центр на половину длины и половины высоты от старта
-                            const centerX = startX + (Math.cos(angleRad) * totalDepth / 2) * (dir.dx !== 0 ? Math.sign(dir.dx) : 0);
-                            const centerY = startY + (Math.cos(angleRad) * totalDepth / 2) * (dir.dy !== 0 ? Math.sign(dir.dy) : 0);
-                            const centerZ = startZ + totalHeight / 2;
+                        // Центр лестницы (геометрический)
+                        // Геометрия растет от 0 вверх и назад по Z. 
+                        // Нам нужно сместить её так, чтобы низ был в (startX, startY, startZ)
+                        
+                        // Позиция центра по Z (высота)
+                        const centerZ = startZ + totalHeight / 2;
+                        
+                        // Позиция центра по XY (смещение на половину длины в сторону направления)
+                        // Так как геометрия идет по -Z, а мы поворачиваем её twistZ, то смещение будет зависеть от угла
+                        const offsetX = (Math.cos(dir.rot * Math.PI / 180) * totalDepth) / 2;
+                        const offsetY = (Math.sin(dir.rot * Math.PI / 180) * totalDepth) / 2;
 
-                            primitives.push({
-                                type: `stair_${targetLevels}`,
-                                position: { x: centerX, y: centerY, z: centerZ },
-                                rotation: { 
-                                    tiltX: -angleDeg, // Наклон вверх
-                                    tiltY: 0, 
-                                    twistZ: dir.rot   // Разворот вокруг вертикальной оси
-                                },
-                                scale: { x: 1, y: 1, z: 1 },
-                                paletteSlot: 'baseLight',
-                                flags: {},
-                                role: 'connector'
-                            });
-                            
-                            // Ставим только одну лестницу на ячейку, выходим из цикла направлений
-                            break; 
-                        }
+                        const centerX = startX + offsetX;
+                        const centerY = startY + offsetY;
+
+                        primitives.push({
+                            type: `stair_${targetLevels}`,
+                            position: { x: centerX, y: centerY, z: centerZ },
+                            rotation: { 
+                                tiltX: -45, // Фиксированный угол 45 градусов (так как stepH == stepD)
+                                tiltY: 0, 
+                                twistZ: dir.rot 
+                            },
+                            scale: { x: 1, y: 1, z: 1 },
+                            paletteSlot: 'baseLight',
+                            flags: {},
+                            role: 'connector'
+                        });
+                        
+                        break; // Одна лестница на ячейку
                     }
                 }
             }
