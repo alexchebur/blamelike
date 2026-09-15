@@ -303,13 +303,12 @@ class ChunkManager {
 
 
 
-            // --- Лестницы (горизонтальные ступени по диагонали) ---
+            // --- Лестницы (горизонтальные ступени, выровненные по оси X) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                // Параметры ступени
                 const stepH = 1.5; 
                 const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
@@ -322,19 +321,19 @@ class ChunkManager {
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
                     
-                    // Смещаем каждую ступеньку относительно центра лестницы
+                    // Теперь строим лестницу вдоль оси X!
+                    // X: от -totalLength/2 до +totalLength/2
                     // Y: от -totalHeight/2 до +totalHeight/2
-                    // Z: от -totalDepth/2 до +totalDepth/2 (лестница идет "вперед" по минус Z)
+                    const totalLength = stepsCount * stepD;
+                    const xPos = -totalLength / 2 + (i * stepD) + (stepD / 2);
                     const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
-                    const zPos = (stepsCount * stepD) / 2 - (i * stepD) - (stepD / 2);
                     
-                    stepGeo.translate(0, yPos, zPos);
+                    stepGeo.translate(xPos, yPos, 0); // Z теперь равен 0
                     geometries.push(stepGeo);
                 }
                 
-                // Объединяем в одну геометрию. 
-                // Центр этой геометрии теперь совпадает с центром bounding box лестницы.
-                return mergeGeometries(geometries);
+                const mergedGeo = mergeGeometries(geometries);
+                return mergedGeo;
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
