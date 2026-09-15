@@ -346,8 +346,8 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация диагональных связей (для реалистичных рамп)
- * Ищет платформы-цели через 1-2 клетки, чтобы создать наклон
+ * Этап C.1: Генерация длинных диагональных связей (радиус 2-3 клетки)
+ * С проверкой на отсутствие препятствий на пути
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -388,16 +388,16 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     const startY = bounds.min.y + (gy + corner.y) * cellSize;
                     const startZ = level * levelHeight + platformThickness / 2;
 
-                    // Ищем платформу-цель в радиусе 2 клеток (включая диагонали)
+                    // Ищем платформу-цель в радиусе 2-3 клеток
                     let bestEnd = null;
                     let minDist = Infinity;
 
-                    // Диапазон от -2 до 2 по обеим осям
-                    for (let dx = -2; dx <= 2; dx++) {
-                        for (let dy = -2; dy <= 2; dy++) {
-                            // Пропускаем саму клетку и слишком близкие соседи (радиус 1 уже был вертикальным)
+                    // Диапазон от -3 до 3 по обеим осям
+                    for (let dx = -3; dx <= 3; dx++) {
+                        for (let dy = -3; dy <= 3; dy++) {
+                            // Фильтр: только расстояние 2 или 3 клетки (чебышевское расстояние)
                             const distGrid = Math.max(Math.abs(dx), Math.abs(dy));
-                            if (distGrid < 2) continue; 
+                            if (distGrid < 2 || distGrid > 3) continue; 
                             
                             const nx = gx + dx;
                             const ny = gy + dy;
@@ -421,30 +421,56 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     
                                     if (dist < minDist) {
                                         minDist = dist;
-                                        bestEnd = { x: endX, y: endY };
+                                        bestEnd = { x: endX, y: endY, dx, dy }; // Сохраняем смещение для проверки пути
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Если нашли цель и прошли проверку шанса
-                    if (bestEnd && rng() < stairsChance) {
-                        primitives.push({
-                            type: 'line',
-                            position: { x: startX, y: startY, z: startZ },
-                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            scale: { 
-                                x: bestEnd.x, 
-                                y: bestEnd.y, 
-                                z: targetLevel * levelHeight + platformThickness / 2 
-                            },
-                            paletteSlot: 'glow',
-                            flags: {},
-                            role: 'connector'
-                        });
+                    // Если нашли цель, проверяем путь на препятствия
+                    if (bestEnd) {
+                        let hasObstacle = false;
                         
-                        break; // Одно соединение на угол
+                        // Проверка всех клеток на прямой линии между источником и целью
+                        // Используем алгоритм Брезенхема или простую интерполяцию
+                        const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
+                        for (let s = 1; s < steps; s++) {
+                            const t = s / steps;
+                            const checkX = Math.round(gx + bestEnd.dx * t);
+                            const checkY = Math.round(gy + bestEnd.dy * t);
+                            
+                            // Проверяем все уровни между источником и целью
+                            for (let l = level; l <= targetLevel; l++) {
+                                if (l === level && (checkX === gx && checkY === gy)) continue; // Пропускаем сам источник
+                                if (l === targetLevel && (checkX === gx + bestEnd.dx && checkY === gy + bestEnd.dy)) continue; // Пропускаем саму цель
+                                
+                                if (hash3D(cx * gridSize + checkX, cy * gridSize + checkY, l, seed) < roomDensity) {
+                                    hasObstacle = true;
+                                    break;
+                                }
+                            }
+                            if (hasObstacle) break;
+                        }
+
+                        // Если путь чист и прошли проверку шанса
+                        if (!hasObstacle && rng() < stairsChance) {
+                            primitives.push({
+                                type: 'line',
+                                position: { x: startX, y: startY, z: startZ },
+                                rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                scale: { 
+                                    x: bestEnd.x, 
+                                    y: bestEnd.y, 
+                                    z: targetLevel * levelHeight + platformThickness / 2 
+                                },
+                                paletteSlot: 'glow',
+                                flags: {},
+                                role: 'connector'
+                            });
+                            
+                            break; // Одно соединение на угол
+                        }
                     }
                 }
             }
