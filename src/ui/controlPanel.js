@@ -49,7 +49,42 @@ class ControlPanel {
         layoutFolder.add(this.config, 'wallDensity', 0, 1, 0.05).name('Wall Density');
         layoutFolder.add(this.config, 'pillarDensity', 0, 1, 0.05).name('Pillar Density');
         layoutFolder.add(this.config, 'platformThickness', 1, 5, 0.5).name('Platform Thick');
+        layoutFolder.add(this.config, 'minRoomSize', 1, 5, 1).name('Min Room Size');
+        layoutFolder.add(this.config, 'maxRoomSize', 2, 10, 1).name('Max Room Size');
         
+        // --- Connections (Мосты и Лестницы) ---
+        const connFolder = this.gui.addFolder('Connections');
+        connFolder.add(this.config, 'bridgeChance', 0, 1, 0.05).name('Bridge Chance');
+        connFolder.add(this.config, 'stairsChance', 0, 1, 0.05).name('Stairs Chance');
+        connFolder.add(this.config, 'stairWidthRatio', 0.05, 0.3, 0.01).name('Stair Width');
+        
+        // Веса высот лестниц
+        const stairHeightsFolder = connFolder.addFolder('Stair Heights');
+        stairHeightsFolder.add(this.config.stairHeights, 'oneLevel', 0, 1, 0.1).name('1 Level');
+        stairHeightsFolder.add(this.config.stairHeights, 'twoLevels', 0, 1, 0.1).name('2 Levels');
+        stairHeightsFolder.add(this.config.stairHeights, 'threeLevels', 0, 1, 0.1).name('3 Levels');
+        
+        // --- MegaStructures ---
+        const megaFolder = this.gui.addFolder('MegaStructures');
+        megaFolder.add(this.config, 'megaBlockChance', 0, 1, 0.05).name('Mega Chance');
+        megaFolder.add(this.config, 'megaBlockMinHeight', 1, 10, 1).name('Min Height (lvl)');
+        megaFolder.add(this.config, 'megaBlockMaxHeight', 5, 20, 1).name('Max Height (lvl)');
+
+        // --- Pierce (Протыкающие фигуры) ---
+        const pierceFolder = this.gui.addFolder('Pierce');
+        pierceFolder.add(this.config, 'scatterDensity', 0, 1, 0.05).name('Scatter Density');
+        pierceFolder.add(this.config, 'pierceMinHeight', 10, 50, 5).name('Min Height');
+        pierceFolder.add(this.config, 'pierceMaxHeight', 50, 150, 10).name('Max Height');
+        pierceFolder.add(this.config, 'pierceMaxTilt', 0, 45, 5).name('Max Tilt (deg)');
+
+        // --- Decor ---
+        const decorFolder = this.gui.addFolder('Decor');
+        decorFolder.add(this.config.decorDensity, 'antennas', 0, 0.2, 0.01).name('Antennas');
+        decorFolder.add(this.config.decorDensity, 'spheres', 0, 0.2, 0.01).name('Spheres');
+        decorFolder.add(this.config, 'glowChance', 0, 1, 0.1).name('Glow Chance');
+        decorFolder.add(this.config, 'microDensity', 0, 1, 0.1).name('Micro Density');
+        decorFolder.add(this.config, 'enableMicro').name('Enable Micro');
+
         // --- Look ---
         const lookFolder = this.gui.addFolder('Look');
         lookFolder.add(this.config, 'palette', getPaletteNames()).name('Palette')
@@ -72,8 +107,9 @@ class ControlPanel {
         actionsFolder.add({ regenerate: () => this.onRegenerate() }, 'regenerate').name('🎲 Regenerate');
         actionsFolder.add({ newSeed: () => this.onNewSeed() }, 'newSeed').name('🎲 New Seed');
         
-        // Открываем основные папки
+        // Открываем основные папки для удобства
         worldFolder.open();
+        connFolder.open();
         lookFolder.open();
     }
     
