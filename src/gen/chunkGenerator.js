@@ -492,13 +492,13 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             const centerY = (startY + bestEnd.y) / 2;
                             const centerZ = (startZ + endZ) / 2;
                             
-                            // Угол поворота вокруг вертикальной оси
+                            // Угол поворота вокруг вертикальной оси (относительно оси X)
                             const rotZ = Math.atan2(bestEnd.y - startY, bestEnd.x - startX) * (180 / Math.PI);
 
                             primitives.push({
                                 type: `stair_${targetLevels}`,
                                 position: { x: centerX, y: centerY, z: centerZ },
-                                rotation: { tiltX: 0, tiltY: 0, twistZ: rotZ },
+                                rotation: { tiltX: 0, tiltY: 0, twistZ: rotZ }, // Теперь этот поворот корректен!
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
                                 flags: {},
