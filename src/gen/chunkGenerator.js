@@ -352,12 +352,20 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
  * Этап C.1: Генерация лестниц (с фиксированными высотами 1, 2, 3 уровня)
  * Лестницы ставятся у края платформы и ведут к платформе уровнем выше.
  */
+/**
+ * Этап C.1: Генерация лестниц (с фиксированными высотами 1, 2, 3 уровня)
+ * Лестницы ставятся у края платформы и ведут к платформе уровнем выше.
+ */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, stairWidthRatio } = config;
+    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights } = config;
     
     // Защита от отсутствия настроек лестниц
     if (!stairHeights) return primitives;
+
+    // Параметры геометрии лестницы (должны совпадать с chunkManager.js)
+    const stepH = 1.5;
+    const stepD = 1.5;
 
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
@@ -401,10 +409,10 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 // Ищем свободное место рядом для лестницы (край платформы)
                 // Проверяем 4 направления: +X, -X, +Y, -Y
                 const directions = [
-                    { dx: 1, dy: 0, rot: 90 },
-                    { dx: -1, dy: 0, rot: -90 },
-                    { dx: 0, dy: 1, rot: 0 },
-                    { dx: 0, dy: -1, rot: 180 }
+                    { dx: 1, dy: 0, rot: 90 },   // Вправо
+                    { dx: -1, dy: 0, rot: -90 }, // Влево
+                    { dx: 0, dy: 1, rot: 0 },    // Вперед
+                    { dx: 0, dy: -1, rot: 180 }  // Назад
                 ];
 
                 for (const dir of directions) {
@@ -414,26 +422,46 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     // Проверяем границы чанка
                     if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
                     
-                    // Проверяем, что соседняя клетка пуста (это край) или там тоже есть платформа (тогда лестница будет между ними)
-                    // Для простоты ставим лестницу, если соседняя клетка пуста на текущем уровне
+                    // Проверяем, что соседняя клетка пуста (это край платформы)
                     const neighborHash = hash3D(cx * gridSize + nx, cy * gridSize + ny, level, seed);
                     
                     if (neighborHash >= roomDensity) {
                         // Нашли край! Проверяем шанс генерации
                         if (rng() < stairsChance) {
-                            // Координаты центра края
-                            const x = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
-                            const y = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
+                            // Координаты старта (на краю нижней платформы)
+                            const startX = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
+                            const startY = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
+                            const startZ = level * levelHeight;
                             
-                            // Высота установки: середина между уровнями
-                            const zStart = level * levelHeight;
-                            const zEnd = targetLevel * levelHeight;
-                            const zCenter = (zStart + zEnd) / 2;
+                            // Координаты финиша (на краю верхней платформы)
+                            // Лестница ведет в ту же сторону, что и край
+                            const endX = startX + dir.dx * cellSize; 
+                            const endY = startY + dir.dy * cellSize;
+                            const endZ = targetLevel * levelHeight;
+
+                            // Расчет параметров лестницы
+                            const totalHeight = endZ - startZ;
+                            const stepsCount = Math.floor(totalHeight / stepH);
+                            const totalDepth = stepsCount * stepD;
                             
+                            // Угол наклона
+                            const angleRad = Math.atan2(totalHeight, totalDepth);
+                            const angleDeg = angleRad * (180 / Math.PI);
+
+                            // Позиция центра лестницы (середина пути)
+                            // Смещаем центр на половину длины и половины высоты от старта
+                            const centerX = startX + (Math.cos(angleRad) * totalDepth / 2) * (dir.dx !== 0 ? Math.sign(dir.dx) : 0);
+                            const centerY = startY + (Math.cos(angleRad) * totalDepth / 2) * (dir.dy !== 0 ? Math.sign(dir.dy) : 0);
+                            const centerZ = startZ + totalHeight / 2;
+
                             primitives.push({
                                 type: `stair_${targetLevels}`,
-                                position: { x, y, z: zCenter },
-                                rotation: { tiltX: 0, tiltY: 0, twistZ: dir.rot },
+                                position: { x: centerX, y: centerY, z: centerZ },
+                                rotation: { 
+                                    tiltX: -angleDeg, // Наклон вверх
+                                    tiltY: 0, 
+                                    twistZ: dir.rot   // Разворот вокруг вертикальной оси
+                                },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
                                 flags: {},
