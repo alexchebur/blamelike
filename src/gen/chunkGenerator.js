@@ -346,11 +346,12 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация линий связей (от угла к углу)
+ * Этап C.1: Генерация диагональных связей (для реалистичных рамп)
+ * Ищет платформы-цели через 1-2 клетки, чтобы создать наклон
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights } = config;
+    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, platformThickness } = config;
     
     if (!stairHeights) return primitives;
 
@@ -375,24 +376,28 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const targetLevel = level + targetLevels;
                 if (targetLevel > endLevel) continue;
 
-                // Координаты углов текущей клетки (платформы-источника)
+                // Координаты 4 углов текущей клетки
                 const corners = [
-                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }
+                    { x: 0, y: 0 }, { x: 1, y: 0 }, 
+                    { x: 0, y: 1 }, { x: 1, y: 1 }
                 ];
 
                 for (const corner of corners) {
-                    // Мировые координаты угла источника
+                    // Мировые координаты ВЕРХНЕГО внешнего угла источника
                     const startX = bounds.min.x + (gx + corner.x) * cellSize;
                     const startY = bounds.min.y + (gy + corner.y) * cellSize;
-                    const startZ = level * levelHeight;
+                    const startZ = level * levelHeight + platformThickness / 2;
 
-                    // Ищем ближайшую платформу-цель на уровне выше в радиусе 1-2 клеток
+                    // Ищем платформу-цель в радиусе 2 клеток (включая диагонали)
                     let bestEnd = null;
                     let minDist = Infinity;
 
-                    for (let dx = -1; dx <= 1; dx++) {
-                        for (let dy = -1; dy <= 1; dy++) {
-                            if (dx === 0 && dy === 0) continue;
+                    // Диапазон от -2 до 2 по обеим осям
+                    for (let dx = -2; dx <= 2; dx++) {
+                        for (let dy = -2; dy <= 2; dy++) {
+                            // Пропускаем саму клетку и слишком близкие соседи (радиус 1 уже был вертикальным)
+                            const distGrid = Math.max(Math.abs(dx), Math.abs(dy));
+                            if (distGrid < 2) continue; 
                             
                             const nx = gx + dx;
                             const ny = gy + dy;
@@ -403,13 +408,15 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
                                 // Находим ближайший угол целевой платформы
                                 const targetCorners = [
-                                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }
+                                    { x: 0, y: 0 }, { x: 1, y: 0 }, 
+                                    { x: 0, y: 1 }, { x: 1, y: 1 }
                                 ];
                                 
                                 for (const tCorner of targetCorners) {
                                     const endX = bounds.min.x + (nx + tCorner.x) * cellSize;
                                     const endY = bounds.min.y + (ny + tCorner.y) * cellSize;
                                     
+                                    // Евклидово расстояние в плоскости XY
                                     const dist = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
                                     
                                     if (dist < minDist) {
@@ -427,7 +434,11 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             type: 'line',
                             position: { x: startX, y: startY, z: startZ },
                             rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            scale: { x: bestEnd.x, y: bestEnd.y, z: targetLevel * levelHeight },
+                            scale: { 
+                                x: bestEnd.x, 
+                                y: bestEnd.y, 
+                                z: targetLevel * levelHeight + platformThickness / 2 
+                            },
                             paletteSlot: 'glow',
                             flags: {},
                             role: 'connector'
