@@ -108,7 +108,9 @@ export const defaultConfig = {
         straight: 0.4,
         arched: 0.3,
         suspended: 0.2,
-        tube: 0.1
+        tube: 0.1,
+        stairTwistOffset: 0,   // Смещение поворота вокруг вертикальной оси (градусы)
+        stairTiltOffset: 0    // Смещение угла наклона (градусы)
     },
     
     stairsChance: 0.5, // Общий шанс появления лестницы при наличии платформ друг над другом
