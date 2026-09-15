@@ -9,6 +9,7 @@ import { createChunkKey, worldToChunk } from '../core/chunkKey.js';
 import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 class ChunkManager {
     /**
