@@ -286,19 +286,27 @@ class ChunkManager {
 
 
 
-            // --- Рампы (соединение уровней) ---
+            // --- Рампы (смещенный центр для точной привязки) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
                 const totalHeight = levels * config.levelHeight;
-                // Длина рампы чуть больше высоты для плавного съезда (угол ~45 град)
                 const rampLength = totalHeight * 1.2; 
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
-                const thickness = 0.5; // Толщина самой рампы
+                const thickness = 0.5;
                 
-                return new THREE.BoxGeometry(width, thickness, rampLength);
+                // Создаем геометрию
+                const rampGeo = new THREE.BoxGeometry(width, thickness, rampLength);
+                
+                // !!! КЛЮЧЕВОЕ ИЗМЕНЕНИЕ !!!
+                // Сдвигаем геометрию так, чтобы (0,0,0) оказался на НИЖНЕМ КРАЮ рампы
+                // По Z: сдвигаем на половину длины вперед
+                // По Y: поднимаем на половину толщины, чтобы низ касался пола
+                rampGeo.translate(0, thickness / 2, rampLength / 2);
+                
+                return rampGeo;
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
