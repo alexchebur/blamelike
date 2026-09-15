@@ -139,48 +139,28 @@ class ChunkManager {
     
     /**
      * Создание Three.js мешей из данных чанка
+     * @param {Array} primitives 
+     * @param {Object} config 
+     * @returns {THREE.Group}
      */
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
         
-        // Группируем примитивы
+        // Группируем примитивы по типу и paletteSlot
         const grouped = this.groupPrimitives(primitives);
         
         for (const [typeSlot, items] of Object.entries(grouped)) {
             const [type, slot] = typeSlot.split('|');
             
-            // Если это линия (специальный тип для отладки)
-            if (type === 'line') {
-                const line = this.createLineSegments(items, config);
-                if (line) group.add(line);
-            } else {
-                // Обычный InstancedMesh
-                const mesh = this.createInstancedMesh(type, slot, items, config);
-                if (mesh) group.add(mesh);
+            // Создаем InstancedMesh для каждой группы
+            const mesh = this.createInstancedMesh(type, slot, items, config);
+            
+            if (mesh) {
+                group.add(mesh);
             }
         }
         
         return group;
-    }
-
-    /**
-     * Создание линий связей
-     */
-    createLineSegments(items, config) {
-        if (items.length === 0) return null;
-
-        const points = [];
-        for (const item of items) {
-            // Предполагаем, что в scale.z у нас хранится "вес" связи или просто длина
-            // А в position - центр моста. Для простоты нарисуем линию от центра к центру соседа.
-            // Но пока у нас в items только центр. 
-            // Давай сделаем проще: нарисуем точку в центре каждого моста.
-            points.push(new THREE.Vector3(item.position.x, item.position.y, item.position.z));
-        }
-
-        // Для полноценных линий нам нужны пары точек. 
-        // Пока оставим это как заглушку, а лучше добавим "Debug Mode" в генератор.
-        return null; 
     }
     
     /**
@@ -192,9 +172,6 @@ class ChunkManager {
         const grouped = {};
         
         for (const prim of primitives) {
-            // Фильтрация по LOD может происходить здесь
-            // if (prim.role === 'micro' && lodLevel === 'far') continue;
-
             const key = `${prim.type}|${prim.paletteSlot}`;
             
             if (!grouped[key]) {
@@ -222,7 +199,7 @@ class ChunkManager {
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-        // Создаем геометрию (общую для всех инстансов)
+        // Создаем геометрию (общую для всех инстансов этого типа)
         const geometry = this.createGeometry(type, config);
         
         // Создаем материал
@@ -270,6 +247,7 @@ class ChunkManager {
      */
     createGeometry(type, config) {
         const segments = config.maxSegments || 16;
+        const levelHeight = config.levelHeight || 20;
         
         switch (type) {
             case 'box':
@@ -297,15 +275,27 @@ class ChunkManager {
             case 'sphere':
                 return new THREE.SphereGeometry(0.5, segments, segments);
 
-            // --- Добавленные типы ---
+            // --- Специфичные типы ---
             
             case 'obelisk':
-                // Обелиск — это вытянутая четырехгранная пирамида
                 return new THREE.ConeGeometry(0.4, 1, 4); 
             
             case 'spire':
-                // Шпиль — очень тонкий и высокий конус
                 return new THREE.ConeGeometry(0.2, 1, 8);
+
+            // --- Лестницы (фиксированные высоты) ---
+            case 'stair_1':
+                // Высота 1 уровня, ширина зависит от stairWidthRatio
+                const w1 = config.stairWidthRatio * 10 || 1; 
+                return new THREE.BoxGeometry(w1, levelHeight, 2);
+                
+            case 'stair_2':
+                const w2 = config.stairWidthRatio * 10 || 1;
+                return new THREE.BoxGeometry(w2, levelHeight * 2, 4);
+                
+            case 'stair_3':
+                const w3 = config.stairWidthRatio * 10 || 1;
+                return new THREE.BoxGeometry(w3, levelHeight * 3, 6);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
