@@ -2,7 +2,6 @@
 /**
  * ChunkGenerator — оркестратор генерации одного чанка
  * Чистая функция: принимает координаты и конфиг, возвращает массив PrimitiveRecord
- * Не зависит от Three.js, может работать в Web Worker
  */
 
 import { createRNG, hash3D } from '../core/rng.js';
@@ -52,9 +51,9 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += connections.length;
     }
 
-    // === ЭТАП C.1: Вертикальные соединения (лестницы) ===
+    // === ЭТАП C.1: Вертикальные соединения (лестницы + линии отладки) ===
     if (instanceCount < maxInstances) {
-        const stairs = (cx, cy, cz, seed, config, rng, bounds, cellSize);
+        const stairs = generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...stairs);
         instanceCount += stairs.length;
     }
@@ -346,8 +345,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация длинных диагональных связей (радиус 2-3 клетки)
- * С проверкой на отсутствие препятствий на пути
+ * Этап C.1: Генерация лестниц с двойным поворотом и отладочными линиями
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -383,7 +381,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 ];
 
                 for (const corner of corners) {
-                    // Мировые координаты ВЕРХНЕГО внешнего угла источника
                     const startX = bounds.min.x + (gx + corner.x) * cellSize;
                     const startY = bounds.min.y + (gy + corner.y) * cellSize;
                     const startZ = level * levelHeight + platformThickness / 2;
@@ -392,10 +389,8 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     let bestEnd = null;
                     let minDist = Infinity;
 
-                    // Диапазон от -3 до 3 по обеим осям
                     for (let dx = -3; dx <= 3; dx++) {
                         for (let dy = -3; dy <= 3; dy++) {
-                            // Фильтр: только расстояние 2 или 3 клетки (чебышевское расстояние)
                             const distGrid = Math.max(Math.abs(dx), Math.abs(dy));
                             if (distGrid < 2 || distGrid > 3) continue; 
                             
@@ -404,9 +399,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             
                             if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
 
-                            // Проверяем наличие платформы-цели
                             if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                                // Находим ближайший угол целевой платформы
                                 const targetCorners = [
                                     { x: 0, y: 0 }, { x: 1, y: 0 }, 
                                     { x: 0, y: 1 }, { x: 1, y: 1 }
@@ -416,45 +409,68 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     const endX = bounds.min.x + (nx + tCorner.x) * cellSize;
                                     const endY = bounds.min.y + (ny + tCorner.y) * cellSize;
                                     
-                                    // Евклидово расстояние в плоскости XY
                                     const dist = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
                                     
                                     if (dist < minDist) {
                                         minDist = dist;
-                                        bestEnd = { x: endX, y: endY, dx, dy }; // Сохраняем смещение для проверки пути
+                                        bestEnd = { 
+                                            x: endX, y: endY, 
+                                            dx, dy, 
+                                            tx: nx, ty: ny, 
+                                            tcx: tCorner.x, tcy: tCorner.y 
+                                        };
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Если нашли цель, проверяем путь на препятствия
+                    // Проверка зоны высадки и препятствий на пути
                     if (bestEnd) {
-                        let hasObstacle = false;
+                        let isValid = true;
+
+                        // --- ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
+                        let diagDx = 0, diagDy = 0;
+                        if (bestEnd.tcx === 0) diagDx = -1; else diagDx = 1;
+                        if (bestEnd.tcy === 0) diagDy = -1; else diagDy = 1;
                         
-                        // Проверка всех клеток на прямой линии между источником и целью
-                        // Используем алгоритм Брезенхема или простую интерполяцию
-                        const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
-                        for (let s = 1; s < steps; s++) {
-                            const t = s / steps;
-                            const checkX = Math.round(gx + bestEnd.dx * t);
-                            const checkY = Math.round(gy + bestEnd.dy * t);
-                            
-                            // Проверяем все уровни между источником и целью
-                            for (let l = level; l <= targetLevel; l++) {
-                                if (l === level && (checkX === gx && checkY === gy)) continue; // Пропускаем сам источник
-                                if (l === targetLevel && (checkX === gx + bestEnd.dx && checkY === gy + bestEnd.dy)) continue; // Пропускаем саму цель
-                                
-                                if (hash3D(cx * gridSize + checkX, cy * gridSize + checkY, l, seed) < roomDensity) {
-                                    hasObstacle = true;
-                                    break;
-                                }
+                        const diagX = bestEnd.tx + diagDx;
+                        const diagY = bestEnd.ty + diagDy;
+
+                        if (diagX >= 0 && diagX < gridSize && diagY >= 0 && diagY < gridSize) {
+                            if (hash3D(cx * gridSize + diagX, cy * gridSize + diagY, targetLevel, seed) < roomDensity) {
+                                isValid = false;
                             }
-                            if (hasObstacle) break;
                         }
 
-                        // Если путь чист и прошли проверку шанса
-                        if (!hasObstacle && rng() < stairsChance) {
+                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ ---
+                        if (isValid) {
+                            const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
+                            for (let s = 1; s < steps; s++) {
+                                const t = s / steps;
+                                const checkX = Math.round(gx + bestEnd.dx * t);
+                                const checkY = Math.round(gy + bestEnd.dy * t);
+                                
+                                for (let l = level; l <= targetLevel; l++) {
+                                    if (l === level && checkX === gx && checkY === gy) continue;
+                                    if (l === targetLevel && checkX === gx + bestEnd.dx && checkY === gy + bestEnd.dy) continue;
+                                    
+                                    if (checkX >= 0 && checkX < gridSize && checkY >= 0 && checkY < gridSize) {
+                                        if (hash3D(cx * gridSize + checkX, cy * gridSize + checkY, l, seed) < roomDensity) {
+                                            isValid = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!isValid) break;
+                            }
+                        }
+
+                        // Если все проверки пройдены и прошел шанс
+                        if (isValid && rng() < stairsChance) {
+                            const endZ = targetLevel * levelHeight + platformThickness / 2;
+                            
+                            // --- 1. Создаем ЛИНИЮ (для отладки) ---
                             primitives.push({
                                 type: 'line',
                                 position: { x: startX, y: startY, z: startZ },
@@ -462,14 +478,47 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 scale: { 
                                     x: bestEnd.x, 
                                     y: bestEnd.y, 
-                                    z: targetLevel * levelHeight + platformThickness / 2 
+                                    z: endZ 
                                 },
                                 paletteSlot: 'glow',
                                 flags: {},
                                 role: 'connector'
                             });
+
+                            // --- 2. Создаем ЛЕСТНИЦУ ---
+                            // Центр лестницы
+                            const centerX = (startX + bestEnd.x) / 2;
+                            const centerY = (startY + bestEnd.y) / 2;
+                            const centerZ = (startZ + endZ) / 2;
                             
-                            break; // Одно соединение на угол
+                            // Вектор направления
+                            const dx = bestEnd.x - startX;
+                            const dy = bestEnd.y - startY;
+                            const dz = endZ - startZ;
+                            
+                            // 1. Угол поворота в плане (вокруг вертикальной оси)
+                            const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
+                            
+                            // 2. Угол наклона (вдоль оси X локальной системы лестницы)
+                            const horizontalDist = Math.sqrt(dx*dx + dy*dy);
+                            const tiltAngleRad = Math.atan2(dz, horizontalDist);
+                            const tiltDeg = tiltAngleRad * (180 / Math.PI);
+
+                            primitives.push({
+                                type: `stair_${targetLevels}`,
+                                position: { x: centerX, y: centerY, z: centerZ },
+                                rotation: { 
+                                    tiltX: -tiltDeg, // Наклоняем лестницу вдоль её оси!
+                                    tiltY: 0, 
+                                    twistZ: rotZ     // Поворачиваем в нужную сторону
+                                },
+                                scale: { x: 1, y: 1, z: 1 },
+                                paletteSlot: 'baseLight',
+                                flags: {},
+                                role: 'connector'
+                            });
+                            
+                            break;
                         }
                     }
                 }
@@ -478,6 +527,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
+
 /**
  * Этап D: Монолиты (крупные структуры)
  */
