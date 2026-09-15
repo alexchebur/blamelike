@@ -241,11 +241,23 @@ class ChunkManager {
             
             dummy.position.set(item.position.x, item.position.y, item.position.z);
             
+            // Базовые углы из генератора
+            let tiltX = item.rotation.tiltX || 0;
+            let tiltY = item.rotation.tiltY || 0;
+            let twistZ = item.rotation.twistZ || 0;
+            
+            // === ПРИМЕНЯЕМ СМЕЩЕНИЯ ТОЛЬКО ДЛЯ ЛЕСТНИЦ ===
+            if (type.startsWith('stair_')) {
+                twistZ += config.stairTwistOffset || 0;
+                tiltX += config.stairTiltOffset || 0;
+            }
+            // ==============================================
+            
             // Конвертируем градусы в радианы
             dummy.rotation.set(
-                THREE.MathUtils.degToRad(item.rotation.tiltX || 0),
-                THREE.MathUtils.degToRad(item.rotation.tiltY || 0),
-                THREE.MathUtils.degToRad(item.rotation.twistZ || 0)
+                THREE.MathUtils.degToRad(tiltX),
+                THREE.MathUtils.degToRad(tiltY),
+                THREE.MathUtils.degToRad(twistZ)
             );
             
             dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
