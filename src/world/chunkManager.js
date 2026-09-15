@@ -239,9 +239,11 @@ class ChunkManager {
             
             dummy.position.set(item.position.x, item.position.y, item.position.z);
             
-            // Конвертируем градусы в радианы
+            // Применяем ручной угол наклона из конфига вместо расчетного
+            const manualTilt = config.stairTiltX || -45; 
+            
             dummy.rotation.set(
-                THREE.MathUtils.degToRad(item.rotation.tiltX || 0),
+                THREE.MathUtils.degToRad(manualTilt), // Используем ручной наклон
                 THREE.MathUtils.degToRad(item.rotation.tiltY || 0),
                 THREE.MathUtils.degToRad(item.rotation.twistZ || 0)
             );
