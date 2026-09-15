@@ -110,12 +110,25 @@ export const defaultConfig = {
         suspended: 0.2,
         tube: 0.1
     },
-    stairsChance: 0.3,
+    
+    stairsChance: 0.5, // Общий шанс появления лестницы при наличии платформ друг над другом
+    stairWidthRatio: 0.1, // Ширина лестницы (доля от cellSize, например 0.1 = 1/10)
+    stepHeight: 1.5, // Высота одной ступени
+    stepDepth: 1.5,  // Глубина одной ступени
+    
+    // Веса для высот лестниц (в уровнях ярусов)
+    stairHeights: {
+        oneLevel: 0.6,   // 60% лестниц ведут на соседний уровень
+        twoLevels: 0.3,  // 30% перепрыгивают через один уровень
+        threeLevels: 0.1 // 10% самых длинных лестниц
+    },
+    
     stairsWeights: {
         straight: 0.5,
         spiral: 0.3,
         zigzag: 0.2
     },
+    
     rampChance: 0.2,
     elevatorChance: 0.1,
     portalChance: 0.05,
