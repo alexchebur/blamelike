@@ -76,6 +76,10 @@
  * @property {number} lodMid - LOD для средних чанков
  * @property {number} lodFar - LOD для дальних чанков
  * @property {number} maxSegments - Максимум сегментов для цилиндров/конусов
+ * 
+ * // Debug / Tuning параметры
+ * @property {number} stairTwistOffset - Смещение поворота лестниц вокруг вертикальной оси (градусы)
+ * @property {number} stairTiltOffset - Смещение угла наклона лестниц (градусы)
  */
 
 /**
@@ -108,22 +112,19 @@ export const defaultConfig = {
         straight: 0.4,
         arched: 0.3,
         suspended: 0.2,
-        tube: 0.1,
-        stairTwistOffset: 0,   // Смещение поворота вокруг вертикальной оси (градусы)
-        stairTiltOffset: 0    // Смещение угла наклона (градусы)
+        tube: 0.1
     },
     
-    stairsChance: 0.5, // Общий шанс появления лестницы при наличии платформ друг над другом
-    stairWidthRatio: 0.1, // Ширина лестницы (доля от cellSize, например 0.1 = 1/10)
-    stairTiltX: -45, // <-- ДОБАВИТЬ ЭТУ СТРОКУ (начальное значение -45 градусов)    
-    stepHeight: 1.5, // Высота одной ступени
-    stepDepth: 1.5,  // Глубина одной ступени
+    stairsChance: 0.5,
+    stairWidthRatio: 0.1,
+    stepHeight: 1.5,
+    stepDepth: 1.5,
     
     // Веса для высот лестниц (в уровнях ярусов)
     stairHeights: {
-        oneLevel: 0.6,   // 60% лестниц ведут на соседний уровень
-        twoLevels: 0.3,  // 30% перепрыгивают через один уровень
-        threeLevels: 0.1 // 10% самых длинных лестниц
+        oneLevel: 0.6,
+        twoLevels: 0.3,
+        threeLevels: 0.1
     },
     
     stairsWeights: {
@@ -206,15 +207,17 @@ export const defaultConfig = {
     lodNear: 1,
     lodMid: 2,
     lodFar: 3,
-    maxSegments: 16
+    maxSegments: 16,
+
+    // === DEBUG / TUNING (для ручной настройки лестниц) ===
+    stairTwistOffset: 0,   // Смещение поворота вокруг вертикальной оси (градусы)
+    stairTiltOffset: 0     // Смещение угла наклона (градусы)
 };
 
 /**
  * Доступные цветовые палитры
- * Каждая палитра содержит роли цветов для проекции на префабы
  */
 export const palettes = {
-    /** Монохромный Blame! стиль */
     blame: {
         base: '#2a2a2a',
         baseLight: '#3a3a3a',
@@ -223,8 +226,6 @@ export const palettes = {
         glow: '#ff6600',
         shadow: '#0a0a0a'
     },
-    
-    /** Ржавый завод */
     rusted: {
         base: '#4a3728',
         baseLight: '#5c4533',
@@ -233,8 +234,6 @@ export const palettes = {
         glow: '#ff4500',
         shadow: '#1a0f0a'
     },
-    
-    /** Холодный космос */
     coldSpace: {
         base: '#1a2a3a',
         baseLight: '#2a3a4a',
@@ -243,8 +242,6 @@ export const palettes = {
         glow: '#00ffff',
         shadow: '#050a0f'
     },
-    
-    /** Песчаный мегаполис */
     sandCity: {
         base: '#8b7355',
         baseLight: '#a08968',
@@ -253,8 +250,6 @@ export const palettes = {
         glow: '#ffd700',
         shadow: '#3a2a1a'
     },
-    
-    /** Неоновый киберпанк */
     neonCyber: {
         base: '#1a1a2e',
         baseLight: '#2a2a3e',
@@ -263,8 +258,6 @@ export const palettes = {
         glow: '#00ff00',
         shadow: '#050510'
     },
-    
-    /** Бетонная пустошь */
     concrete: {
         base: '#5a5a5a',
         baseLight: '#6a6a6a',
@@ -273,8 +266,6 @@ export const palettes = {
         glow: '#ffffff',
         shadow: '#2a2a2a'
     },
-    
-    /** Окисленная медь */
     oxidized: {
         base: '#2a4a3a',
         baseLight: '#3a5a4a',
@@ -283,8 +274,6 @@ export const palettes = {
         glow: '#00ff88',
         shadow: '#0a1a10'
     },
-    
-    /** Кровавый металл */
     bloodMetal: {
         base: '#3a1a1a',
         baseLight: '#4a2a2a',
