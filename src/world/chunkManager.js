@@ -140,32 +140,37 @@ class ChunkManager {
     
     /**
      * Создание Three.js мешей из данных чанка
-     * @param {Array} primitives 
-     * @param {Object} config 
-     * @returns {THREE.Group}
      */
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
         
-        // Сначала рисуем линии (если есть)
+        // 1. Сначала рисуем ЛИНИИ (они не используют InstancedMesh)
         const linePrimitives = primitives.filter(p => p.type === 'line');
         if (linePrimitives.length > 0) {
-            const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+            const lineMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xff3333, // Ярко-красный для заметности
+                linewidth: 2 
+            });
             const lineGeometry = new THREE.BufferGeometry();
             const positions = [];
             
             for (const p of linePrimitives) {
+                // Начало линии
                 positions.push(p.position.x, p.position.y, p.position.z);
-                positions.push(p.scale.x, p.scale.y, p.scale.z); // scale хранит конец линии
+                // Конец линии (хранится в scale)
+                positions.push(p.scale.x, p.scale.y, p.scale.z);
             }
             
             lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+            // Отключаем frustum culling для линий, чтобы они не исчезали при движении камеры
+            lines.frustumCulled = false; 
             group.add(lines);
         }
 
-        // Группируем остальные примитивы
-        const grouped = this.groupPrimitives(primitives.filter(p => p.type !== 'line'));
+        // 2. Группируем и рисуем ОБЫЧНЫЕ ПРИМИТИВЫ (включая лестницы)
+        const meshPrimitives = primitives.filter(p => p.type !== 'line');
+        const grouped = this.groupPrimitives(meshPrimitives);
         
         for (const [typeSlot, items] of Object.entries(grouped)) {
             const [type, slot] = typeSlot.split('|');
