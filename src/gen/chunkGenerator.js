@@ -344,6 +344,57 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     
     return primitives;
 }
+
+
+function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+    const primitives = [];
+    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, stairWidthRatio } = config;
+    
+    const startLevel = Math.ceil(bounds.min.z / levelHeight);
+    const endLevel = Math.floor(bounds.max.z / levelHeight);
+    
+    for (let level = startLevel; level < endLevel; level++) {
+        // Определяем целевую высоту (1, 2 или 3 уровня вверх)
+        const heightRoll = rng();
+        let targetLevels = 1;
+        if (heightRoll > stairHeights.oneLevel) targetLevels = 2;
+        if (heightRoll > (stairHeights.oneLevel + stairHeights.twoLevels)) targetLevels = 3;
+        
+        const targetLevel = level + targetLevels;
+        if (targetLevel > endLevel) continue;
+
+        for (let gx = 0; gx < gridSize; gx++) {
+            for (let gy = 0; gy < gridSize; gy++) {
+                // Есть ли платформа снизу?
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
+                
+                // Проверяем наличие платформы сверху (в той же клетке или по соседству)
+                // Для простоты пока ставим лестницу прямо вверх, если там есть пол
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, targetLevel, seed) < roomDensity) {
+                    
+                    if (rng() < stairsChance) {
+                        const x = bounds.min.x + (gx + 0.5) * cellSize;
+                        const y = bounds.min.y + (gy + 0.5) * cellSize;
+                        const z = level * levelHeight;
+                        
+                        primitives.push({
+                            type: `stair_${targetLevels}`, // stair_1, stair_2, stair_3
+                            position: { x, y, z },
+                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                            scale: { x: 1, y: 1, z: 1 }, // Геометрия уже подогнана под размер
+                            paletteSlot: 'baseLight',
+                            flags: {},
+                            role: 'connector'
+                        });
+                    }
+                }
+            }
+        }
+    }
+    return primitives;
+}
+
+
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
