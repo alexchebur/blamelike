@@ -346,10 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация рамп (гарантированное смыкание с платформами)
- */
-/**
- * Этап C.1: Генерация рамп (от центра платформы к соседней верхней)
+ * Этап C.1: Генерация рамп (с привязкой к нижнему краю)
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -366,7 +363,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 // 1. Есть ли платформа-источник?
                 if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
                 
-                // Определяем высоту цели (1, 2 или 3 уровня)
+                // Определяем высоту цели
                 const heightRoll = rng();
                 let targetLevels = 1;
                 const w1 = stairHeights.oneLevel || 0.6;
@@ -378,7 +375,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const targetLevel = level + targetLevels;
                 if (targetLevel > endLevel) continue;
 
-                // 2. Проверяем соседей в качестве цели
+                // 2. Ищем цель в соседних клетках
                 const dirs = [
                     { dx: 1, dy: 0, rot: 90 },
                     { dx: -1, dy: 0, rot: -90 },
@@ -390,47 +387,40 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     const nx = gx + dir.dx;
                     const ny = gy + dir.dy;
                     
-                    // Проверка границ чанка
                     if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
 
-                    // 3. Существует ли платформа-цель в соседней клетке на уровне выше?
+                    // Проверяем наличие платформы-цели
                     if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
                         
-                        // Проверяем шанс генерации
                         if (rng() < stairsChance) {
-                            // Координаты центров платформ
+                            // 3. Точка старта (центр верхней грани нижней платформы)
                             const startX = bounds.min.x + (gx + 0.5) * cellSize;
                             const startY = bounds.min.y + (gy + 0.5) * cellSize;
-                            const startZ = level * levelHeight + platformThickness / 2; // Верхняя грань
+                            const startZ = level * levelHeight + platformThickness; // Ставим НА платформу
 
+                            // 4. Точка финиша (центр верхней грани целевой платформы)
                             const endX = bounds.min.x + (nx + 0.5) * cellSize;
                             const endY = bounds.min.y + (ny + 0.5) * cellSize;
-                            const endZ = targetLevel * levelHeight + platformThickness / 2; // Верхняя грань цели
+                            const endZ = targetLevel * levelHeight + platformThickness;
 
-                            // Расчет параметров рампы
+                            // Расчет угла наклона
                             const dx = endX - startX;
                             const dy = endY - startY;
                             const dz = endZ - startZ;
                             
                             const horizontalDist = Math.sqrt(dx*dx + dy*dy);
-                            const rampLength = Math.sqrt(horizontalDist*horizontalDist + dz*dz);
                             const angleRad = Math.atan2(dz, horizontalDist);
-
-                            // Центр рампы (середина между стартом и финишем)
-                            const centerX = (startX + endX) / 2;
-                            const centerY = (startY + endY) / 2;
-                            const centerZ = (startZ + endZ) / 2;
-
-                            // Угол поворота вокруг вертикальной оси
                             const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
 
+                            // 5. Установка позиции
+                            // Так как геометрия смещена, position = точка старта!
                             primitives.push({
                                 type: `stair_${targetLevels}`,
-                                position: { x: centerX, y: centerY, z: centerZ },
+                                position: { x: startX, y: startY, z: startZ },
                                 rotation: { 
-                                    tiltX: -angleRad * (180 / Math.PI), // Наклон вверх
+                                    tiltX: -angleRad * (180 / Math.PI), 
                                     tiltY: 0, 
-                                    twistZ: rotZ // Поворот в сторону цели
+                                    twistZ: rotZ 
                                 },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
@@ -438,7 +428,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 role: 'connector'
                             });
                             
-                            break; // Одна рампа на ячейку
+                            break;
                         }
                     }
                 }
