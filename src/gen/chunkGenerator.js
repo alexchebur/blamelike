@@ -348,6 +348,9 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 /**
  * Этап C.1: Генерация рамп (гарантированное смыкание с платформами)
  */
+/**
+ * Этап C.1: Генерация рамп (от центра платформы к соседней верхней)
+ */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, platformThickness } = config;
@@ -358,34 +361,24 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
     for (let level = startLevel; level < endLevel; level++) {
-        const heightRoll = rng();
-        let targetLevels = 1;
-        const w1 = stairHeights.oneLevel || 0.6;
-        const w2 = stairHeights.twoLevels || 0.3;
-        
-        if (heightRoll > w1) targetLevels = 2;
-        if (heightRoll > (w1 + w2)) targetLevels = 3;
-        
-        const targetLevel = level + targetLevels;
-        if (targetLevel > endLevel) continue;
-
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                // Есть ли платформа снизу?
+                // 1. Есть ли платформа-источник?
                 if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
                 
-                // Есть ли платформа сверху?
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, targetLevel, seed) >= roomDensity) continue;
+                // Определяем высоту цели (1, 2 или 3 уровня)
+                const heightRoll = rng();
+                let targetLevels = 1;
+                const w1 = stairHeights.oneLevel || 0.6;
+                const w2 = stairHeights.twoLevels || 0.3;
+                
+                if (heightRoll > w1) targetLevels = 2;
+                if (heightRoll > (w1 + w2)) targetLevels = 3;
+                
+                const targetLevel = level + targetLevels;
+                if (targetLevel > endLevel) continue;
 
-                // Нет ли препятствий посередине?
-                let hasObstacle = false;
-                for (let l = level + 1; l < targetLevel; l++) {
-                    if (hash3D(cx * gridSize + gx, cy * gridSize + gy, l, seed) < roomDensity) {
-                        hasObstacle = true; break;
-                    }
-                }
-                if (hasObstacle) continue;
-
+                // 2. Проверяем соседей в качестве цели
                 const dirs = [
                     { dx: 1, dy: 0, rot: 90 },
                     { dx: -1, dy: 0, rot: -90 },
@@ -396,45 +389,48 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 for (const dir of dirs) {
                     const nx = gx + dir.dx;
                     const ny = gy + dir.dy;
+                    
+                    // Проверка границ чанка
                     if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
 
-                    // Проверяем край
-                    if (hash3D(cx * gridSize + nx, cy * gridSize + ny, level, seed) < roomDensity) {
+                    // 3. Существует ли платформа-цель в соседней клетке на уровне выше?
+                    if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
+                        
+                        // Проверяем шанс генерации
                         if (rng() < stairsChance) {
-                            // 1. Точка касания на НИЖНЕЙ платформе (верхний угол края)
-                            const startX = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
-                            const startY = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
-                            const startZ = level * levelHeight + platformThickness / 2;
+                            // Координаты центров платформ
+                            const startX = bounds.min.x + (gx + 0.5) * cellSize;
+                            const startY = bounds.min.y + (gy + 0.5) * cellSize;
+                            const startZ = level * levelHeight + platformThickness / 2; // Верхняя грань
 
-                            // 2. Параметры рампы
-                            const totalHeight = (targetLevel * levelHeight + platformThickness / 2) - startZ;
-                            const rampLength = totalHeight * 1.2; // Фиксируем соотношение длины и высоты
-                            const angleRad = Math.atan2(totalHeight, rampLength);
+                            const endX = bounds.min.x + (nx + 0.5) * cellSize;
+                            const endY = bounds.min.y + (ny + 0.5) * cellSize;
+                            const endZ = targetLevel * levelHeight + platformThickness / 2; // Верхняя грань цели
+
+                            // Расчет параметров рампы
+                            const dx = endX - startX;
+                            const dy = endY - startY;
+                            const dz = endZ - startZ;
                             
-                            // 3. Расчет центра рампы для идеального касания
-                            // Нам нужно сместить центр рампы от точки старта:
-                            // - Вниз по нормали к рампе на половину толщины
-                            // - Вдоль рампы на половину её длины
-                            
-                            const cosA = Math.cos(angleRad);
-                            const sinA = Math.sin(angleRad);
-                            
-                            // Смещение центра относительно точки старта
-                            const offsetX = (rampLength / 2) * cosA * dir.dx;
-                            const offsetY = (rampLength / 2) * cosA * dir.dy;
-                            const offsetZ = (totalHeight / 2) - (0.25 * sinA); // 0.25 - половина толщины (0.5)
+                            const horizontalDist = Math.sqrt(dx*dx + dy*dy);
+                            const rampLength = Math.sqrt(horizontalDist*horizontalDist + dz*dz);
+                            const angleRad = Math.atan2(dz, horizontalDist);
+
+                            // Центр рампы (середина между стартом и финишем)
+                            const centerX = (startX + endX) / 2;
+                            const centerY = (startY + endY) / 2;
+                            const centerZ = (startZ + endZ) / 2;
+
+                            // Угол поворота вокруг вертикальной оси
+                            const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
 
                             primitives.push({
                                 type: `stair_${targetLevels}`,
-                                position: { 
-                                    x: startX + offsetX, 
-                                    y: startY + offsetY, 
-                                    z: startZ + offsetZ 
-                                },
+                                position: { x: centerX, y: centerY, z: centerZ },
                                 rotation: { 
-                                    tiltX: -angleRad * (180 / Math.PI), // Наклон
+                                    tiltX: -angleRad * (180 / Math.PI), // Наклон вверх
                                     tiltY: 0, 
-                                    twistZ: dir.rot // Поворот в нужную сторону
+                                    twistZ: rotZ // Поворот в сторону цели
                                 },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
@@ -442,7 +438,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 role: 'connector'
                             });
                             
-                            break;
+                            break; // Одна рампа на ячейку
                         }
                     }
                 }
@@ -451,7 +447,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
 /**
  * Этап D: Монолиты (крупные структуры)
  */
