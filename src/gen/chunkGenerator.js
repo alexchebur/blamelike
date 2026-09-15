@@ -346,7 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация лестниц с горизонтальными ступенями
+ * Этап C.1: Генерация диагональных связей с проверкой "углового касания"
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -430,7 +430,12 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     if (bestEnd) {
                         let isValid = true;
 
-                        // --- ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
+                        // --- НОВАЯ ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
+                        // Находим клетку, которая касается целевого угла ТОЛЬКО вершиной (диагонально)
+                        // Если целевой угол (tcx, tcy) находится внутри клетки (tx, ty),
+                        // то диагональная клетка будет иметь смещение (-1, -1), (-1, +1), (+1, -1) или (+1, +1)
+                        // в зависимости от того, какой это угол.
+                        
                         let diagDx = 0, diagDy = 0;
                         if (bestEnd.tcx === 0) diagDx = -1; else diagDx = 1;
                         if (bestEnd.tcy === 0) diagDy = -1; else diagDy = 1;
@@ -438,13 +443,14 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         const diagX = bestEnd.tx + diagDx;
                         const diagY = bestEnd.ty + diagDy;
 
+                        // Проверяем, есть ли платформа в этой диагональной клетке на целевом уровне
                         if (diagX >= 0 && diagX < gridSize && diagY >= 0 && diagY < gridSize) {
                             if (hash3D(cx * gridSize + diagX, cy * gridSize + diagY, targetLevel, seed) < roomDensity) {
-                                isValid = false;
+                                isValid = false; // Над головой нависает платформа, касающаяся только углом!
                             }
                         }
 
-                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ ---
+                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ (осталась без изменений) ---
                         if (isValid) {
                             const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
                             for (let s = 1; s < steps; s++) {
@@ -469,9 +475,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                         // Если все проверки пройдены и прошел шанс
                         if (isValid && rng() < stairsChance) {
-                            const endZ = targetLevel * levelHeight + platformThickness / 2;
-                            
-                            // --- 1. Создаем ЛИНИЮ (для отладки) ---
                             primitives.push({
                                 type: 'line',
                                 position: { x: startX, y: startY, z: startZ },
@@ -479,57 +482,14 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 scale: { 
                                     x: bestEnd.x, 
                                     y: bestEnd.y, 
-                                    z: endZ 
+                                    z: targetLevel * levelHeight + platformThickness / 2 
                                 },
                                 paletteSlot: 'glow',
                                 flags: {},
                                 role: 'connector'
                             });
-
-                            // --- 2. Создаем ЛЕСТНИЦУ ---
-                            // Центр лестницы
-                            const centerX = (startX + bestEnd.x) / 2;
-                            const centerY = (startY + bestEnd.y) / 2;
-                            const centerZ = (startZ + endZ) / 2;
                             
-                            // Вектор направления
-                            const dx = bestEnd.x - startX;
-                            const dy = bestEnd.y - startY;
-                            const dz = endZ - startZ;
-                            
-                            // Угол поворота вокруг вертикальной оси (Y в мире, Z в локальных координатах Three.js при стандартном порядке)
-                            // Но так как мы строили геометрию в плоскости XY, нам нужен поворот вокруг Z
-                            const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
-                            
-                            // Угол наклона (подъем)
-                            // Наша геометрия уже имеет подъем по Y относительно X.
-                            // Нам нужно повернуть её так, чтобы локальная ось X легла на вектор (dx, dy, dz).
-                            // Это сложный поворот. 
-                            
-                            // УПРОЩЕНИЕ:
-                            // Давай сделаем иначе. Геометрия пусть будет плоской (без подъема по Y).
-                            // А подъем зададим через tiltX в генераторе.
-                            // Это стандартный подход для рамп/лестниц в играх.
-                            
-                            // ПЕРЕПИСЫВАЕМ ГЕОМЕТРИЮ СНОВА (прости за путаницу):
-                            // Сделаем геометрию ПРОСТОЙ: ступени идут вдоль X, но БЕЗ подъема по Y.
-                            // Подъем добавим через tiltX.
-                            
-                            primitives.push({
-                                type: `stair_${targetLevels}`,
-                                position: { x: centerX, y: centerY, z: centerZ },
-                                rotation: { 
-                                    tiltX: 0, // УБИРАЕМ НАКЛОН! Геометрия сама поднимается.
-                                    tiltY: 0, 
-                                    twistZ: rotZ 
-                                },
-                                scale: { x: 1, y: 1, z: 1 },
-                                paletteSlot: 'baseLight',
-                                flags: {},
-                                role: 'connector'
-                            });
-                            
-                            break;
+                            break; // Одно соединение на угол
                         }
                     }
                 }
