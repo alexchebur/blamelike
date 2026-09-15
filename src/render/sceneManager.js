@@ -65,12 +65,18 @@ class SceneManager {
         this.container.appendChild(this.renderer.domElement);
         
         // 5. Добавляем управление камерой (OrbitControls)
+        // ... после создания controls
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.enableDamping = true; // Плавность
+        this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.maxDistance = 500;
         this.controls.minDistance = 10;
-        this.controls.target.set(0, 0, 0);
+        
+        // === ДОБАВИТЬ ЭТОТ БЛОК ===
+        this.controls.target.set(0, 0, 0); // Камера будет вращаться вокруг этой точки
+        this.camera.position.set(0, 100, 0); // Поднимаем камеру высоко вверх
+        this.controls.update(); // Применяем изменения сразу
+        // ========================
         
         // 6. Настраиваем освещение
         this.setupLighting();
