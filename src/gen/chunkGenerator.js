@@ -346,7 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация диагональных связей с проверкой "углового касания"
+ * Этап C.1: Генерация лестниц с горизонтальными ступенями
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -430,12 +430,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     if (bestEnd) {
                         let isValid = true;
 
-                        // --- НОВАЯ ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
-                        // Находим клетку, которая касается целевого угла ТОЛЬКО вершиной (диагонально)
-                        // Если целевой угол (tcx, tcy) находится внутри клетки (tx, ty),
-                        // то диагональная клетка будет иметь смещение (-1, -1), (-1, +1), (+1, -1) или (+1, +1)
-                        // в зависимости от того, какой это угол.
-                        
+                        // --- ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
                         let diagDx = 0, diagDy = 0;
                         if (bestEnd.tcx === 0) diagDx = -1; else diagDx = 1;
                         if (bestEnd.tcy === 0) diagDy = -1; else diagDy = 1;
@@ -443,14 +438,13 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         const diagX = bestEnd.tx + diagDx;
                         const diagY = bestEnd.ty + diagDy;
 
-                        // Проверяем, есть ли платформа в этой диагональной клетке на целевом уровне
                         if (diagX >= 0 && diagX < gridSize && diagY >= 0 && diagY < gridSize) {
                             if (hash3D(cx * gridSize + diagX, cy * gridSize + diagY, targetLevel, seed) < roomDensity) {
-                                isValid = false; // Над головой нависает платформа, касающаяся только углом!
+                                isValid = false;
                             }
                         }
 
-                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ (осталась без изменений) ---
+                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ ---
                         if (isValid) {
                             const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
                             for (let s = 1; s < steps; s++) {
@@ -475,16 +469,21 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                         // Если все проверки пройдены и прошел шанс
                         if (isValid && rng() < stairsChance) {
+                            // Расчет параметров лестницы
+                            const endZ = targetLevel * levelHeight + platformThickness / 2;
+                            const centerX = (startX + bestEnd.x) / 2;
+                            const centerY = (startY + bestEnd.y) / 2;
+                            const centerZ = (startZ + endZ) / 2;
+                            
+                            // Угол поворота вокруг вертикальной оси
+                            const rotZ = Math.atan2(bestEnd.y - startY, bestEnd.x - startX) * (180 / Math.PI);
+
                             primitives.push({
-                                type: 'line',
-                                position: { x: startX, y: startY, z: startZ },
-                                rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                                scale: { 
-                                    x: bestEnd.x, 
-                                    y: bestEnd.y, 
-                                    z: targetLevel * levelHeight + platformThickness / 2 
-                                },
-                                paletteSlot: 'glow',
+                                type: `stair_${targetLevels}`,
+                                position: { x: centerX, y: centerY, z: centerZ },
+                                rotation: { tiltX: 0, tiltY: 0, twistZ: rotZ },
+                                scale: { x: 1, y: 1, z: 1 },
+                                paletteSlot: 'baseLight',
                                 flags: {},
                                 role: 'connector'
                             });
