@@ -285,6 +285,7 @@ class ChunkManager {
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
 
+
             // --- Рампы (соединение уровней) ---
             case 'stair_1':
             case 'stair_2':
