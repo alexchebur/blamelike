@@ -298,27 +298,38 @@ class ChunkManager {
 
 
 
-            // --- Рампы (смещенный центр для точной привязки) ---
+            // --- Лестницы (горизонтальные ступени по диагонали) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                const totalHeight = levels * config.levelHeight;
-                const rampLength = totalHeight * 1.2; 
+                // Параметры ступени
+                const stepH = 1.5; 
+                const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
-                const thickness = 0.5;
                 
-                // Создаем геометрию
-                const rampGeo = new THREE.BoxGeometry(width, thickness, rampLength);
+                const totalHeight = levels * config.levelHeight;
+                const stepsCount = Math.floor(totalHeight / stepH);
                 
-                // !!! КЛЮЧЕВОЕ ИЗМЕНЕНИЕ !!!
-                // Сдвигаем геометрию так, чтобы (0,0,0) оказался на НИЖНЕМ КРАЮ рампы
-                // По Z: сдвигаем на половину длины вперед
-                // По Y: поднимаем на половину толщины, чтобы низ касался пола
-                rampGeo.translate(0, thickness / 2, rampLength / 2);
+                const geometries = [];
+
+                for (let i = 0; i < stepsCount; i++) {
+                    const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
+                    
+                    // Смещаем каждую ступеньку относительно центра лестницы
+                    // Y: от -totalHeight/2 до +totalHeight/2
+                    // Z: от -totalDepth/2 до +totalDepth/2 (лестница идет "вперед" по минус Z)
+                    const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    const zPos = (stepsCount * stepD) / 2 - (i * stepD) - (stepD / 2);
+                    
+                    stepGeo.translate(0, yPos, zPos);
+                    geometries.push(stepGeo);
+                }
                 
-                return rampGeo;
+                // Объединяем в одну геометрию. 
+                // Центр этой геометрии теперь совпадает с центром bounding box лестницы.
+                return mergeGeometries(geometries);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
