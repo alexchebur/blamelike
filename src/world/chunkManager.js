@@ -212,6 +212,14 @@ class ChunkManager {
      * @param {Object} config 
      * @returns {THREE.InstancedMesh|null}
      */
+    /**
+     * Создание InstancedMesh для группы примитивов
+     * @param {string} type - тип геометрии
+     * @param {string} slot - цветовой слот
+     * @param {Array} items - массив примитивов
+     * @param {Object} config 
+     * @returns {THREE.InstancedMesh|null}
+     */
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
@@ -235,23 +243,61 @@ class ChunkManager {
         
         // Устанавливаем матрицы для каждого инстанса
         const dummy = new THREE.Object3D();
+        const localOffset = new THREE.Vector3(); // Для вычисления смещения pivot
         
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             
-            dummy.position.set(item.position.x, item.position.y, item.position.z);
+            // Базовые параметры из генератора
+            let posX = item.position.x;
+            let posY = item.position.y;
+            let posZ = item.position.z;
             
-            // Базовые углы из генератора
             let tiltX = item.rotation.tiltX || 0;
             let tiltY = item.rotation.tiltY || 0;
             let twistZ = item.rotation.twistZ || 0;
             
-            // === ПРИМЕНЯЕМ СМЕЩЕНИЯ ТОЛЬКО ДЛЯ ЛЕСТНИЦ ===
+            let scaleX = item.scale.x;
+            let scaleY = item.scale.y;
+            let scaleZ = item.scale.z;
+            
+            // === СПЕЦИАЛЬНАЯ ОБРАБОТКА ЛЕСТНИЦ ===
             if (type.startsWith('stair_')) {
+                // 1. Применяем угловые смещения из старого тюнинга
                 twistZ += config.stairTwistOffset || 0;
                 tiltX += config.stairTiltOffset || 0;
+                
+                // 2. Применяем геометрические коррекции из дебаг-панели
+                const pivotX = config.stairPivotOffsetX || 0;
+                const pivotY = config.stairPivotOffsetY || 0;
+                const lengthScale = config.stairLengthScale || 1.0;
+                
+                // Смещаем позицию инстанса в локальных координатах лестницы
+                // Локальная ось X лестницы - это направление подъема
+                // Локальная ось Y лестницы - это вертикаль ступеней
+                if (pivotX !== 0 || pivotY !== 0) {
+                    // Вычисляем смещение в мировых координатах на основе текущего поворота
+                    localOffset.set(pivotX, pivotY, 0);
+                    localOffset.applyEuler(new THREE.Euler(
+                        THREE.MathUtils.degToRad(tiltX),
+                        THREE.MathUtils.degToRad(tiltY),
+                        THREE.MathUtils.degToRad(twistZ)
+                    ));
+                    
+                    posX += localOffset.x;
+                    posY += localOffset.y;
+                    posZ += localOffset.z;
+                }
+                
+                // Масштабируем длину лестницы вдоль её оси направления (локальный X)
+                if (lengthScale !== 1.0) {
+                    scaleX *= lengthScale;
+                }
             }
             // ==============================================
+            
+            // Устанавливаем финальные трансформации
+            dummy.position.set(posX, posY, posZ);
             
             // Конвертируем градусы в радианы
             dummy.rotation.set(
@@ -260,7 +306,7 @@ class ChunkManager {
                 THREE.MathUtils.degToRad(twistZ)
             );
             
-            dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
+            dummy.scale.set(scaleX, scaleY, scaleZ);
             
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
