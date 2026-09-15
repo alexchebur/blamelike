@@ -284,27 +284,29 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // --- Лестницы (процедурные ступени) ---
+            // --- Лестницы (процедурные ступени без боковин) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
-                // Определяем количество уровней из типа
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
                 const totalHeight = levels * config.levelHeight;
-                const stepH = config.stepHeight || 2; // Высота одной ступени
-                const stepD = config.stepDepth || 2;  // Глубина одной ступени
-                const width = (config.stairWidthRatio || 0.1) * config.chunkSize / config.gridSize;
+                const stepH = config.stepHeight || 2; 
+                const stepD = config.stepDepth || 2;  
+                const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
                 
                 const stepsCount = Math.floor(totalHeight / stepH);
                 const geometries = [];
 
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
-                    // Смещаем каждую ступеньку вверх и назад
+                    // Смещаем ступени вверх и вперед (по Z)
                     stepGeo.translate(0, i * stepH + stepH / 2, -i * stepD);
                     geometries.push(stepGeo);
                 }
+                
+                // Объединяем в одну геометрию
+                return mergeGeometries(geometries);
                 
                 // Добавляем боковые стенки для прочности вида
                 const sideGeo = new THREE.BoxGeometry(width * 0.1, totalHeight, stepsCount * stepD);
