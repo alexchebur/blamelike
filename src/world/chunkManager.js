@@ -5,11 +5,11 @@
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createChunkKey, worldToChunk } from '../core/chunkKey.js';
 import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 class ChunkManager {
     /**
@@ -135,11 +135,13 @@ class ChunkManager {
      */
     updateChunkLOD(key, cameraPos, config) {
         // Здесь можно реализовать пересборку меша при изменении дистанции
-        // Например, удалить микро-декор если чанк стал "far"
     }
     
     /**
      * Создание Three.js мешей из данных чанка
+     * @param {Array} primitives 
+     * @param {Object} config 
+     * @returns {THREE.Group}
      */
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
@@ -239,11 +241,9 @@ class ChunkManager {
             
             dummy.position.set(item.position.x, item.position.y, item.position.z);
             
-            // Применяем ручной угол наклона из конфига вместо расчетного
-            const manualTilt = config.stairTiltX || -45; 
-            
+            // Конвертируем градусы в радианы
             dummy.rotation.set(
-                THREE.MathUtils.degToRad(manualTilt), // Используем ручной наклон
+                THREE.MathUtils.degToRad(item.rotation.tiltX || 0),
                 THREE.MathUtils.degToRad(item.rotation.tiltY || 0),
                 THREE.MathUtils.degToRad(item.rotation.twistZ || 0)
             );
@@ -303,21 +303,35 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-
-
-            // --- Лестницы (вертикальные, наклон регулируется из панели) ---
+            // --- Лестницы (геометрия, выровненная по вектору подъема) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                const totalHeight = levels * config.levelHeight;
-                const rampLength = totalHeight * 1.2; 
+                const stepH = 1.5; 
+                const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
-                const thickness = 0.5;
                 
-                // Создаем геометрию, вытянутую вдоль оси Z
-                return new THREE.BoxGeometry(width, thickness, rampLength);
+                const totalHeight = levels * levelHeight;
+                const stepsCount = Math.floor(totalHeight / stepH);
+                const totalLength = stepsCount * stepD; // Длина вдоль наклона
+                
+                const geometries = [];
+
+                for (let i = 0; i < stepsCount; i++) {
+                    const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
+                    
+                    // Смещаем ступеньку вдоль локальной оси X (которая станет направлением лестницы)
+                    // и вверх по локальной оси Y
+                    const xLocal = -totalLength / 2 + (i * stepD) + (stepD / 2);
+                    const yLocal = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    
+                    stepGeo.translate(xLocal, yLocal, 0);
+                    geometries.push(stepGeo);
+                }
+                
+                return mergeGeometries(geometries);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
