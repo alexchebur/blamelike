@@ -470,6 +470,49 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         if (isValid && rng() < stairsChance) {
                             const endZ = targetLevel * levelHeight + platformThickness / 2;
                             
+                            // === ВИЗУАЛЬНЫЕ МАРКЕРЫ ДЛЯ ОТЛАДКИ ===
+                            if (config.showStairStarts) {
+                                primitives.push({
+                                    type: 'sphere',
+                                    position: { x: startX, y: startY, z: startZ },
+                                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                    scale: { x: 0.8, y: 0.8, z: 0.8 },
+                                    paletteSlot: 'glow', // Зеленый/Оранжевый акцент
+                                    flags: { emissive: true },
+                                    role: 'debug'
+                                });
+                            }
+                            
+                            if (config.showStairEnds) {
+                                primitives.push({
+                                    type: 'sphere',
+                                    position: { x: bestEnd.x, y: bestEnd.y, z: endZ },
+                                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                    scale: { x: 0.8, y: 0.8, z: 0.8 },
+                                    paletteSlot: 'accent', // Синий акцент
+                                    flags: { emissive: true },
+                                    role: 'debug'
+                                });
+                            }
+
+                            // Центр лестницы (расчетная точка привязки меша)
+                            const centerX = (startX + bestEnd.x) / 2;
+                            const centerY = (startY + bestEnd.y) / 2;
+                            const centerZ = (startZ + endZ) / 2;
+
+                            if (config.showStairCenters) {
+                                primitives.push({
+                                    type: 'sphere',
+                                    position: { x: centerX, y: centerY, z: centerZ },
+                                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                    scale: { x: 0.5, y: 0.5, z: 0.5 },
+                                    paletteSlot: 'baseLight', // Желтый/Светлый акцент
+                                    flags: { emissive: true },
+                                    role: 'debug'
+                                });
+                            }
+                            // ==============================================
+
                             // --- 1. Создаем ЛИНИЮ (для отладки) ---
                             primitives.push({
                                 type: 'line',
@@ -486,11 +529,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             });
 
                             // --- 2. Создаем ЛЕСТНИЦУ ---
-                            // Центр лестницы
-                            const centerX = (startX + bestEnd.x) / 2;
-                            const centerY = (startY + bestEnd.y) / 2;
-                            const centerZ = (startZ + endZ) / 2;
-                            
                             // Вектор направления
                             const dx = bestEnd.x - startX;
                             const dy = bestEnd.y - startY;
@@ -515,7 +553,12 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
                                 flags: {},
-                                role: 'connector'
+                                role: 'connector',
+                                // === ГЕОМЕТРИЧЕСКИЕ КОРРЕКЦИИ ИЗ КОНФИГА ===
+                                pivotOffsetX: config.stairPivotOffsetX || 0,
+                                pivotOffsetY: config.stairPivotOffsetY || 0,
+                                lengthScale: config.stairLengthScale || 1.0
+                                // ==========================================
                             });
                             
                             break;
