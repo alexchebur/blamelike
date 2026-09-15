@@ -348,6 +348,10 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 /**
  * Этап C.1: Генерация лестниц (фиксированные высоты 1, 2, 3 уровня)
  */
+/**
+ * Этап C.1: Генерация лестниц (с фиксированными высотами 1, 2, 3 уровня)
+ * Лестницы ставятся у края платформы и ведут к платформе уровнем выше.
+ */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, stairWidthRatio } = config;
@@ -372,28 +376,73 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         const targetLevel = level + targetLevels;
         if (targetLevel > endLevel) continue;
 
+        // Проходим по сетке и ищем края платформ
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 // Есть ли платформа снизу?
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
+                const hasBottom = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity;
+                if (!hasBottom) continue;
                 
-                // Проверяем наличие платформы сверху (в той же клетке)
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, targetLevel, seed) < roomDensity) {
+                // Есть ли платформа сверху (целевая)?
+                const hasTop = hash3D(cx * gridSize + gx, cy * gridSize + gy, targetLevel, seed) < roomDensity;
+                
+                // Проверяем наличие препятствий на промежуточных уровнях
+                let hasObstacles = false;
+                for (let l = level + 1; l < targetLevel; l++) {
+                    if (hash3D(cx * gridSize + gx, cy * gridSize + gy, l, seed) < roomDensity) {
+                        hasObstacles = true;
+                        break;
+                    }
+                }
+                
+                // Если есть препятствие или нет целевой платформы, пропускаем
+                if (hasObstacles || !hasTop) continue;
+
+                // Ищем свободное место рядом для лестницы (край платформы)
+                // Проверяем 4 направления: +X, -X, +Y, -Y
+                const directions = [
+                    { dx: 1, dy: 0, rot: 90 },
+                    { dx: -1, dy: 0, rot: -90 },
+                    { dx: 0, dy: 1, rot: 0 },
+                    { dx: 0, dy: -1, rot: 180 }
+                ];
+
+                for (const dir of directions) {
+                    const nx = gx + dir.dx;
+                    const ny = gy + dir.dy;
                     
-                    if (rng() < stairsChance) {
-                        const x = bounds.min.x + (gx + 0.5) * cellSize;
-                        const y = bounds.min.y + (gy + 0.5) * cellSize;
-                        const z = level * levelHeight;
-                        
-                        primitives.push({
-                            type: `stair_${targetLevels}`, // stair_1, stair_2, stair_3
-                            position: { x, y, z },
-                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            scale: { x: 1, y: 1, z: 1 }, // Геометрия уже подогнана под размер
-                            paletteSlot: 'baseLight',
-                            flags: {},
-                            role: 'connector'
-                        });
+                    // Проверяем границы чанка
+                    if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
+                    
+                    // Проверяем, что соседняя клетка пуста (это край) или там тоже есть платформа (тогда лестница будет между ними)
+                    // Для простоты ставим лестницу, если соседняя клетка пуста на текущем уровне
+                    const neighborHash = hash3D(cx * gridSize + nx, cy * gridSize + ny, level, seed);
+                    
+                    if (neighborHash >= roomDensity) {
+                        // Нашли край! Проверяем шанс генерации
+                        if (rng() < stairsChance) {
+                            // Координаты центра края
+                            const x = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
+                            const y = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
+                            
+                            // Высота установки: середина между уровнями
+                            const zStart = level * levelHeight;
+                            const zEnd = targetLevel * levelHeight;
+                            const zCenter = (zStart + zEnd) / 2;
+                            
+                            primitives.push({
+                                type: `stair_${targetLevels}`,
+                                position: { x, y, z: zCenter },
+                                rotation: { tiltX: 0, tiltY: 0, twistZ: dir.rot },
+                                scale: { x: 1, y: 1, z: 1 },
+                                paletteSlot: 'baseLight',
+                                flags: {},
+                                role: 'connector'
+                            });
+                            
+                            // Ставим только одну лестницу на ячейку, выходим из цикла направлений
+                            break; 
+                        }
                     }
                 }
             }
