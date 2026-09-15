@@ -346,7 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация диагональных связей с проверкой зоны высадки
+ * Этап C.1: Генерация диагональных связей с проверкой "углового касания"
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -382,7 +382,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 ];
 
                 for (const corner of corners) {
-                    // Мировые координаты ВЕРХНЕГО внешнего угла источника
                     const startX = bounds.min.x + (gx + corner.x) * cellSize;
                     const startY = bounds.min.y + (gy + corner.y) * cellSize;
                     const startZ = level * levelHeight + platformThickness / 2;
@@ -401,9 +400,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             
                             if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
 
-                            // Проверяем наличие платформы-цели
                             if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                                // Находим ближайший угол целевой платформы
                                 const targetCorners = [
                                     { x: 0, y: 0 }, { x: 1, y: 0 }, 
                                     { x: 0, y: 1 }, { x: 1, y: 1 }
@@ -417,7 +414,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     
                                     if (dist < minDist) {
                                         minDist = dist;
-                                        // Сохраняем смещение и координаты угла для проверки зоны высадки
                                         bestEnd = { 
                                             x: endX, y: endY, 
                                             dx, dy, 
@@ -434,39 +430,27 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     if (bestEnd) {
                         let isValid = true;
 
-                        // --- ПРОВЕРКА ЗОНЫ ВЫСАДКИ ---
-                        // Угол (tcx, tcy) находится внутри клетки (tx, ty).
-                        // Три внутренние клетки, примыкающие к этому углу:
-                        const landingCells = [];
+                        // --- НОВАЯ ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
+                        // Находим клетку, которая касается целевого угла ТОЛЬКО вершиной (диагонально)
+                        // Если целевой угол (tcx, tcy) находится внутри клетки (tx, ty),
+                        // то диагональная клетка будет иметь смещение (-1, -1), (-1, +1), (+1, -1) или (+1, +1)
+                        // в зависимости от того, какой это угол.
                         
-                        // Клетка самого угла
-                        landingCells.push({ x: bestEnd.tx, y: bestEnd.ty });
+                        let diagDx = 0, diagDy = 0;
+                        if (bestEnd.tcx === 0) diagDx = -1; else diagDx = 1;
+                        if (bestEnd.tcy === 0) diagDy = -1; else diagDy = 1;
                         
-                        // Клетка слева/справа от угла (в зависимости от tcx)
-                        if (bestEnd.tcx === 0) {
-                            landingCells.push({ x: bestEnd.tx - 1, y: bestEnd.ty });
-                        } else {
-                            landingCells.push({ x: bestEnd.tx + 1, y: bestEnd.ty });
-                        }
-                        
-                        // Клетка сверху/снизу от угла (в зависимости от tcy)
-                        if (bestEnd.tcy === 0) {
-                            landingCells.push({ x: bestEnd.tx, y: bestEnd.ty - 1 });
-                        } else {
-                            landingCells.push({ x: bestEnd.tx, y: bestEnd.ty + 1 });
-                        }
+                        const diagX = bestEnd.tx + diagDx;
+                        const diagY = bestEnd.ty + diagDy;
 
-                        // Проверяем, нет ли платформ в этих клетках на целевом уровне
-                        for (const cell of landingCells) {
-                            if (cell.x >= 0 && cell.x < gridSize && cell.y >= 0 && cell.y < gridSize) {
-                                if (hash3D(cx * gridSize + cell.x, cy * gridSize + cell.y, targetLevel, seed) < roomDensity) {
-                                    isValid = false; // Над головой будет потолок!
-                                    break;
-                                }
+                        // Проверяем, есть ли платформа в этой диагональной клетке на целевом уровне
+                        if (diagX >= 0 && diagX < gridSize && diagY >= 0 && diagY < gridSize) {
+                            if (hash3D(cx * gridSize + diagX, cy * gridSize + diagY, targetLevel, seed) < roomDensity) {
+                                isValid = false; // Над головой нависает платформа, касающаяся только углом!
                             }
                         }
 
-                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ ---
+                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ (осталась без изменений) ---
                         if (isValid) {
                             const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
                             for (let s = 1; s < steps; s++) {
