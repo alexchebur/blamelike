@@ -481,31 +481,55 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     y: bestEnd.y, 
                                     z: endZ 
                                 },
-                                paletteSlot: 'glow', // Красный цвет
+                                paletteSlot: 'glow',
                                 flags: {},
                                 role: 'connector'
                             });
 
-                            // --- 2. Создаем ЛЕСТНИЦУ (для финального вида) ---
-                            // Центр лестницы - середина между стартом и финишем
+                            // --- 2. Создаем ЛЕСТНИЦУ ---
+                            // Центр лестницы
                             const centerX = (startX + bestEnd.x) / 2;
                             const centerY = (startY + bestEnd.y) / 2;
                             const centerZ = (startZ + endZ) / 2;
                             
-                            // Угол поворота вокруг вертикальной оси (относительно оси X)
-                            const rotZ = Math.atan2(bestEnd.y - startY, bestEnd.x - startX) * (180 / Math.PI);
-
+                            // Вектор направления
+                            const dx = bestEnd.x - startX;
+                            const dy = bestEnd.y - startY;
+                            const dz = endZ - startZ;
+                            
+                            // Угол поворота вокруг вертикальной оси (Y в мире, Z в локальных координатах Three.js при стандартном порядке)
+                            // Но так как мы строили геометрию в плоскости XY, нам нужен поворот вокруг Z
+                            const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
+                            
+                            // Угол наклона (подъем)
+                            // Наша геометрия уже имеет подъем по Y относительно X.
+                            // Нам нужно повернуть её так, чтобы локальная ось X легла на вектор (dx, dy, dz).
+                            // Это сложный поворот. 
+                            
+                            // УПРОЩЕНИЕ:
+                            // Давай сделаем иначе. Геометрия пусть будет плоской (без подъема по Y).
+                            // А подъем зададим через tiltX в генераторе.
+                            // Это стандартный подход для рамп/лестниц в играх.
+                            
+                            // ПЕРЕПИСЫВАЕМ ГЕОМЕТРИЮ СНОВА (прости за путаницу):
+                            // Сделаем геометрию ПРОСТОЙ: ступени идут вдоль X, но БЕЗ подъема по Y.
+                            // Подъем добавим через tiltX.
+                            
                             primitives.push({
                                 type: `stair_${targetLevels}`,
                                 position: { x: centerX, y: centerY, z: centerZ },
-                                rotation: { tiltX: 0, tiltY: 0, twistZ: rotZ }, // Теперь этот поворот корректен!
+                                rotation: { 
+                                    tiltX: -Math.atan2(dz, Math.sqrt(dx*dx + dy*dy)) * (180 / Math.PI), // Наклон вверх
+                                    tiltY: 0, 
+                                    twistZ: rotZ // Поворот в плане
+                                },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
                                 flags: {},
                                 role: 'connector'
                             });
                             
-                            break; // Одно соединение на угол
+                            break;
                         }
                     }
                 }
