@@ -147,18 +147,30 @@ class ChunkManager {
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
         
-        // Группируем примитивы по типу и paletteSlot
-        const grouped = this.groupPrimitives(primitives);
+        // Сначала рисуем линии (если есть)
+        const linePrimitives = primitives.filter(p => p.type === 'line');
+        if (linePrimitives.length > 0) {
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+            const lineGeometry = new THREE.BufferGeometry();
+            const positions = [];
+            
+            for (const p of linePrimitives) {
+                positions.push(p.position.x, p.position.y, p.position.z);
+                positions.push(p.scale.x, p.scale.y, p.scale.z); // scale хранит конец линии
+            }
+            
+            lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
+            group.add(lines);
+        }
+
+        // Группируем остальные примитивы
+        const grouped = this.groupPrimitives(primitives.filter(p => p.type !== 'line'));
         
         for (const [typeSlot, items] of Object.entries(grouped)) {
             const [type, slot] = typeSlot.split('|');
-            
-            // Создаем InstancedMesh для каждой группы
             const mesh = this.createInstancedMesh(type, slot, items, config);
-            
-            if (mesh) {
-                group.add(mesh);
-            }
+            if (mesh) group.add(mesh);
         }
         
         return group;
