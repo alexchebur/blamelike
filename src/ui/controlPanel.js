@@ -58,6 +58,10 @@ class ControlPanel {
         connFolder.add(this.config, 'stairsChance', 0, 1, 0.05).name('Stairs Chance');
         connFolder.add(this.config, 'stairWidthRatio', 0.05, 0.3, 0.01).name('Stair Width');
         
+        // !!! НОВЫЙ ПОЛЗУНОК ДЛЯ КАЛИБРОВКИ !!!
+        connFolder.add(this.config, 'stairTiltX', -90, 0, 1).name('Stair Tilt X (deg)')
+            .onChange(() => this.onRegenerate()); // Пересоздаем мир при изменении угла
+        
         // Веса высот лестниц
         const stairHeightsFolder = connFolder.addFolder('Stair Heights');
         stairHeightsFolder.add(this.config.stairHeights, 'oneLevel', 0, 1, 0.1).name('1 Level');
