@@ -284,19 +284,38 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // --- Лестницы (фиксированные высоты) ---
+            // --- Лестницы (процедурные ступени) ---
             case 'stair_1':
-                // Высота 1 уровня, ширина зависит от stairWidthRatio
-                const w1 = config.stairWidthRatio * 10 || 1; 
-                return new THREE.BoxGeometry(w1, levelHeight, 2);
-                
             case 'stair_2':
-                const w2 = config.stairWidthRatio * 10 || 1;
-                return new THREE.BoxGeometry(w2, levelHeight * 2, 4);
-                
             case 'stair_3':
-                const w3 = config.stairWidthRatio * 10 || 1;
-                return new THREE.BoxGeometry(w3, levelHeight * 3, 6);
+                // Определяем количество уровней из типа
+                const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
+                
+                const totalHeight = levels * config.levelHeight;
+                const stepH = config.stepHeight || 2; // Высота одной ступени
+                const stepD = config.stepDepth || 2;  // Глубина одной ступени
+                const width = (config.stairWidthRatio || 0.1) * config.chunkSize / config.gridSize;
+                
+                const stepsCount = Math.floor(totalHeight / stepH);
+                const geometries = [];
+
+                for (let i = 0; i < stepsCount; i++) {
+                    const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
+                    // Смещаем каждую ступеньку вверх и назад
+                    stepGeo.translate(0, i * stepH + stepH / 2, -i * stepD);
+                    geometries.push(stepGeo);
+                }
+                
+                // Добавляем боковые стенки для прочности вида
+                const sideGeo = new THREE.BoxGeometry(width * 0.1, totalHeight, stepsCount * stepD);
+                sideGeo.translate(-width / 2 - width * 0.05, totalHeight / 2, -(stepsCount * stepD) / 2);
+                geometries.push(sideGeo);
+                
+                const sideGeo2 = sideGeo.clone();
+                sideGeo2.translate(width + width * 0.1, 0, 0);
+                geometries.push(sideGeo2);
+
+                return mergeGeometries(geometries);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
