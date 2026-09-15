@@ -346,7 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация линий связей (для отладки и точной привязки)
+ * Этап C.1: Генерация линий связей (от угла к углу)
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -375,44 +375,65 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const targetLevel = level + targetLevels;
                 if (targetLevel > endLevel) continue;
 
-                // 2. Ищем цель в соседних клетках
-                const dirs = [
-                    { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
-                    { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
+                // Координаты углов текущей клетки (платформы-источника)
+                const corners = [
+                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }
                 ];
 
-                for (const dir of dirs) {
-                    const nx = gx + dir.dx;
-                    const ny = gy + dir.dy;
-                    
-                    if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
+                for (const corner of corners) {
+                    // Мировые координаты угла источника
+                    const startX = bounds.min.x + (gx + corner.x) * cellSize;
+                    const startY = bounds.min.y + (gy + corner.y) * cellSize;
+                    const startZ = level * levelHeight;
 
-                    // Проверяем наличие платформы-цели
-                    if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                        
-                        if (rng() < stairsChance) {
-                            // 3. Точные координаты центров клеток
-                            const startX = bounds.min.x + (gx + 0.5) * cellSize;
-                            const startY = bounds.min.y + (gy + 0.5) * cellSize;
-                            const startZ = level * levelHeight; // Уровень пола
+                    // Ищем ближайшую платформу-цель на уровне выше в радиусе 1-2 клеток
+                    let bestEnd = null;
+                    let minDist = Infinity;
 
-                            const endX = bounds.min.x + (nx + 0.5) * cellSize;
-                            const endY = bounds.min.y + (ny + 0.5) * cellSize;
-                            const endZ = targetLevel * levelHeight; // Уровень пола цели
-
-                            // Создаем запись для ЛИНИИ
-                            primitives.push({
-                                type: 'line',
-                                position: { x: startX, y: startY, z: startZ },
-                                rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                                scale: { x: endX, y: endY, z: endZ }, // В scale храним координаты конца линии
-                                paletteSlot: 'glow', // Сделаем их яркими для заметности
-                                flags: {},
-                                role: 'connector'
-                            });
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            if (dx === 0 && dy === 0) continue;
                             
-                            break;
+                            const nx = gx + dx;
+                            const ny = gy + dy;
+                            
+                            if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
+
+                            // Проверяем наличие платформы-цели
+                            if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
+                                // Находим ближайший угол целевой платформы
+                                const targetCorners = [
+                                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }
+                                ];
+                                
+                                for (const tCorner of targetCorners) {
+                                    const endX = bounds.min.x + (nx + tCorner.x) * cellSize;
+                                    const endY = bounds.min.y + (ny + tCorner.y) * cellSize;
+                                    
+                                    const dist = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
+                                    
+                                    if (dist < minDist) {
+                                        minDist = dist;
+                                        bestEnd = { x: endX, y: endY };
+                                    }
+                                }
+                            }
                         }
+                    }
+
+                    // Если нашли цель и прошли проверку шанса
+                    if (bestEnd && rng() < stairsChance) {
+                        primitives.push({
+                            type: 'line',
+                            position: { x: startX, y: startY, z: startZ },
+                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                            scale: { x: bestEnd.x, y: bestEnd.y, z: targetLevel * levelHeight },
+                            paletteSlot: 'glow',
+                            flags: {},
+                            role: 'connector'
+                        });
+                        
+                        break; // Одно соединение на угол
                     }
                 }
             }
