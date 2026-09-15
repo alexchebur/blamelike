@@ -346,11 +346,11 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация рамп (с привязкой к нижнему краю)
+ * Этап C.1: Генерация линий связей (для отладки и точной привязки)
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, platformThickness } = config;
+    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights } = config;
     
     if (!stairHeights) return primitives;
 
@@ -377,10 +377,8 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 // 2. Ищем цель в соседних клетках
                 const dirs = [
-                    { dx: 1, dy: 0, rot: 90 },
-                    { dx: -1, dy: 0, rot: -90 },
-                    { dx: 0, dy: 1, rot: 0 },
-                    { dx: 0, dy: -1, rot: 180 }
+                    { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
+                    { dx: 0, dy: 1 }, { dx: 0, dy: -1 }
                 ];
 
                 for (const dir of dirs) {
@@ -393,37 +391,22 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
                         
                         if (rng() < stairsChance) {
-                            // 3. Точка старта (центр верхней грани нижней платформы)
+                            // 3. Точные координаты центров клеток
                             const startX = bounds.min.x + (gx + 0.5) * cellSize;
                             const startY = bounds.min.y + (gy + 0.5) * cellSize;
-                            const startZ = level * levelHeight + platformThickness; // Ставим НА платформу
+                            const startZ = level * levelHeight; // Уровень пола
 
-                            // 4. Точка финиша (центр верхней грани целевой платформы)
                             const endX = bounds.min.x + (nx + 0.5) * cellSize;
                             const endY = bounds.min.y + (ny + 0.5) * cellSize;
-                            const endZ = targetLevel * levelHeight + platformThickness;
+                            const endZ = targetLevel * levelHeight; // Уровень пола цели
 
-                            // Расчет угла наклона
-                            const dx = endX - startX;
-                            const dy = endY - startY;
-                            const dz = endZ - startZ;
-                            
-                            const horizontalDist = Math.sqrt(dx*dx + dy*dy);
-                            const angleRad = Math.atan2(dz, horizontalDist);
-                            const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
-
-                            // 5. Установка позиции
-                            // Так как геометрия смещена, position = точка старта!
+                            // Создаем запись для ЛИНИИ
                             primitives.push({
-                                type: `stair_${targetLevels}`,
+                                type: 'line',
                                 position: { x: startX, y: startY, z: startZ },
-                                rotation: { 
-                                    tiltX: -angleRad * (180 / Math.PI), 
-                                    tiltY: 0, 
-                                    twistZ: rotZ 
-                                },
-                                scale: { x: 1, y: 1, z: 1 },
-                                paletteSlot: 'baseLight',
+                                rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                scale: { x: endX, y: endY, z: endZ }, // В scale храним координаты конца линии
+                                paletteSlot: 'glow', // Сделаем их яркими для заметности
                                 flags: {},
                                 role: 'connector'
                             });
