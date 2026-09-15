@@ -290,33 +290,32 @@ class ChunkManager {
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                const totalHeight = levels * config.levelHeight;
-                const stepH = config.stepHeight || 2; 
-                const stepD = config.stepDepth || 2;  
+                // Фиксированные маленькие размеры ступеней для удобства персонажа
+                const stepH = 1.5; 
+                const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
                 
+                const totalHeight = levels * config.levelHeight;
                 const stepsCount = Math.floor(totalHeight / stepH);
+                const totalDepth = stepsCount * stepD;
+                
                 const geometries = [];
 
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
-                    // Смещаем ступени вверх и вперед (по Z)
-                    stepGeo.translate(0, i * stepH + stepH / 2, -i * stepD);
+                    
+                    // Смещаем ступеньку относительно центра лестницы
+                    // Y: от -totalHeight/2 до +totalHeight/2
+                    // Z: от -totalDepth/2 до +totalDepth/2 (лестница идет "вперед" по минус Z)
+                    const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    const zPos = totalDepth / 2 - (i * stepD) - (stepD / 2);
+                    
+                    stepGeo.translate(0, yPos, zPos);
                     geometries.push(stepGeo);
                 }
                 
-                // Объединяем в одну геометрию
-                return mergeGeometries(geometries);
-                
-                // Добавляем боковые стенки для прочности вида
-                const sideGeo = new THREE.BoxGeometry(width * 0.1, totalHeight, stepsCount * stepD);
-                sideGeo.translate(-width / 2 - width * 0.05, totalHeight / 2, -(stepsCount * stepD) / 2);
-                geometries.push(sideGeo);
-                
-                const sideGeo2 = sideGeo.clone();
-                sideGeo2.translate(width + width * 0.1, 0, 0);
-                geometries.push(sideGeo2);
-
+                // Объединяем в одну геометрию. 
+                // Центр этой геометрии теперь совпадает с центром bounding box лестницы.
                 return mergeGeometries(geometries);
             
             default:
