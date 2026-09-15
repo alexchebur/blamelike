@@ -346,11 +346,11 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация рамп (соединение уровней)
+ * Этап C.1: Генерация рамп (гарантированное смыкание с платформами)
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights } = config;
+    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, platformThickness } = config;
     
     if (!stairHeights) return primitives;
 
@@ -358,7 +358,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
     for (let level = startLevel; level < endLevel; level++) {
-        // Определяем высоту рампы
         const heightRoll = rng();
         let targetLevels = 1;
         const w1 = stairHeights.oneLevel || 0.6;
@@ -387,7 +386,6 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 }
                 if (hasObstacle) continue;
 
-                // Ищем направление (край платформы)
                 const dirs = [
                     { dx: 1, dy: 0, rot: 90 },
                     { dx: -1, dy: 0, rot: -90 },
@@ -400,30 +398,43 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     const ny = gy + dir.dy;
                     if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
 
-                    // Проверяем, что соседняя клетка пуста (это край)
+                    // Проверяем край
                     if (hash3D(cx * gridSize + nx, cy * gridSize + ny, level, seed) < roomDensity) {
                         if (rng() < stairsChance) {
-                            // Координаты старта (на краю нижней платформы)
+                            // 1. Точка касания на НИЖНЕЙ платформе (верхний угол края)
                             const startX = bounds.min.x + (gx + 0.5 + dir.dx * 0.5) * cellSize;
                             const startY = bounds.min.y + (gy + 0.5 + dir.dy * 0.5) * cellSize;
-                            const startZ = level * levelHeight;
+                            const startZ = level * levelHeight + platformThickness / 2;
 
-                            const totalHeight = targetLevel * levelHeight - startZ;
-                            const rampLength = totalHeight; // При угле 45 градусов длина равна высоте
-
-                            // Центр рампы (середина пути)
-                            // Смещаем центр на половину длины в направлении подъема
-                            const centerX = startX + (dir.dx * rampLength) / 2;
-                            const centerY = startY + (dir.dy * rampLength) / 2;
-                            const centerZ = startZ + totalHeight / 2;
+                            // 2. Параметры рампы
+                            const totalHeight = (targetLevel * levelHeight + platformThickness / 2) - startZ;
+                            const rampLength = totalHeight * 1.2; // Фиксируем соотношение длины и высоты
+                            const angleRad = Math.atan2(totalHeight, rampLength);
+                            
+                            // 3. Расчет центра рампы для идеального касания
+                            // Нам нужно сместить центр рампы от точки старта:
+                            // - Вниз по нормали к рампе на половину толщины
+                            // - Вдоль рампы на половину её длины
+                            
+                            const cosA = Math.cos(angleRad);
+                            const sinA = Math.sin(angleRad);
+                            
+                            // Смещение центра относительно точки старта
+                            const offsetX = (rampLength / 2) * cosA * dir.dx;
+                            const offsetY = (rampLength / 2) * cosA * dir.dy;
+                            const offsetZ = (totalHeight / 2) - (0.25 * sinA); // 0.25 - половина толщины (0.5)
 
                             primitives.push({
                                 type: `stair_${targetLevels}`,
-                                position: { x: centerX, y: centerY, z: centerZ },
+                                position: { 
+                                    x: startX + offsetX, 
+                                    y: startY + offsetY, 
+                                    z: startZ + offsetZ 
+                                },
                                 rotation: { 
-                                    tiltX: -45, // Фиксированный угол 45 градусов
+                                    tiltX: -angleRad * (180 / Math.PI), // Наклон
                                     tiltY: 0, 
-                                    twistZ: dir.rot 
+                                    twistZ: dir.rot // Поворот в нужную сторону
                                 },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
