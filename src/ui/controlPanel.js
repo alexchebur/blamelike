@@ -57,7 +57,13 @@ class ControlPanel {
         connFolder.add(this.config, 'bridgeChance', 0, 1, 0.05).name('Bridge Chance');
         connFolder.add(this.config, 'stairsChance', 0, 1, 0.05).name('Stairs Chance');
         connFolder.add(this.config, 'stairWidthRatio', 0.05, 0.3, 0.01).name('Stair Width');
-        
+
+        // === ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ ОТЛАДКИ ЛЕСТНИЦ ===
+        const debugStairsFolder = connFolder.addFolder('🔧 Stair Tuning');
+        debugStairsFolder.add(this.config, 'stairTwistOffset', -180, 180, 1).name('Twist Z Offset');
+        debugStairsFolder.add(this.config, 'stairTiltOffset', -90, 90, 1).name('Tilt X Offset');
+        debugStairsFolder.open();
+        // ==============================================        
         // !!! НОВЫЙ ПОЛЗУНОК ДЛЯ КАЛИБРОВКИ !!!
         connFolder.add(this.config, 'stairTiltX', -90, 0, 1).name('Stair Tilt X (deg)')
             .onChange(() => this.onRegenerate()); // Пересоздаем мир при изменении угла
