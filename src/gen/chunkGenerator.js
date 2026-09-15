@@ -54,7 +54,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
 
     // === ЭТАП C.1: Вертикальные соединения (лестницы) ===
     if (instanceCount < maxInstances) {
-        const stairs = generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize);
+        const stairs = (cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...stairs);
         instanceCount += stairs.length;
     }
@@ -346,7 +346,8 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап C.1: Генерация диагональных связей с проверкой "углового касания"
+ * Этап C.1: Генерация длинных диагональных связей (радиус 2-3 клетки)
+ * С проверкой на отсутствие препятствий на пути
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -382,6 +383,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 ];
 
                 for (const corner of corners) {
+                    // Мировые координаты ВЕРХНЕГО внешнего угла источника
                     const startX = bounds.min.x + (gx + corner.x) * cellSize;
                     const startY = bounds.min.y + (gy + corner.y) * cellSize;
                     const startZ = level * levelHeight + platformThickness / 2;
@@ -390,8 +392,10 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     let bestEnd = null;
                     let minDist = Infinity;
 
+                    // Диапазон от -3 до 3 по обеим осям
                     for (let dx = -3; dx <= 3; dx++) {
                         for (let dy = -3; dy <= 3; dy++) {
+                            // Фильтр: только расстояние 2 или 3 клетки (чебышевское расстояние)
                             const distGrid = Math.max(Math.abs(dx), Math.abs(dy));
                             if (distGrid < 2 || distGrid > 3) continue; 
                             
@@ -400,7 +404,9 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             
                             if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
 
+                            // Проверяем наличие платформы-цели
                             if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
+                                // Находим ближайший угол целевой платформы
                                 const targetCorners = [
                                     { x: 0, y: 0 }, { x: 1, y: 0 }, 
                                     { x: 0, y: 1 }, { x: 1, y: 1 }
@@ -410,71 +416,45 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     const endX = bounds.min.x + (nx + tCorner.x) * cellSize;
                                     const endY = bounds.min.y + (ny + tCorner.y) * cellSize;
                                     
+                                    // Евклидово расстояние в плоскости XY
                                     const dist = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
                                     
                                     if (dist < minDist) {
                                         minDist = dist;
-                                        bestEnd = { 
-                                            x: endX, y: endY, 
-                                            dx, dy, 
-                                            tx: nx, ty: ny, 
-                                            tcx: tCorner.x, tcy: tCorner.y 
-                                        };
+                                        bestEnd = { x: endX, y: endY, dx, dy }; // Сохраняем смещение для проверки пути
                                     }
                                 }
                             }
                         }
                     }
 
-                    // Проверка зоны высадки и препятствий на пути
+                    // Если нашли цель, проверяем путь на препятствия
                     if (bestEnd) {
-                        let isValid = true;
-
-                        // --- НОВАЯ ПРОВЕРКА ЗОНЫ ВЫСАДКИ (УГЛОВОЕ КАСАНИЕ) ---
-                        // Находим клетку, которая касается целевого угла ТОЛЬКО вершиной (диагонально)
-                        // Если целевой угол (tcx, tcy) находится внутри клетки (tx, ty),
-                        // то диагональная клетка будет иметь смещение (-1, -1), (-1, +1), (+1, -1) или (+1, +1)
-                        // в зависимости от того, какой это угол.
+                        let hasObstacle = false;
                         
-                        let diagDx = 0, diagDy = 0;
-                        if (bestEnd.tcx === 0) diagDx = -1; else diagDx = 1;
-                        if (bestEnd.tcy === 0) diagDy = -1; else diagDy = 1;
-                        
-                        const diagX = bestEnd.tx + diagDx;
-                        const diagY = bestEnd.ty + diagDy;
-
-                        // Проверяем, есть ли платформа в этой диагональной клетке на целевом уровне
-                        if (diagX >= 0 && diagX < gridSize && diagY >= 0 && diagY < gridSize) {
-                            if (hash3D(cx * gridSize + diagX, cy * gridSize + diagY, targetLevel, seed) < roomDensity) {
-                                isValid = false; // Над головой нависает платформа, касающаяся только углом!
-                            }
-                        }
-
-                        // --- ПРОВЕРКА ПУТИ НА ПРЕПЯТСТВИЯ (осталась без изменений) ---
-                        if (isValid) {
-                            const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
-                            for (let s = 1; s < steps; s++) {
-                                const t = s / steps;
-                                const checkX = Math.round(gx + bestEnd.dx * t);
-                                const checkY = Math.round(gy + bestEnd.dy * t);
+                        // Проверка всех клеток на прямой линии между источником и целью
+                        // Используем алгоритм Брезенхема или простую интерполяцию
+                        const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
+                        for (let s = 1; s < steps; s++) {
+                            const t = s / steps;
+                            const checkX = Math.round(gx + bestEnd.dx * t);
+                            const checkY = Math.round(gy + bestEnd.dy * t);
+                            
+                            // Проверяем все уровни между источником и целью
+                            for (let l = level; l <= targetLevel; l++) {
+                                if (l === level && (checkX === gx && checkY === gy)) continue; // Пропускаем сам источник
+                                if (l === targetLevel && (checkX === gx + bestEnd.dx && checkY === gy + bestEnd.dy)) continue; // Пропускаем саму цель
                                 
-                                for (let l = level; l <= targetLevel; l++) {
-                                    if (l === level && checkX === gx && checkY === gy) continue;
-                                    if (l === targetLevel && checkX === gx + bestEnd.dx && checkY === gy + bestEnd.dy) continue;
-                                    
-                                    if (checkX >= 0 && checkX < gridSize && checkY >= 0 && checkY < gridSize) {
-                                        if (hash3D(cx * gridSize + checkX, cy * gridSize + checkY, l, seed) < roomDensity) {
-                                            isValid = false;
-                                            break;
-                                        }
-                                    }
+                                if (hash3D(cx * gridSize + checkX, cy * gridSize + checkY, l, seed) < roomDensity) {
+                                    hasObstacle = true;
+                                    break;
                                 }
-                                if (!isValid) break;
                             }
+                            if (hasObstacle) break;
                         }
 
-                        // Если все проверки пройдены и прошел шанс
-                        if (isValid && rng() < stairsChance) {
+                        // Если путь чист и прошли проверку шанса
+                        if (!hasObstacle && rng() < stairsChance) {
                             primitives.push({
                                 type: 'line',
                                 position: { x: startX, y: startY, z: startZ },
