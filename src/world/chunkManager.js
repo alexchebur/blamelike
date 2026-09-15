@@ -303,7 +303,7 @@ class ChunkManager {
 
 
 
-            // --- Лестницы (горизонтальные ступени, выровненные по оси X) ---
+            // --- Лестницы (геометрия, выровненная по вектору подъема) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
@@ -315,25 +315,23 @@ class ChunkManager {
                 
                 const totalHeight = levels * config.levelHeight;
                 const stepsCount = Math.floor(totalHeight / stepH);
+                const totalLength = stepsCount * stepD; // Длина вдоль наклона
                 
                 const geometries = [];
 
                 for (let i = 0; i < stepsCount; i++) {
-                    const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
+                    const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
                     
-                    // Теперь строим лестницу вдоль оси X!
-                    // X: от -totalLength/2 до +totalLength/2
-                    // Y: от -totalHeight/2 до +totalHeight/2
-                    const totalLength = stepsCount * stepD;
-                    const xPos = -totalLength / 2 + (i * stepD) + (stepD / 2);
-                    const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    // Смещаем ступеньку вдоль локальной оси X (которая станет направлением лестницы)
+                    // и вверх по локальной оси Y
+                    const xLocal = -totalLength / 2 + (i * stepD) + (stepD / 2);
+                    const yLocal = -totalHeight / 2 + (i * stepH) + (stepH / 2);
                     
-                    stepGeo.translate(xPos, yPos, 0); // Z теперь равен 0
+                    stepGeo.translate(xLocal, yLocal, 0);
                     geometries.push(stepGeo);
                 }
                 
-                const mergedGeo = mergeGeometries(geometries);
-                return mergedGeo;
+                return mergeGeometries(geometries);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
