@@ -211,7 +211,17 @@ export const defaultConfig = {
 
     // === DEBUG / TUNING (для ручной настройки лестниц) ===
     stairTwistOffset: 0,   // Смещение поворота вокруг вертикальной оси (градусы)
-    stairTiltOffset: 0     // Смещение угла наклона (градусы)
+    stairTiltOffset: 0,    // Смещение угла наклона (градусы)
+    
+    // === STAIR DEBUG VISUALS (Маркеры для диагностики совпадения с линиями) ===
+    showStairStarts: false,      // Зеленые сферы в точках старта
+    showStairEnds: false,        // Синие сферы в точках финиша
+    showStairCenters: false,     // Желтые сферы в расчетных центрах мешей
+    
+    // === STAIR GEOMETRY CORRECTIONS (Коррекция геометрии без изменения углов) ===
+    stairPivotOffsetX: 0,        // Смещение центра лестницы вдоль её оси (единицы мира)
+    stairPivotOffsetY: 0,        // Смещение центра лестницы перпендикулярно оси (единицы мира)
+    stairLengthScale: 1.0        // Масштабирование длины лестницы (1.0 = оригинал)
 };
 
 /**
