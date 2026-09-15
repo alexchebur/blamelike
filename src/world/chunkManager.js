@@ -284,38 +284,29 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // --- Лестницы (процедурные ступени без боковин) ---
+
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                // Фиксированные маленькие размеры ступеней для удобства персонажа
+                // Фиксированные параметры ступени
                 const stepH = 1.5; 
                 const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
                 
                 const totalHeight = levels * config.levelHeight;
                 const stepsCount = Math.floor(totalHeight / stepH);
-                const totalDepth = stepsCount * stepD;
                 
                 const geometries = [];
 
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(width, stepH, stepD);
-                    
-                    // Смещаем ступеньку относительно центра лестницы
-                    // Y: от -totalHeight/2 до +totalHeight/2
-                    // Z: от -totalDepth/2 до +totalDepth/2 (лестница идет "вперед" по минус Z)
-                    const yPos = -totalHeight / 2 + (i * stepH) + (stepH / 2);
-                    const zPos = totalDepth / 2 - (i * stepD) - (stepD / 2);
-                    
-                    stepGeo.translate(0, yPos, zPos);
+                    // Смещаем каждую ступеньку вверх и "на себя" (по отрицательному Z)
+                    stepGeo.translate(0, i * stepH + stepH / 2, -i * stepD);
                     geometries.push(stepGeo);
                 }
                 
-                // Объединяем в одну геометрию. 
-                // Центр этой геометрии теперь совпадает с центром bounding box лестницы.
                 return mergeGeometries(geometries);
             
             default:
