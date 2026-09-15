@@ -303,35 +303,19 @@ class ChunkManager {
 
 
 
-            // --- Лестницы (геометрия, выровненная по вектору подъема) ---
+            // --- Лестницы (вертикальные, наклон регулируется из панели) ---
             case 'stair_1':
             case 'stair_2':
             case 'stair_3':
                 const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
                 
-                const stepH = 1.5; 
-                const stepD = 1.5;  
-                const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
-                
                 const totalHeight = levels * config.levelHeight;
-                const stepsCount = Math.floor(totalHeight / stepH);
-                const totalLength = stepsCount * stepD; // Длина вдоль наклона
+                const rampLength = totalHeight * 1.2; 
+                const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
+                const thickness = 0.5;
                 
-                const geometries = [];
-
-                for (let i = 0; i < stepsCount; i++) {
-                    const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
-                    
-                    // Смещаем ступеньку вдоль локальной оси X (которая станет направлением лестницы)
-                    // и вверх по локальной оси Y
-                    const xLocal = -totalLength / 2 + (i * stepD) + (stepD / 2);
-                    const yLocal = -totalHeight / 2 + (i * stepH) + (stepH / 2);
-                    
-                    stepGeo.translate(xLocal, yLocal, 0);
-                    geometries.push(stepGeo);
-                }
-                
-                return mergeGeometries(geometries);
+                // Создаем геометрию, вытянутую вдоль оси Z
+                return new THREE.BoxGeometry(width, thickness, rampLength);
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
