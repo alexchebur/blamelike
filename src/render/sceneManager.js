@@ -185,25 +185,25 @@ class SceneManager {
     render() {
         this.controls.update();
 
-        // === ОБНОВЛЕНИЕ ПОЗИЦИИ ОСЕЙ ПЕРЕД КАМЕРОЙ ===
+        // === ПРИНУДИТЕЛЬНАЯ ФИКСАЦИЯ КАМЕРЫ ОТНОСИТЕЛЬНО Z-ВЕРТИКАЛИ ===
+        // Запрещаем камере опускаться ниже Z=0 (под пол) 
+        // и задирать выше Z=170 (чтобы не перевернуться)
+        if (this.camera.position.z < 0) this.camera.position.z = 0;
+        if (this.camera.position.z > 170) this.camera.position.z = 170;
+        
+        // Также фиксируем target по Z, чтобы он не уходил под пол
+        if (this.controls.target.z < 0) this.controls.target.z = 0;
+        // ============================================================
+
+        // Обновление позиции осей перед камерой
         if (this.axisHelper && this.camera) {
-            // Получаем направление взгляда камеры
             const direction = new THREE.Vector3();
             this.camera.getWorldDirection(direction);
-            
-            // Ставим оси на расстоянии 60 единиц перед камерой
-            // Это гарантирует, что они всегда видны, но не перекрывают ближний план
             const axisPos = new THREE.Vector3()
                 .copy(this.camera.position)
                 .add(direction.multiplyScalar(60)); 
-                
             this.axisHelper.position.copy(axisPos);
-            
-            // ВАЖНО: Мы НЕ копируем кватернион камеры. 
-            // Оси должны сохранять мировую ориентацию (Y всегда вверх), 
-            // чтобы служить надежным компасом при калибровке лестниц.
         }
-        // ==============================================
 
         this.renderer.render(this.scene, this.camera);
     }
