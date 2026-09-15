@@ -469,8 +469,25 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                         // Если все проверки пройдены и прошел шанс
                         if (isValid && rng() < stairsChance) {
-                            // Расчет параметров лестницы
                             const endZ = targetLevel * levelHeight + platformThickness / 2;
+                            
+                            // --- 1. Создаем ЛИНИЮ (для отладки) ---
+                            primitives.push({
+                                type: 'line',
+                                position: { x: startX, y: startY, z: startZ },
+                                rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                scale: { 
+                                    x: bestEnd.x, 
+                                    y: bestEnd.y, 
+                                    z: endZ 
+                                },
+                                paletteSlot: 'glow', // Красный цвет
+                                flags: {},
+                                role: 'connector'
+                            });
+
+                            // --- 2. Создаем ЛЕСТНИЦУ (для финального вида) ---
+                            // Центр лестницы - середина между стартом и финишем
                             const centerX = (startX + bestEnd.x) / 2;
                             const centerY = (startY + bestEnd.y) / 2;
                             const centerZ = (startZ + endZ) / 2;
