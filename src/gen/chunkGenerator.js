@@ -346,6 +346,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 /**
  * Этап C.1: Генерация лестниц с двойным поворотом и отладочными линиями
+ * Реализует Line Anchor Mode для точного совпадения с красными линиями
  */
 function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -477,7 +478,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     position: { x: startX, y: startY, z: startZ },
                                     rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                                     scale: { x: 0.8, y: 0.8, z: 0.8 },
-                                    paletteSlot: 'glow', // Зеленый/Оранжевый акцент
+                                    paletteSlot: 'glow',
                                     flags: { emissive: true },
                                     role: 'debug'
                                 });
@@ -489,13 +490,13 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     position: { x: bestEnd.x, y: bestEnd.y, z: endZ },
                                     rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                                     scale: { x: 0.8, y: 0.8, z: 0.8 },
-                                    paletteSlot: 'accent', // Синий акцент
+                                    paletteSlot: 'accent',
                                     flags: { emissive: true },
                                     role: 'debug'
                                 });
                             }
 
-                            // Центр лестницы (расчетная точка привязки меша)
+                            // Центр лестницы (для старого режима или fallback)
                             const centerX = (startX + bestEnd.x) / 2;
                             const centerY = (startY + bestEnd.y) / 2;
                             const centerZ = (startZ + endZ) / 2;
@@ -506,7 +507,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     position: { x: centerX, y: centerY, z: centerZ },
                                     rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                                     scale: { x: 0.5, y: 0.5, z: 0.5 },
-                                    paletteSlot: 'baseLight', // Желтый/Светлый акцент
+                                    paletteSlot: 'baseLight',
                                     flags: { emissive: true },
                                     role: 'debug'
                                 });
@@ -528,11 +529,14 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 role: 'connector'
                             });
 
-                            // --- 2. Создаем ЛЕСТНИЦУ ---
+                            // --- 2. Создаем ЛЕСТНИЦУ (LINE ANCHOR MODE) ---
                             // Вектор направления
                             const dx = bestEnd.x - startX;
                             const dy = bestEnd.y - startY;
                             const dz = endZ - startZ;
+                            
+                            // Расчет длины вдоль наклона (гипотенуза 3D вектора)
+                            const lineLength = Math.sqrt(dx*dx + dy*dy + dz*dz);
                             
                             // 1. Угол поворота в плане (вокруг вертикальной оси)
                             const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
@@ -544,17 +548,22 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                             primitives.push({
                                 type: `stair_${targetLevels}`,
-                                position: { x: centerX, y: centerY, z: centerZ },
+                                // ЯКОРНАЯ ТОЧКА: Начало линии, а не центр!
+                                position: { x: startX, y: startY, z: startZ },
                                 rotation: { 
-                                    tiltX: -tiltDeg, // Наклоняем лестницу вдоль её оси!
+                                    tiltX: -tiltDeg,
                                     tiltY: 0, 
-                                    twistZ: rotZ     // Поворачиваем в нужную сторону
+                                    twistZ: rotZ
                                 },
                                 scale: { x: 1, y: 1, z: 1 },
                                 paletteSlot: 'baseLight',
                                 flags: {},
                                 role: 'connector',
-                                // === ГЕОМЕТРИЧЕСКИЕ КОРРЕКЦИИ ИЗ КОНФИГА ===
+                                // === ДАННЫЕ ДЛЯ LINE ANCHOR MODE ===
+                                lineStart: { x: startX, y: startY, z: startZ },
+                                lineEnd: { x: bestEnd.x, y: bestEnd.y, z: endZ },
+                                lineLength: lineLength,
+                                // Геометрические коррекции из конфига
                                 pivotOffsetX: config.stairPivotOffsetX || 0,
                                 pivotOffsetY: config.stairPivotOffsetY || 0,
                                 lengthScale: config.stairLengthScale || 1.0
