@@ -349,72 +349,75 @@ class ChunkManager {
         switch (type) {
             case 'box':
                 return new THREE.BoxGeometry(1, 1, 1);
-            
             case 'cylinder':
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            
             case 'cone':
                 return new THREE.ConeGeometry(0.5, 1, segments);
-            
             case 'octahedron':
                 return new THREE.OctahedronGeometry(0.5);
-            
             case 'capsule':
                 return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            
             case 'torus':
                 return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            
             case 'prism':
-                // Шестиугольная призма
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
-            
             case 'sphere':
                 return new THREE.SphereGeometry(0.5, segments, segments);
-
-            // --- Специфичные типы ---
-            
             case 'obelisk':
                 return new THREE.ConeGeometry(0.4, 1, 4); 
-            
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
-
-            // --- Лестницы (геометрия, выровненная по вектору подъема) ---
+                
+            // === ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ ЛЕСТНИЦ ===
             case 'stair_1':
             case 'stair_2':
-            case 'stair_3':
-                const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
+            case 'stair_3': {
+                const levels = parseInt(type.split('_')[1]);
+                const totalHeight = levels * levelHeight;
                 
+                // Фиксированные параметры ступени (независимые от масштаба!)
                 const stepH = 1.5; 
                 const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
                 
-                const totalHeight = levels * levelHeight;
                 const stepsCount = Math.floor(totalHeight / stepH);
-                const totalLength = stepsCount * stepD; // Длина вдоль наклона
+                const totalLength = stepsCount * stepD;
                 
                 const geometries = [];
-
+                
+                // Создаем каждую ступеньку отдельно с правильными размерами
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
                     
-                    // Смещаем ступеньку вдоль локальной оси X (которая станет направлением лестницы)
-                    // и вверх по локальной оси Y
-                    const xLocal = -totalLength / 2 + (i * stepD) + (stepD / 2);
-                    const yLocal = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    // Позиционируем ступеньку вдоль локальной оси X (направление подъема)
+                    // и поднимаем по Y. Начало координат - нижний край первой ступени.
+                    const xLocal = i * stepD + (stepD / 2);
+                    const yLocal = i * stepH + (stepH / 2);
                     
                     stepGeo.translate(xLocal, yLocal, 0);
                     geometries.push(stepGeo);
                 }
                 
+                // Добавляем боковые стенки (опционально, для жесткости)
+                if (stepsCount > 0) {
+                    const sideGeo = new THREE.BoxGeometry(totalLength, totalHeight, 0.2);
+                    sideGeo.translate(totalLength / 2, totalHeight / 2, -width / 2 - 0.1);
+                    geometries.push(sideGeo);
+                    
+                    const sideGeo2 = sideGeo.clone();
+                    sideGeo2.translate(0, 0, width + 0.2);
+                    geometries.push(sideGeo2);
+                }
+                
                 return mergeGeometries(geometries);
+            }
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
+
     
     /**
      * Выгрузка неиспользуемых чанков
