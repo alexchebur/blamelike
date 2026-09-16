@@ -1,9 +1,4 @@
 // @ts-check
-/**
- * ChunkManager — управляет загрузкой/выгрузкой чанков вокруг камеры
- * Реализует LRU-кэш, LOD по дистанции и стриминг
- */
-
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createChunkKey, worldToChunk } from '../core/chunkKey.js';
@@ -12,43 +7,18 @@ import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
 
 class ChunkManager {
-    /**
-     * @param {import('../render/sceneManager.js').default} sceneManager 
-     */
     constructor(sceneManager) {
         this.sceneManager = sceneManager;
-        
-        // Хранилище активных чанков: Map<key, THREE.Group>
         this.activeChunks = new Map();
-        
-        // LRU-кэш для данных примитивов (не мешей!)
         this.cache = new ChunkCache(50);
-        
-        // Текущая позиция камеры (для отслеживания движения)
         this.lastCameraChunk = null;
-        
-        // Настройки
         this.config = null;
     }
     
-    /**
-     * Обновление чанков вокруг камеры
-     * Вызывается каждый кадр или при значительном движении камеры
-     * @param {THREE.Vector3} cameraPos - позиция камеры
-     * @param {Object} config - текущая конфигурация
-     */
     update(cameraPos, config) {
         this.config = config;
+        const currentChunk = worldToChunk(cameraPos.x, cameraPos.y, cameraPos.z, config.chunkSize);
         
-        // Определяем чанк, в котором находится камера
-        const currentChunk = worldToChunk(
-            cameraPos.x,
-            cameraPos.y,
-            cameraPos.z,
-            config.chunkSize
-        );
-        
-        // Если камера перешла в новый чанк или изменились настройки
         if (!this.lastCameraChunk || 
             currentChunk.cx !== this.lastCameraChunk.cx ||
             currentChunk.cy !== this.lastCameraChunk.cy ||
@@ -59,118 +29,69 @@ class ChunkManager {
         }
     }
     
-    /**
-     * Обновление видимых чанков вокруг заданной позиции
-     * @param {{cx: number, cy: number, cz: number}} centerChunk 
-     * @param {Object} config 
-     * @param {THREE.Vector3} cameraPos
-     */
     updateVisibleChunks(centerChunk, config, cameraPos) {
         const { viewChunksXY, viewChunksZ } = config;
-        
-        // Множество ключей чанков, которые должны быть видны
         const desiredChunks = new Set();
         
-        // Генерируем список всех чанков в радиусе видимости
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
             for (let dy = -viewChunksXY; dy <= viewChunksXY; dy++) {
                 for (let dz = -viewChunksZ; dz <= viewChunksZ; dz++) {
                     const cx = centerChunk.cx + dx;
                     const cy = centerChunk.cy + dy;
                     const cz = centerChunk.cz + dz;
-                    
                     const key = createChunkKey(cx, cy, cz);
                     desiredChunks.add(key);
                     
-                    // Загружаем чанк если его нет
                     if (!this.activeChunks.has(key)) {
                         this.loadChunk(cx, cy, cz, config, cameraPos);
                     } else {
-                        // Если чанк уже есть, возможно стоит обновить его LOD
                         this.updateChunkLOD(key, cameraPos, config);
                     }
                 }
             }
         }
-        
-        // Выгружаем чанки, которые больше не нужны
         this.unloadUnusedChunks(desiredChunks);
     }
     
-    /**
-     * Загрузка одного чанка
-     * @param {number} cx 
-     * @param {number} cy 
-     * @param {number} cz 
-     * @param {Object} config 
-     * @param {THREE.Vector3} cameraPos
-     */
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
-        
-        // Проверяем кэш данных (PrimitiveRecord[])
         let chunkData = this.cache.get(key);
         
         if (!chunkData) {
             console.log(`🔄 Generating data for chunk [${cx}, ${cy}, ${cz}]`);
             chunkData = generateChunk(cx, cy, cz, config.seed, config);
-            
-            // Сохраняем сырые данные в кэш
             this.cache.set(key, chunkData);
         }
         
-        // Создаем визуальное представление (Mesh)
         const group = this.createChunkMesh(chunkData, config);
-        
-        // Добавляем в активные чанки и сцену
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
     }
 
-    /**
-     * Обновление LOD существующего чанка (заглушка для будущей логики)
-     * @param {string} key 
-     * @param {THREE.Vector3} cameraPos 
-     * @param {Object} config 
-     */
-    updateChunkLOD(key, cameraPos, config) {
-        // Здесь можно реализовать пересборку меша при изменении дистанции
-    }
+    updateChunkLOD(key, cameraPos, config) { /* Заглушка */ }
     
-    /**
-     * Создание Three.js мешей из данных чанка
-     * @param {Array} primitives 
-     * @param {Object} config 
-     * @returns {THREE.Group}
-     */
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
         
-        // 1. Сначала рисуем ЛИНИИ (они не используют InstancedMesh)
+        // Линии
         const linePrimitives = primitives.filter(p => p.type === 'line');
         if (linePrimitives.length > 0) {
-            const lineMaterial = new THREE.LineBasicMaterial({ 
-                color: 0xff3333, // Ярко-красный для заметности
-                linewidth: 2 
-            });
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff3333, linewidth: 2 });
             const lineGeometry = new THREE.BufferGeometry();
             const positions = [];
             
             for (const p of linePrimitives) {
-                // Начало линии
                 positions.push(p.position.x, p.position.y, p.position.z);
-                // Конец линии (хранится в scale)
                 positions.push(p.scale.x, p.scale.y, p.scale.z);
             }
             
             lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             const lines = new THREE.LineSegments(lineGeometry, lineMaterial);
-            // Отключаем frustum culling для линий, чтобы они не исчезали при движении камеры
             lines.frustumCulled = false; 
             group.add(lines);
         }
 
-        // 2. Группируем и рисуем ОБЫЧНЫЕ ПРИМИТИВЫ (включая лестницы)
+        // Меши
         const meshPrimitives = primitives.filter(p => p.type !== 'line');
         const grouped = this.groupPrimitives(meshPrimitives);
         
@@ -183,35 +104,16 @@ class ChunkManager {
         return group;
     }
     
-    /**
-     * Группировка примитивов по типу геометрии и цветовому слоту
-     * @param {Array} primitives 
-     * @returns {Object} { "box|base": [...], "cylinder|accent": [...] }
-     */
     groupPrimitives(primitives) {
         const grouped = {};
-        
         for (const prim of primitives) {
             const key = `${prim.type}|${prim.paletteSlot}`;
-            
-            if (!grouped[key]) {
-                grouped[key] = [];
-            }
-            
+            if (!grouped[key]) grouped[key] = [];
             grouped[key].push(prim);
         }
-        
         return grouped;
     }
     
-    /**
-     * Создание InstancedMesh для группы примитивов
-     * @param {string} type - тип геометрии
-     * @param {string} slot - цветовой слот
-     * @param {Array} items - массив примитивов
-     * @param {Object} config 
-     * @returns {THREE.InstancedMesh|null}
-     */
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
@@ -220,16 +122,13 @@ class ChunkManager {
         
         const geometry = this.createGeometry(type, config);
         const material = new THREE.MeshLambertMaterial({
-            color: new THREE.Color(colorHex),
-            flatShading: true,
-            side: THREE.DoubleSide
+            color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
         });
         
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
         mesh.frustumCulled = true;
         
         const dummy = new THREE.Object3D();
-        // Вспомогательные векторы для построения матрицы ориентации
         const xAxis = new THREE.Vector3();
         const yAxis = new THREE.Vector3();
         const zAxis = new THREE.Vector3();
@@ -241,72 +140,51 @@ class ChunkManager {
             let posX = item.position.x;
             let posY = item.position.y;
             let posZ = item.position.z;
-            
             let scaleX = item.scale.x;
             let scaleY = item.scale.y;
             let scaleZ = item.scale.z;
             
-            // === СПЕЦИАЛЬНАЯ ОБРАБОТКА ЛЕСТНИЦ (ВЕКТОРНЫЙ ПОДХОД) ===
             if (type.startsWith('stair_')) {
-                // 1. Вычисляем направление линии из генератора
                 const hasLineData = item.lineStart && item.lineEnd;
                 
                 if (hasLineData) {
-                    // Направление подъема (локальная ось X лестницы)
+                    // Векторная ориентация по линии
                     xAxis.set(
                         item.lineEnd.x - item.lineStart.x,
                         item.lineEnd.y - item.lineStart.y,
                         item.lineEnd.z - item.lineStart.z
                     ).normalize();
                     
-                    // Вертикаль мира (ось Z)
                     zAxis.set(0, 0, 1);
-                    
-                    // Локальная ось Y (перпендикуляр к направлению и вертикали)
-                    // crossVectors(a, b) = a × b. Порядок важен!
                     yAxis.crossVectors(zAxis, xAxis).normalize();
-                    
-                    // Пересчитываем Z, чтобы система была ортонормированной
                     zAxis.crossVectors(xAxis, yAxis).normalize();
                     
-                    // Применяем коррекцию длины
+                    // Коррекция длины только если есть данные
                     if (item.lineLength && config.stairLengthScale) {
                         const baseLength = geometry.boundingBox ? 
                             geometry.boundingBox.max.x - geometry.boundingBox.min.x : 1;
-                        // Защита от деления на ноль
                         if (baseLength > 0.001) {
                             scaleX = (item.lineLength * config.stairLengthScale) / baseLength;
                         }
                     }
                     
-                    // Строим матрицу поворота напрямую из осей
                     tempMatrix.makeBasis(xAxis, yAxis, zAxis);
-                    
-                    // Устанавливаем позицию и масштаб
                     dummy.position.set(posX, posY, posZ);
                     dummy.scale.set(scaleX, scaleY, scaleZ);
-                    
-                    // Копируем матрицу поворота в dummy
                     dummy.quaternion.setFromRotationMatrix(tempMatrix);
                     
                 } else {
-                    // Fallback для старых данных без lineStart/lineEnd
+                    // Fallback
                     let tiltX = item.rotation.tiltX || 0;
                     let twistZ = item.rotation.twistZ || 0;
-                    
                     tiltX += config.stairTiltOffset || 0;
                     twistZ += config.stairTwistOffset || 0;
                     
                     dummy.position.set(posX, posY, posZ);
-                    dummy.rotation.set(
-                        THREE.MathUtils.degToRad(tiltX),
-                        0,
-                        THREE.MathUtils.degToRad(twistZ)
-                    );
+                    dummy.rotation.set(THREE.MathUtils.degToRad(tiltX), 0, THREE.MathUtils.degToRad(twistZ));
                     dummy.scale.set(scaleX, scaleY, scaleZ);
                 }
             } else {
-                // === СТАНДАРТНАЯ ОБРАБОТКА ДЛЯ ОСТАЛЬНЫХ ОБЪЕКТОВ ===
                 let tiltX = item.rotation.tiltX || 0;
                 let tiltY = item.rotation.tiltY || 0;
                 let twistZ = item.rotation.twistZ || 0;
@@ -319,7 +197,6 @@ class ChunkManager {
                 );
                 dummy.scale.set(scaleX, scaleY, scaleZ);
             }
-            // ==============================================
             
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
@@ -329,47 +206,30 @@ class ChunkManager {
         return mesh;
     }
 
-    
-    /**
-     * Создание геометрии по типу
-     * @param {string} type 
-     * @param {Object} config 
-     * @returns {THREE.BufferGeometry}
-     */
     createGeometry(type, config) {
         const segments = config.maxSegments || 16;
         const levelHeight = config.levelHeight || 20;
         
         switch (type) {
-            case 'box':
-                return new THREE.BoxGeometry(1, 1, 1);
-            case 'cylinder':
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            case 'cone':
-                return new THREE.ConeGeometry(0.5, 1, segments);
-            case 'octahedron':
-                return new THREE.OctahedronGeometry(0.5);
-            case 'capsule':
-                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            case 'torus':
-                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            case 'prism':
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
-            case 'sphere':
-                return new THREE.SphereGeometry(0.5, segments, segments);
-            case 'obelisk':
-                return new THREE.ConeGeometry(0.4, 1, 4); 
-            case 'spire':
-                return new THREE.ConeGeometry(0.2, 1, 8);
-                
-            // === ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ ЛЕСТНИЦ (ANCHOR MODE) ===
+            case 'box': return new THREE.BoxGeometry(1, 1, 1);
+            case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
+            case 'cone': return new THREE.ConeGeometry(0.5, 1, segments);
+            case 'octahedron': return new THREE.OctahedronGeometry(0.5);
+            case 'capsule': return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
+            case 'torus': return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
+            case 'prism': return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+            case 'sphere': return new THREE.SphereGeometry(0.5, segments, segments);
+            case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
+            case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
+            
+            // ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ ЛЕСТНИЦ
             case 'stair_1':
             case 'stair_2':
             case 'stair_3': {
                 const levels = parseInt(type.split('_')[1]);
                 const totalHeight = levels * levelHeight;
                 
-                // Фиксированные параметры ступени
+                // ФИКСИРОВАННЫЕ ПАРАМЕТРЫ СТУПЕНИ
                 const stepH = 1.5; 
                 const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
@@ -379,14 +239,10 @@ class ChunkManager {
                 
                 const geometries = [];
                 
-                // Создаем каждую ступеньку отдельно
-                // ВАЖНО: Первая ступенька начинается строго в (0,0,0) по нижнему краю
+                // Создаем ступени так, чтобы (0,0,0) был внизу первой ступени
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
-                    
-                    // Смещаем центр ступеньки так, чтобы её нижний передний угол был в (0,0,0)
-                    // X: половина глубины + смещение на i шагов
-                    // Y: половина высоты + смещение на i шагов
+                    // Смещение: X вдоль подъема, Y вверх
                     const xLocal = (i * stepD) + (stepD / 2);
                     const yLocal = (i * stepH) + (stepH / 2);
                     
@@ -394,11 +250,9 @@ class ChunkManager {
                     geometries.push(stepGeo);
                 }
                 
-                // Добавляем боковые стенки
-                // Они должны начинаться от (0,0,0) и идти до конца лестницы
+                // Боковые стенки
                 if (stepsCount > 0) {
                     const sideGeo = new THREE.BoxGeometry(totalLength, totalHeight, 0.2);
-                    // Центр стенки: половина длины, половина высоты, смещение по Z
                     sideGeo.translate(totalLength / 2, totalHeight / 2, -width / 2 - 0.1);
                     geometries.push(sideGeo);
                     
@@ -416,30 +270,16 @@ class ChunkManager {
         }
     }
 
-    
-    /**
-     * Выгрузка неиспользуемых чанков
-     * @param {Set} desiredKeys - множество ключей чанков, которые должны остаться
-     */
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
-                // Удаляем из сцены
                 this.sceneManager.scene.remove(chunk);
-                
-                // Освобождаем память (геометрию и материалы)
                 this.disposeChunk(chunk);
-                
-                // Удаляем из активных
                 this.activeChunks.delete(key);
             }
         }
     }
     
-    /**
-     * Освобождение ресурсов чанка
-     * @param {THREE.Group} chunk 
-     */
     disposeChunk(chunk) {
         chunk.traverse((child) => {
             if (child.isInstancedMesh) {
@@ -449,20 +289,15 @@ class ChunkManager {
         });
     }
     
-    /**
-     * Очистка всех чанков
-     */
     clear() {
         for (const [key, chunk] of this.activeChunks) {
             this.sceneManager.scene.remove(chunk);
             this.disposeChunk(chunk);
         }
-        
         this.activeChunks.clear();
         this.cache.clear();
         this.lastCameraChunk = null;
-        
-        console.log(' All chunks cleared');
+        console.log('🧹 All chunks cleared');
     }
 }
 
