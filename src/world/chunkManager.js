@@ -210,9 +210,7 @@ class ChunkManager {
      * @param {string} slot - цветовой слот
      * @param {Array} items - массив примитивов
      * @param {Object} config 
-     * @returns {THREE.InstancedMesh|null}
-     */
-    /**
+     * @returns {THREE.InstancedMesh|    /**
      * Создание InstancedMesh для группы примитивов
      * @param {string} type - тип геометрии
      * @param {string} slot - цветовой слот
@@ -223,99 +221,120 @@ class ChunkManager {
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
-        // Получаем палитру из конфига
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-        // Создаем геометрию (общую для всех инстансов этого типа)
         const geometry = this.createGeometry(type, config);
-        
-        // Создаем материал
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex),
             flatShading: true,
             side: THREE.DoubleSide
         });
         
-        // Создаем InstancedMesh
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
-        mesh.frustumCulled = true; // Включаем отсечение по фрустуму
+        mesh.frustumCulled = true;
         
-        // Устанавливаем матрицы для каждого инстанса
         const dummy = new THREE.Object3D();
-        const localOffset = new THREE.Vector3(); // Для вычисления смещения pivot
+        // Вспомогательные векторы для построения матрицы ориентации
+        const xAxis = new THREE.Vector3();
+        const yAxis = new THREE.Vector3();
+        const zAxis = new THREE.Vector3();
+        const tempMatrix = new THREE.Matrix4();
         
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             
-            // Базовые параметры из генератора
             let posX = item.position.x;
             let posY = item.position.y;
             let posZ = item.position.z;
-            
-            let tiltX = item.rotation.tiltX || 0;
-            let tiltY = item.rotation.tiltY || 0;
-            let twistZ = item.rotation.twistZ || 0;
             
             let scaleX = item.scale.x;
             let scaleY = item.scale.y;
             let scaleZ = item.scale.z;
             
-            // === СПЕЦИАЛЬНАЯ ОБРАБОТКА ЛЕСТНИЦ ===
+            // === СПЕЦИАЛЬНАЯ ОБРАБОТКА ЛЕСТНИЦ (ВЕКТОРНЫЙ ПОДХОД) ===
             if (type.startsWith('stair_')) {
-                // 1. Применяем угловые смещения из старого тюнинга
-                twistZ += config.stairTwistOffset || 0;
-                tiltX += config.stairTiltOffset || 0;
+                // 1. Вычисляем направление линии из генератора
+                // Генератор хранит lineStart и lineEnd только если используется Anchor Mode
+                const hasLineData = item.lineStart && item.lineEnd;
                 
-                // 2. Применяем геометрические коррекции из дебаг-панели
-                const pivotX = config.stairPivotOffsetX || 0;
-                const pivotY = config.stairPivotOffsetY || 0;
-                const lengthScale = config.stairLengthScale || 1.0;
-                
-                // Смещаем позицию инстанса в локальных координатах лестницы
-                // Локальная ось X лестницы - это направление подъема
-                // Локальная ось Y лестницы - это вертикаль ступеней
-                if (pivotX !== 0 || pivotY !== 0) {
-                    // Вычисляем смещение в мировых координатах на основе текущего поворота
-                    localOffset.set(pivotX, pivotY, 0);
-                    localOffset.applyEuler(new THREE.Euler(
-                        THREE.MathUtils.degToRad(tiltX),
-                        THREE.MathUtils.degToRad(tiltY),
-                        THREE.MathUtils.degToRad(twistZ)
-                    ));
+                if (hasLineData) {
+                    // Направление подъема (локальная ось X лестницы)
+                    xAxis.set(
+                        item.lineEnd.x - item.lineStart.x,
+                        item.lineEnd.y - item.lineStart.y,
+                        item.lineEnd.z - item.lineStart.z
+                    ).normalize();
                     
-                    posX += localOffset.x;
-                    posY += localOffset.y;
-                    posZ += localOffset.z;
+                    // Вертикаль мира (ось Z)
+                    zAxis.set(0, 0, 1);
+                    
+                    // Локальная ось Y (перпендикуляр к направлению и вертикали)
+                    yAxis.crossVectors(zAxis, xAxis).normalize();
+                    
+                    // Пересчитываем Z, чтобы система была ортонормированной
+                    // Это гарантирует, что ступени будут параллельны горизонту
+                    zAxis.crossVectors(xAxis, yAxis).normalize();
+                    
+                    // Применяем коррекцию длины
+                    if (item.lineLength && config.stairLengthScale) {
+                        const baseLength = geometry.boundingBox ? 
+                            geometry.boundingBox.max.x - geometry.boundingBox.min.x : 1;
+                        scaleX = (item.lineLength * config.stairLengthScale) / baseLength;
+                    }
+                    
+                    // Строим матрицу поворота напрямую из осей
+                    // Столбцы матрицы = локальные оси объекта в мировых координатах
+                    tempMatrix.makeBasis(xAxis, yAxis, zAxis);
+                    
+                    // Устанавливаем позицию и масштаб
+                    dummy.position.set(posX, posY, posZ);
+                    dummy.scale.set(scaleX, scaleY, scaleZ);
+                    
+                    // Копируем матрицу поворота в dummy
+                    dummy.quaternion.setFromRotationMatrix(tempMatrix);
+                    
+                } else {
+                    // Fallback для старых данных без lineStart/lineEnd
+                    // Используем старые углы, но с защитой от gimbal lock
+                    let tiltX = item.rotation.tiltX || 0;
+                    let twistZ = item.rotation.twistZ || 0;
+                    
+                    tiltX += config.stairTiltOffset || 0;
+                    twistZ += config.stairTwistOffset || 0;
+                    
+                    dummy.position.set(posX, posY, posZ);
+                    dummy.rotation.set(
+                        THREE.MathUtils.degToRad(tiltX),
+                        0,
+                        THREE.MathUtils.degToRad(twistZ)
+                    );
+                    dummy.scale.set(scaleX, scaleY, scaleZ);
                 }
+            } else {
+                // === СТАНДАРТНАЯ ОБРАБОТКА ДЛЯ ОСТАЛЬНЫХ ОБЪЕКТОВ ===
+                let tiltX = item.rotation.tiltX || 0;
+                let tiltY = item.rotation.tiltY || 0;
+                let twistZ = item.rotation.twistZ || 0;
                 
-                // Масштабируем длину лестницы вдоль её оси направления (локальный X)
-                if (lengthScale !== 1.0) {
-                    scaleX *= lengthScale;
-                }
+                dummy.position.set(posX, posY, posZ);
+                dummy.rotation.set(
+                    THREE.MathUtils.degToRad(tiltX),
+                    THREE.MathUtils.degToRad(tiltY),
+                    THREE.MathUtils.degToRad(twistZ)
+                );
+                dummy.scale.set(scaleX, scaleY, scaleZ);
             }
             // ==============================================
-            
-            // Устанавливаем финальные трансформации
-            dummy.position.set(posX, posY, posZ);
-            
-            // Конвертируем градусы в радианы
-            dummy.rotation.set(
-                THREE.MathUtils.degToRad(tiltX),
-                THREE.MathUtils.degToRad(tiltY),
-                THREE.MathUtils.degToRad(twistZ)
-            );
-            
-            dummy.scale.set(scaleX, scaleY, scaleZ);
             
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
         }
         
         mesh.instanceMatrix.needsUpdate = true;
-        
         return mesh;
     }
+
     
     /**
      * Создание геометрии по типу
