@@ -1,5 +1,5 @@
    
-***
+*** 
 
 # Blame! Industrial Landscape Generator
 
