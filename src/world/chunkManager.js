@@ -210,12 +210,6 @@ class ChunkManager {
      * @param {string} slot - цветовой слот
      * @param {Array} items - массив примитивов
      * @param {Object} config 
-     * @returns {THREE.InstancedMesh|    /**
-     * Создание InstancedMesh для группы примитивов
-     * @param {string} type - тип геометрии
-     * @param {string} slot - цветовой слот
-     * @param {Array} items - массив примитивов
-     * @param {Object} config 
      * @returns {THREE.InstancedMesh|null}
      */
     createInstancedMesh(type, slot, items, config) {
@@ -255,7 +249,6 @@ class ChunkManager {
             // === СПЕЦИАЛЬНАЯ ОБРАБОТКА ЛЕСТНИЦ (ВЕКТОРНЫЙ ПОДХОД) ===
             if (type.startsWith('stair_')) {
                 // 1. Вычисляем направление линии из генератора
-                // Генератор хранит lineStart и lineEnd только если используется Anchor Mode
                 const hasLineData = item.lineStart && item.lineEnd;
                 
                 if (hasLineData) {
@@ -270,21 +263,23 @@ class ChunkManager {
                     zAxis.set(0, 0, 1);
                     
                     // Локальная ось Y (перпендикуляр к направлению и вертикали)
+                    // crossVectors(a, b) = a × b. Порядок важен!
                     yAxis.crossVectors(zAxis, xAxis).normalize();
                     
                     // Пересчитываем Z, чтобы система была ортонормированной
-                    // Это гарантирует, что ступени будут параллельны горизонту
                     zAxis.crossVectors(xAxis, yAxis).normalize();
                     
                     // Применяем коррекцию длины
                     if (item.lineLength && config.stairLengthScale) {
                         const baseLength = geometry.boundingBox ? 
                             geometry.boundingBox.max.x - geometry.boundingBox.min.x : 1;
-                        scaleX = (item.lineLength * config.stairLengthScale) / baseLength;
+                        // Защита от деления на ноль
+                        if (baseLength > 0.001) {
+                            scaleX = (item.lineLength * config.stairLengthScale) / baseLength;
+                        }
                     }
                     
                     // Строим матрицу поворота напрямую из осей
-                    // Столбцы матрицы = локальные оси объекта в мировых координатах
                     tempMatrix.makeBasis(xAxis, yAxis, zAxis);
                     
                     // Устанавливаем позицию и масштаб
@@ -296,7 +291,6 @@ class ChunkManager {
                     
                 } else {
                     // Fallback для старых данных без lineStart/lineEnd
-                    // Используем старые углы, но с защитой от gimbal lock
                     let tiltX = item.rotation.tiltX || 0;
                     let twistZ = item.rotation.twistZ || 0;
                     
@@ -368,14 +362,14 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
                 
-            // === ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ ЛЕСТНИЦ ===
+            // === ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ ЛЕСТНИЦ (ANCHOR MODE) ===
             case 'stair_1':
             case 'stair_2':
             case 'stair_3': {
                 const levels = parseInt(type.split('_')[1]);
                 const totalHeight = levels * levelHeight;
                 
-                // Фиксированные параметры ступени (независимые от масштаба!)
+                // Фиксированные параметры ступени
                 const stepH = 1.5; 
                 const stepD = 1.5;  
                 const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
@@ -385,22 +379,26 @@ class ChunkManager {
                 
                 const geometries = [];
                 
-                // Создаем каждую ступеньку отдельно с правильными размерами
+                // Создаем каждую ступеньку отдельно
+                // ВАЖНО: Первая ступенька начинается строго в (0,0,0) по нижнему краю
                 for (let i = 0; i < stepsCount; i++) {
                     const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
                     
-                    // Позиционируем ступеньку вдоль локальной оси X (направление подъема)
-                    // и поднимаем по Y. Начало координат - нижний край первой ступени.
-                    const xLocal = i * stepD + (stepD / 2);
-                    const yLocal = i * stepH + (stepH / 2);
+                    // Смещаем центр ступеньки так, чтобы её нижний передний угол был в (0,0,0)
+                    // X: половина глубины + смещение на i шагов
+                    // Y: половина высоты + смещение на i шагов
+                    const xLocal = (i * stepD) + (stepD / 2);
+                    const yLocal = (i * stepH) + (stepH / 2);
                     
                     stepGeo.translate(xLocal, yLocal, 0);
                     geometries.push(stepGeo);
                 }
                 
-                // Добавляем боковые стенки (опционально, для жесткости)
+                // Добавляем боковые стенки
+                // Они должны начинаться от (0,0,0) и идти до конца лестницы
                 if (stepsCount > 0) {
                     const sideGeo = new THREE.BoxGeometry(totalLength, totalHeight, 0.2);
+                    // Центр стенки: половина длины, половина высоты, смещение по Z
                     sideGeo.translate(totalLength / 2, totalHeight / 2, -width / 2 - 0.1);
                     geometries.push(sideGeo);
                     
@@ -464,7 +462,7 @@ class ChunkManager {
         this.cache.clear();
         this.lastCameraChunk = null;
         
-        console.log('🧹 All chunks cleared');
+        console.log(' All chunks cleared');
     }
 }
 
