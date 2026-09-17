@@ -80,48 +80,52 @@ export function generateChunk(cx, cy, cz, seed, config) {
 
 /**
  * Этап A: Генерация платформ с интегрированными лестницами
- * ГАРАНТИЯ: Лестница создается ТОЛЬКО если есть целевая платформа через 1 клетку на уровне выше
+ * ИСПРАВЛЕНИЕ: Явная синхронизация индексов уровней и мировых координат Z
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
-    const startLevel = Math.ceil(bounds.min.z / levelHeight);
-    const endLevel = Math.floor(bounds.max.z / levelHeight);
+    
+    // Определяем диапазон индексов уровней строго по границам чанка
+    const minLevelIndex = Math.floor(bounds.min.z / levelHeight);
+    const maxLevelIndex = Math.ceil(bounds.max.z / levelHeight);
 
-    // 1. Предварительная генерация карт всех уровней для анализа соседей
+    // 1. Предварительная генерация карт всех уровней
+    // Ключ карты теперь — абсолютный индекс уровня, а не относительный
     const levelMaps = new Map();
-    for (let level = startLevel; level <= endLevel; level++) {
+    
+    for (let lvlIdx = minLevelIndex; lvlIdx <= maxLevelIndex; lvlIdx++) {
         const map = new Map();
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                // Хеш зависит от абсолютного индекса уровня!
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, lvlIdx, seed);
                 map.set(key, baseHash < roomDensity);
             }
         }
-        levelMaps.set(level, map);
+        levelMaps.set(lvlIdx, map);
     }
 
-    // 2. Создание примитивов на основе анализа карт
-    for (let level = startLevel; level <= endLevel; level++) {
-        const currentMap = levelMaps.get(level);
-        const upperMap = levelMaps.get(level + 1); 
-        const z = level * levelHeight;
+    // 2. Создание примитивов
+    for (let lvlIdx = minLevelIndex; lvlIdx <= maxLevelIndex; lvlIdx++) {
+        const currentMap = levelMaps.get(lvlIdx);
+        // Цель всегда находится на уровне lvlIdx + 1
+        const upperMap = levelMaps.get(lvlIdx + 1); 
+        
+        // Мировая координата Z вычисляется ТОЛЬКО из индекса
+        const z = lvlIdx * levelHeight;
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
                 
-                // Пропускаем пустые клетки текущего уровня
                 if (!currentMap.get(key)) continue;
 
                 let stairType = null;
 
-                // Ищем цель ТОЛЬКО если существует уровень выше
+                // Проверка цели на УРОВНЕ ВЫШЕ (lvlIdx + 1)
                 if (upperMap) {
-                    // Строгая проверка: [ПУСТО] -> [ЦЕЛЬ] на расстоянии ровно 2 клетки
-                    // Приоритет фиксирован для детерминизма: +X > -X > +Y > -Y
-                    
                     if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) {
                         stairType = 'x_pos';
                     } else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) {
@@ -133,9 +137,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     }
                 }
 
-                // === КЛЮЧЕВОЙ МОМЕНТ: ЯВНЫЙ ВЫБОР ТИПА ===
                 if (stairType) {
-                    // Создаем платформу С лестницей только если цель найдена
                     primitives.push({
                         type: `platform_stair_${stairType}`,
                         position: { 
@@ -150,7 +152,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         role: 'frame'
                     });
                 } else {
-                    // ВО ВСЕХ ОСТАЛЬНЫХ СЛУЧАЯХ создаем ОБЫЧНУЮ платформу
                     primitives.push({
                         type: 'box',
                         position: { 
