@@ -265,7 +265,7 @@ class ChunkManager {
             case 'platform_stair_x_pos':
             case 'platform_stair_x_neg':
             case 'platform_stair_y_pos':
-             case 'platform_stair_y_neg':
+            case 'platform_stair_y_neg':
                  const dir = type.replace('platform_stair_', '');
                  return getPlatformStairGeometry(dir);
 
