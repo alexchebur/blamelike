@@ -52,11 +52,11 @@ export function generateChunk(cx, cy, cz, seed, config) {
     }
 
     // === ЭТАП C.1: Вертикальные соединения (лестницы + линии отладки) ===
-    if (instanceCount < maxInstances) {
+   /* if (instanceCount < maxInstances) {
         const stairs = generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...stairs);
         instanceCount += stairs.length;
-    }
+    }*/
     
     // === ЭТАП D: Монолиты ===
     if (instanceCount < maxInstances) {
