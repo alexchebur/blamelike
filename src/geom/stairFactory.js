@@ -20,7 +20,7 @@ function createBaseStairPlatform() {
     const stairLength = 1.0; // Ровно 1 клетка длины (от 0.5 до 1.5)
     const stepH = (1 - 0.1) / steps; // Подъем от верха базы (0.1) до верха яруса (1.0)
     const stepD = stairLength / steps;
-    const width = 0.7; 
+    const width = 0.1; 
 
     for (let i = 0; i < steps; i++) {
         // Ступень: глубина по X, ширина по Y, высота по Z
