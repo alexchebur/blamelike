@@ -88,7 +88,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
-    // 1. Предварительная генерация карт всех уровней
+    // 1. Предварительная генерация карт всех уровней для анализа соседей
     const levelMaps = new Map();
     for (let level = startLevel; level <= endLevel; level++) {
         const map = new Map();
@@ -102,7 +102,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         levelMaps.set(level, map);
     }
 
-    // 2. Создание примитивов
+    // 2. Создание примитивов на основе анализа карт
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
         const upperMap = levelMaps.get(level + 1); 
@@ -112,7 +112,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
                 
-                // Если на текущем уровне нет платформы - пропускаем
+                // Пропускаем пустые клетки текущего уровня
                 if (!currentMap.get(key)) continue;
 
                 let stairType = null;
@@ -120,7 +120,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 // Ищем цель ТОЛЬКО если существует уровень выше
                 if (upperMap) {
                     // Строгая проверка: [ПУСТО] -> [ЦЕЛЬ] на расстоянии ровно 2 клетки
-                    // Приоритет: +X > -X > +Y > -Y
+                    // Приоритет фиксирован для детерминизма: +X > -X > +Y > -Y
                     
                     if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) {
                         stairType = 'x_pos';
@@ -150,8 +150,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         role: 'frame'
                     });
                 } else {
-                    // ВО ВСЕХ ОСТАЛЬНЫХ СЛУЧАЯХ (нет уровня выше, нет цели, граница чанка)
-                    // создаем ОБЫЧНУЮ платформу. Никаких лестниц "в никуда".
+                    // ВО ВСЕХ ОСТАЛЬНЫХ СЛУЧАЯХ создаем ОБЫЧНУЮ платформу
                     primitives.push({
                         type: 'box',
                         position: { 
