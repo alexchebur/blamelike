@@ -78,87 +78,90 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
+// src/gen/chunkGenerator.js
+// ... (начало файла без изменений)
+
 /**
- * Этап A: Генерация платформ с интегрированными лестницами
- * ИСПРАВЛЕНИЕ: Явная синхронизация индексов уровней и мировых координат Z
+ * Этап A: Генерация платформ с интегрированными лестницами + ОТЛАДОЧНЫЕ МАРКЕРЫ
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
-    
-    // Определяем диапазон индексов уровней строго по границам чанка
-    const minLevelIndex = Math.floor(bounds.min.z / levelHeight);
-    const maxLevelIndex = Math.ceil(bounds.max.z / levelHeight);
+    const startLevel = Math.ceil(bounds.min.z / levelHeight);
+    const endLevel = Math.floor(bounds.max.z / levelHeight);
 
-    // 1. Предварительная генерация карт всех уровней
-    // Ключ карты теперь — абсолютный индекс уровня, а не относительный
     const levelMaps = new Map();
-    
-    for (let lvlIdx = minLevelIndex; lvlIdx <= maxLevelIndex; lvlIdx++) {
+    for (let level = startLevel; level <= endLevel; level++) {
         const map = new Map();
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                // Хеш зависит от абсолютного индекса уровня!
-                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, lvlIdx, seed);
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 map.set(key, baseHash < roomDensity);
             }
         }
-        levelMaps.set(lvlIdx, map);
+        levelMaps.set(level, map);
     }
 
-    // 2. Создание примитивов
-    for (let lvlIdx = minLevelIndex; lvlIdx <= maxLevelIndex; lvlIdx++) {
-        const currentMap = levelMaps.get(lvlIdx);
-        // Цель всегда находится на уровне lvlIdx + 1
-        const upperMap = levelMaps.get(lvlIdx + 1); 
-        
-        // Мировая координата Z вычисляется ТОЛЬКО из индекса
-        const z = lvlIdx * levelHeight;
+    for (let level = startLevel; level <= endLevel; level++) {
+        const currentMap = levelMaps.get(level);
+        const upperMap = levelMaps.get(level + 1); 
+        const z = level * levelHeight;
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                
                 if (!currentMap.get(key)) continue;
 
                 let stairType = null;
+                let targetGx = gx;
+                let targetGy = gy;
 
-                // Проверка цели на УРОВНЕ ВЫШЕ (lvlIdx + 1)
                 if (upperMap) {
                     if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) {
-                        stairType = 'x_pos';
+                        stairType = 'x_pos'; targetGx = gx + 2;
                     } else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) {
-                        stairType = 'x_neg';
+                        stairType = 'x_neg'; targetGx = gx - 2;
                     } else if (gy + 2 < gridSize && !upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) {
-                        stairType = 'y_pos';
+                        stairType = 'y_pos'; targetGy = gy + 2;
                     } else if (gy - 2 >= 0 && !upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) {
-                        stairType = 'y_neg';
+                        stairType = 'y_neg'; targetGy = gy - 2;
                     }
                 }
 
                 if (stairType) {
+                    // 1. Создаем платформу с лестницей
                     primitives.push({
                         type: `platform_stair_${stairType}`,
-                        position: { 
-                            x: bounds.min.x + (gx + 0.5) * cellSize, 
-                            y: bounds.min.y + (gy + 0.5) * cellSize, 
-                            z 
-                        },
+                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame'
                     });
+
+                    // 2. 🚨 НЕОПРОВЕРЖИМЫЙ МАРКЕР: Светящаяся сфера ровно над целевой платформой
+                    primitives.push({
+                        type: 'sphere',
+                        position: { 
+                            x: bounds.min.x + (targetGx + 0.5) * cellSize, 
+                            y: bounds.min.y + (targetGy + 0.5) * cellSize, 
+                            z: (level + 1) * levelHeight // Уровень выше
+                        },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: 1.5, y: 1.5, z: 1.5 }, // Размер сферы
+                        paletteSlot: 'glow',
+                        flags: { emissive: true },
+                        role: 'debug'
+                    });
+                    
+                    // 3. Лог в консоль для железного доказательства
+                    console.log(`✅ STAIR CREATED at [${gx},${gy}] -> TARGET VERIFIED at [${targetGx},${targetGy}] Level ${level+1}`);
                 } else {
                     primitives.push({
                         type: 'box',
-                        position: { 
-                            x: bounds.min.x + (gx + 0.5) * cellSize, 
-                            y: bounds.min.y + (gy + 0.5) * cellSize, 
-                            z 
-                        },
+                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: platformThickness },
                         paletteSlot: 'base',
