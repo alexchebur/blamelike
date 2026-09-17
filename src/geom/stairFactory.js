@@ -16,7 +16,7 @@ function createBaseStairPlatform() {
     geometries.push(base);
 
     // 2. Лестница
-    const steps = 16; 
+    const steps = 50; 
     const stairLength = 1.0; // Ровно 1 клетка длины (от 0.5 до 1.5)
     const stepH = (1 - 0.1) / steps; // Подъем от верха базы (0.1) до верха яруса (1.0)
     const stepD = stairLength / steps;
