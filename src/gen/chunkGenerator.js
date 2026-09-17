@@ -71,57 +71,108 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
+// src/gen/chunkGenerator.js
+// ... импорты
+
 /**
- * Этап A: Генерация платформ (ярусов) с Cellular Automata
+ * Этап A: Генерация платформ с интегрированными лестницами
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
-    
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
-    
+
+    // Сначала генерируем карту всех платформ, чтобы знать соседей
+    // Map<level, Map<key, boolean>>
+    const levelMaps = new Map();
+
     for (let level = startLevel; level <= endLevel; level++) {
-        const z = level * levelHeight;
-        
-        // Сначала определяем "сырую" карту яруса
-        const rawMap = [];
+        const map = new Map();
         for (let gx = 0; gx < gridSize; gx++) {
-            rawMap[gx] = [];
             for (let gy = 0; gy < gridSize; gy++) {
+                const key = `${gx},${gy}`;
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
-                rawMap[gx][gy] = baseHash < roomDensity;
+                const isPlatform = baseHash < roomDensity;
+                map.set(key, isPlatform);
             }
         }
+        levelMaps.set(level, map);
+    }
 
-        // Применяем простое правило сглаживания (Cellular Automata)
+    // Теперь проходимся и создаем примитивы
+    for (let level = startLevel; level <= endLevel; level++) {
+        const currentMap = levelMaps.get(level);
+        const upperMap = levelMaps.get(level + 1); // Карта уровня выше
+        
+        const z = level * levelHeight;
+
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                let isPlatform = rawMap[gx][gy];
-                
-                if (!isPlatform) {
-                    let neighbors = 0;
-                    for (let dx = -1; dx <= 1; dx++) {
-                        for (let dy = -1; dy <= 1; dy++) {
-                            if (dx === 0 && dy === 0) continue;
-                            
-                            const nx = gx + dx;
-                            const ny = gy + dy;
-                            
-                            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
-                                if (rawMap[nx][ny]) neighbors++;
-                            } else {
-                                neighbors++; // Считаем границы "заполненными" для плавности
-                            }
+                const key = `${gx},${gy}`;
+                if (!currentMap.get(key)) continue; // Нет платформы - пропускаем
+
+                // Определяем тип платформы
+                let stairType = null; // 'x_pos', 'x_neg', 'y_pos', 'y_neg' или null
+
+                if (upperMap) {
+                    // Проверяем 4 направления
+                    // Приоритет: если есть несколько вариантов, выбираем первый по хешу или фиксированный порядок
+                    
+                    // Проверка +X: (gx+1, gy) должна быть пустой, а (gx+2, gy) платформой
+                    if (gx + 2 < gridSize) {
+                        const nextKey = `${gx+1},${gy}`;
+                        const targetKey = `${gx+2},${gy}`;
+                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                            stairType = 'x_pos';
                         }
                     }
                     
-                    if (neighbors >= 5) {
-                        isPlatform = true;
+                    // Проверка -X
+                    if (!stairType && gx - 2 >= 0) {
+                        const nextKey = `${gx-1},${gy}`;
+                        const targetKey = `${gx-2},${gy}`;
+                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                            stairType = 'x_neg';
+                        }
+                    }
+
+                    // Проверка +Y
+                    if (!stairType && gy + 2 < gridSize) {
+                        const nextKey = `${gx},${gy+1}`;
+                        const targetKey = `${gx},${gy+2}`;
+                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                            stairType = 'y_pos';
+                        }
+                    }
+
+                    // Проверка -Y
+                    if (!stairType && gy - 2 >= 0) {
+                        const nextKey = `${gx},${gy-1}`;
+                        const targetKey = `${gx},${gy-2}`;
+                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                            stairType = 'y_neg';
+                        }
                     }
                 }
 
-                if (isPlatform) {
+                // Создаем примитив
+                if (stairType) {
+                    primitives.push({
+                        type: `platform_stair_${stairType}`,
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: bounds.min.y + (gy + 0.5) * cellSize, 
+                            z 
+                        },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize, y: cellSize, z: levelHeight }, // Масштабируем под размер клетки и высоту яруса
+                        paletteSlot: 'base',
+                        flags: {},
+                        role: 'frame'
+                    });
+                } else {
+                    // Обычная платформа
                     primitives.push({
                         type: 'box',
                         position: { 
@@ -139,7 +190,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
     }
-    
     return primitives;
 }
 
