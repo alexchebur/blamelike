@@ -114,22 +114,6 @@ class ChunkManager {
         return grouped;
     }
     
-    /**
-     * Создание InstancedMesh для группы примитивов
-     * @param {string} type - тип геометрии
-     * @param {string} slot - цветовой слот
-     * @param {Array} items - массив примитивов
-     * @param {Object} config 
-     * @returns {THREE.InstancedMesh|null}
-     */
-    /**
-     * Создание InstancedMesh для группы примитивов
-     * @param {string} type - тип геометрии
-     * @param {string} slot - цветовой слот
-     * @param {Array} items - массив примитивов
-     * @param {Object} config 
-     * @returns {THREE.InstancedMesh|null}
-     */
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
@@ -145,10 +129,10 @@ class ChunkManager {
         mesh.frustumCulled = true;
         
         const dummy = new THREE.Object3D();
-        // Вспомогательные векторы для построения матрицы ориентации
-        const dirX = new THREE.Vector3(); // Направление вдоль линии (локальный X)
-        const upZ = new THREE.Vector3();  // Перпендикуляр к поверхности рампы (локальный Y)
-        const sideY = new THREE.Vector3(); // Горизонтальное направление вбок (локальный Z)
+        // Векторы для построения базиса
+        const xAxis = new THREE.Vector3(); // Направление вдоль линии (ДЛИНА рампы)
+        const yAxis = new THREE.Vector3(); // Нормаль к поверхности (ТОЛЩИНА рампы)
+        const zAxis = new THREE.Vector3(); // Боковое направление (ШИРИНА рампы)
         const tempMatrix = new THREE.Matrix4();
         
         for (let i = 0; i < items.length; i++) {
@@ -161,35 +145,31 @@ class ChunkManager {
             let scaleY = item.scale.y;
             let scaleZ = item.scale.z;
             
-            // === ОБРАБОТКА ЛЕСТНИЦ И РАМП (ВЕКТОРНЫЙ ПОДХОД / ANCHOR MODE) ===
+            // === ОБРАБОТКА РАМП И ЛЕСТНИЦ ===
             if (type.startsWith('stair_') || type === 'ramp') {
                 const hasLineData = item.lineStart && item.lineEnd;
                 
                 if (hasLineData) {
-                    // 1. Локальная ось X: направление вдоль линии подъема
-                    dirX.set(
+                    // 1. xAxis = направление линии (вдоль подъема)
+                    xAxis.set(
                         item.lineEnd.x - item.lineStart.x,
                         item.lineEnd.y - item.lineStart.y,
                         item.lineEnd.z - item.lineStart.z
                     ).normalize();
                     
-                    // 2. Вертикаль мира (ось Z сцены)
+                    // 2. Вычисляем zAxis (бок) как cross(worldUp, xAxis)
+                    // Это гарантирует, что бок всегда горизонтален
                     const worldUp = new THREE.Vector3(0, 0, 1);
+                    zAxis.crossVectors(worldUp, xAxis).normalize();
                     
-                    // 3. Локальная ось Z (боковая): перпендикуляр к направлению и вертикали
-                    // crossVectors(a, b) дает вектор, перпендикулярный обоим.
-                    // Здесь мы получаем "горизонтальный" вектор, лежащий в плоскости платформы
-                    sideY.crossVectors(worldUp, dirX).normalize();
+                    // 3. Вычисляем yAxis (верх) как cross(xAxis, zAxis)
+                    // Это дает нормаль к поверхности рампы
+                    yAxis.crossVectors(xAxis, zAxis).normalize();
                     
-                    // 4. Локальная ось Y (верхняя грань): перпендикуляр к X и боковой оси
-                    // Это вектор, направленный "вверх" от поверхности рампы
-                    upZ.crossVectors(dirX, sideY).normalize();
-                    
-                    // 5. Коррекция длины (масштабирование вдоль оси X)
+                    // 4. Коррекция длины
                     if (item.lineLength && config.stairLengthScale) {
                         const baseLength = geometry.boundingBox ? 
                             geometry.boundingBox.max.x - geometry.boundingBox.min.x : 1;
-                        
                         if (baseLength > 0.001) {
                             scaleX = (item.lineLength * config.stairLengthScale) / baseLength;
                         } else {
@@ -197,21 +177,18 @@ class ChunkManager {
                         }
                     }
                     
-                    // 6. Строим матрицу: makeBasis(x, y, z)
-                    // ВАЖНО: передаем оси в порядке (dirX, upZ, sideY), чтобы сопоставить их
-                    // с локальными осями объекта (X, Y, Z)
-                    tempMatrix.makeBasis(dirX, upZ, sideY);
+                    // 5. Строим матрицу: makeBasis(X, Y, Z)
+                    // ВАЖНО: Порядок строго соответствует осям BoxGeometry(Length, Thickness, Width)
+                    tempMatrix.makeBasis(xAxis, yAxis, zAxis);
                     
-                    // 7. Применяем трансформации
                     dummy.position.set(posX, posY, posZ);
                     dummy.scale.set(scaleX, scaleY, scaleZ);
                     dummy.quaternion.setFromRotationMatrix(tempMatrix);
                     
                 } else {
-                    // Fallback для старых данных без lineStart/lineEnd
+                    // Fallback
                     let tiltX = item.rotation.tiltX || 0;
                     let twistZ = item.rotation.twistZ || 0;
-                    
                     tiltX += config.stairTiltOffset || 0;
                     twistZ += config.stairTwistOffset || 0;
                     
@@ -224,7 +201,7 @@ class ChunkManager {
                     dummy.scale.set(scaleX, scaleY, scaleZ);
                 }
             } else {
-                // === СТАНДАРТНАЯ ОБРАБОТКА ДЛЯ ОСТАЛЬНЫХ ОБЪЕКТОВ ===
+                // Стандартная обработка
                 let tiltX = item.rotation.tiltX || 0;
                 let tiltY = item.rotation.tiltY || 0;
                 let twistZ = item.rotation.twistZ || 0;
@@ -268,15 +245,16 @@ class ChunkManager {
             case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
             case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
             
-            // === НОВАЯ ГЕОМЕТРИЯ РАМПЫ (для Anchor Mode) ===
             case 'ramp': {
                 const width = Math.max(0.5, (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize));
                 const thickness = 0.5;
                 
-                // Создаем рампу длиной 1, которая будет растягиваться по lineLength
-                // Pivot находится в начале (x=0), рост идет по +X
+                // BoxGeometry(width_x, height_y, depth_z)
+                // Для рампы: x=длина(1), y=толщина, z=ширина
                 const geo = new THREE.BoxGeometry(1, thickness, width);
-                // Сдвигаем так, чтобы левый нижний угол был в (0,0,0)
+                
+                // Сдвигаем так, чтобы начало (0,0,0) было в нижнем краю первой ступени/рампы
+                // translate(x, y, z)
                 geo.translate(0.5, thickness / 2, 0);
                 return geo;
             }
