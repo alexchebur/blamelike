@@ -100,6 +100,32 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         levelMaps.set(level, map);
     }
 
+/**
+ * Этап A: Генерация платформ с интегрированными лестницами
+ */
+function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+    const primitives = [];
+    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
+    const startLevel = Math.ceil(bounds.min.z / levelHeight);
+    const endLevel = Math.floor(bounds.max.z / levelHeight);
+
+    // 1. Предварительная генерация карт всех уровней для анализа соседей
+    const levelMaps = new Map();
+
+    for (let level = startLevel; level <= endLevel; level++) {
+        const map = new Map();
+        for (let gx = 0; gx < gridSize; gx++) {
+            for (let gy = 0; gy < gridSize; gy++) {
+                const key = `${gx},${gy}`;
+                // Используем hash3D для детерминированного решения о наличии платформы
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                const isPlatform = baseHash < roomDensity;
+                map.set(key, isPlatform);
+            }
+        }
+        levelMaps.set(level, map);
+    }
+
     // 2. Создание примитивов на основе анализа карт
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
