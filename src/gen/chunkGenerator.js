@@ -129,11 +129,16 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     }
                 }
 
+                // === КЛЮЧЕВОЙ МОМЕНТ: ЯВНЫЙ ВЫБОР ТИПА И ОТЛАДКА ===
                 if (stairType) {
-                    // 1. Создаем платформу с лестницей
+                    // 1. Создаем платформу с интегрированной лестницей
                     primitives.push({
                         type: `platform_stair_${stairType}`,
-                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z },
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: bounds.min.y + (gy + 0.5) * cellSize, 
+                            z 
+                        },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'base',
@@ -141,27 +146,51 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         role: 'frame'
                     });
 
-                    // 2. 🚨 НЕОПРОВЕРЖИМЫЙ МАРКЕР: Светящаяся сфера ровно над целевой платформой
+                    // 2. 🟢 ЗЕЛЁНЫЙ МАРКЕР: Источник лестницы (текущий уровень)
+                    // Показывает, ОТКУДА начинается подъём
+                    primitives.push({
+                        type: 'sphere',
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: bounds.min.y + (gy + 0.5) * cellSize, 
+                            z: z + platformThickness / 2 // Центр по высоте платформы
+                        },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: 1.0, y: 1.0, z: 1.0 },
+                        paletteSlot: 'glow', // Оранжевый/жёлтый из палитры
+                        flags: { emissive: true },
+                        role: 'debug'
+                    });
+
+                    // 3. 🔵 СИНИЙ МАРКЕР: Целевая платформа (уровень выше)
+                    // Показывает, КУДА должна вести лестница
                     primitives.push({
                         type: 'sphere',
                         position: { 
                             x: bounds.min.x + (targetGx + 0.5) * cellSize, 
                             y: bounds.min.y + (targetGy + 0.5) * cellSize, 
-                            z: (level + 1) * levelHeight // Уровень выше
+                            z: (level + 1) * levelHeight + platformThickness / 2
                         },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: 1.5, y: 1.5, z: 1.5 }, // Размер сферы
-                        paletteSlot: 'glow',
-                        flags: { emissive: true },
+                        scale: { x: 1.5, y: 1.5, z: 1.5 },
+                        paletteSlot: 'accent', // Серый/тёмный из палитры
+                        flags: { emissive: false },
                         role: 'debug'
                     });
                     
-                    // 3. Лог в консоль для железного доказательства
-                    console.log(`✅ STAIR CREATED at [${gx},${gy}] -> TARGET VERIFIED at [${targetGx},${targetGy}] Level ${level+1}`);
+                    // 4. Лог в консоль для проверки координат
+                    console.log(
+                        `🪜 STAIR [${stairType}] | SOURCE: (${gx},${gy}) Lvl ${level} -> TARGET: (${targetGx},${targetGy}) Lvl ${level+1}`
+                    );
                 } else {
+                    // Обычная платформа без лестницы
                     primitives.push({
                         type: 'box',
-                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: bounds.min.y + (gy + 0.5) * cellSize, z },
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: bounds.min.y + (gy + 0.5) * cellSize, 
+                            z 
+                        },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: platformThickness },
                         paletteSlot: 'base',
