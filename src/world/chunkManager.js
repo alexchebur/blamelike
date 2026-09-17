@@ -5,6 +5,7 @@ import { createChunkKey, worldToChunk } from '../core/chunkKey.js';
 import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
+import { getPlatformStairGeometry } from '../geom/stairFactory.js';
 
 class ChunkManager {
     constructor(sceneManager) {
@@ -259,49 +260,15 @@ class ChunkManager {
                 return geo;
             }
             
-            // === ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ ЛЕСТНИЦ ===
-            case 'stair_1':
-            case 'stair_2':
-            case 'stair_3': {
-                const levels = parseInt(type.split('_')[1]);
-                const totalHeight = levels * levelHeight;
-                
-                // Фиксированные параметры ступени
-                const stepH = 1.5; 
-                const stepD = 1.5;  
-                const width = Math.max(0.5, (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize));
-                
-                const stepsCount = Math.max(1, Math.floor(totalHeight / stepH));
-                const totalLength = stepsCount * stepD;
-                
-                const geometries = [];
-                
-                // Создаем ступени так, чтобы (0,0,0) был внизу первой ступени
-                for (let i = 0; i < stepsCount; i++) {
-                    const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
-                    // Смещение: X вдоль подъема, Y вверх
-                    // Первая ступенька начинается ровно в (0,0,0) по нижнему краю
-                    const xLocal = (i * stepD) + (stepD / 2);
-                    const yLocal = (i * stepH) + (stepH / 2);
-                    
-                    stepGeo.translate(xLocal, yLocal, 0);
-                    geometries.push(stepGeo);
-                }
-                
-                // Боковые стенки (выровнены относительно нового начала координат)
-                if (stepsCount > 0) {
-                    const sideGeo = new THREE.BoxGeometry(totalLength, totalHeight, 0.2);
-                    // Центр стенки: половина длины, половина высоты, смещение по Z
-                    sideGeo.translate(totalLength / 2, totalHeight / 2, -width / 2 - 0.1);
-                    geometries.push(sideGeo);
-                    
-                    const sideGeo2 = sideGeo.clone();
-                    sideGeo2.translate(0, 0, width + 0.2);
-                    geometries.push(sideGeo2);
-                }
-                
-                return mergeGeometries(geometries);
-            }
+         
+            // Новые типы платформ с лестницами
+            case 'platform_stair_x_pos':
+            case 'platform_stair_x_neg':
+            case 'platform_stair_y_pos':
+             case 'platform_stair_y_neg':
+                 const dir = type.replace('platform_stair_', '');
+                 return getPlatformStairGeometry(dir);
+
             
             default:
                 console.warn(`Unknown geometry type: ${type}`);
