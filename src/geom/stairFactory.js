@@ -3,36 +3,65 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /**
- * Создает базовую геометрию платформы с лестницей (единичные размеры 1x1x1)
- * Лестница идет от центра к краю (+X) и вверх до Z=1
+ * Создает геометрию платформы со встроенной лестницей (единичные размеры 1x1x1)
+ * @param {string} direction - направление лестницы: 'x_pos', 'x_neg', 'y_pos', 'y_neg'
  */
-function createBaseStairPlatform() {
+function createBaseStairPlatform(direction) {
     const geometries = [];
     
-    // 1. Платформа (основание) - тонкая плита 1x1x0.1
+    // 1. Платформа (основание) - плита 1x1 толщиной 0.1
+    // Центр плиты в (0,0,0.05), низ на Z=0
     const base = new THREE.BoxGeometry(1, 1, 0.1);
-    base.translate(0, 0, 0.05); // Поднимаем, чтобы низ был на Z=0
+    base.translate(0, 0, 0.05);
     geometries.push(base);
 
     // 2. Лестница
-    // Делаем много мелких ступеней для плавности (20 штук)
-    const steps = 20; 
-    const stepHeight = 1 / steps;
-    const stepDepth = 0.5 / steps; // Лестница занимает только половину клетки (0.5 по X)
-    const stairWidth = 0.6; // Лестница чуть уже клетки
+    // Параметры ступеней
+    const steps = 12; // Количество ступеней
+    const stairLength = 0.8; // Лестница занимает 80% клетки (начинается от центра/края платформы)
+    const stairWidth = 0.6;  // Ширина лестницы
+    
+    // Расчет размеров одной ступени
+    const stepH = 1 / steps;      // Высота ступени (в единицах геометрии, т.к. общая высота 1)
+    const stepD = stairLength / steps; // Глубина ступени
+    
+    // Смещение начала лестницы относительно центра клетки
+    // Если x_pos: лестница идет от 0 до +0.5 (правая половина)
+    // Если x_neg: лестница идет от 0 до -0.5 (левая половина)
+    let startX = 0, startY = 0;
+    let axis = 'x'; 
+    
+    if (direction === 'x_pos') { startX = 0; axis = 'x'; }
+    else if (direction === 'x_neg') { startX = -stairLength; axis = 'x'; } // Сдвигаем влево
+    else if (direction === 'y_pos') { startY = 0; axis = 'y'; }
+    else if (direction === 'y_neg') { startY = -stairLength; axis = 'y'; }
 
     for (let i = 0; i < steps; i++) {
-        // Ступень: глубина по X, высота по Y, ширина по Z
-        const step = new THREE.BoxGeometry(stepDepth, stepHeight, stairWidth);
+        // Создаем ступень
+        // Для X-направлений: ширина по Y, глубина по X
+        // Для Y-направлений: ширина по X, глубина по Y
         
-        // Позиционируем ступень:
-        // X: от 0 (центр) до 0.5 (край клетки)
-        // Z: от 0.1 (верх платформы) до 1 (верх яруса)
-        const x = (i / steps) * 0.5; 
-        const z = 0.1 + (i / steps) * (1 - 0.1);
+        let geo;
+        if (axis === 'x') {
+            geo = new THREE.BoxGeometry(stepD, stairWidth, stepH);
+        } else {
+            geo = new THREE.BoxGeometry(stairWidth, stepD, stepH);
+        }
+
+        // Позиция ступени
+        // Z: начинается с 0.1 (верх платформы) и растет до 1.0
+        const zPos = 0.1 + (i * stepH) + (stepH / 2);
         
-        step.translate(x, 0, z);
-        geometries.push(step);
+        let xPos = startX, yPos = startY;
+        
+        if (axis === 'x') {
+            xPos += (i * stepD) + (stepD / 2);
+        } else {
+            yPos += (i * stepD) + (stepD / 2);
+        }
+
+        geo.translate(xPos, yPos, zPos);
+        geometries.push(geo);
     }
     
     return mergeGeometries(geometries);
@@ -43,19 +72,8 @@ const geomCache = {};
 
 export function getPlatformStairGeometry(direction) {
     if (geomCache[direction]) return geomCache[direction];
-
-    let geo = createBaseStairPlatform();
     
-    // Поворачиваем базовую геометрию (которая смотрит в +X) в нужную сторону
-    if (direction === 'x_neg') {
-        geo.rotateZ(Math.PI);
-    } else if (direction === 'y_pos') {
-        geo.rotateZ(-Math.PI / 2);
-    } else if (direction === 'y_neg') {
-        geo.rotateZ(Math.PI / 2);
-    }
-    // 'x_pos' остается как есть
-
+    const geo = createBaseStairPlatform(direction);
     geomCache[direction] = geo;
     return geo;
 }
