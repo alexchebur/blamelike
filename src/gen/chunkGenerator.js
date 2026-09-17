@@ -83,8 +83,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
-    // Сначала генерируем карту всех платформ, чтобы знать соседей
-    // Map<level, Map<key, boolean>>
+    // 1. Предварительная генерация карт всех уровней для анализа соседей
     const levelMaps = new Map();
 
     for (let level = startLevel; level <= endLevel; level++) {
@@ -92,6 +91,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
+                // Используем hash3D для детерминированного решения о наличии платформы
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 const isPlatform = baseHash < roomDensity;
                 map.set(key, isPlatform);
@@ -100,57 +100,51 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         levelMaps.set(level, map);
     }
 
-    // Теперь проходимся и создаем примитивы
+    // 2. Создание примитивов на основе анализа карт
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
-        const upperMap = levelMaps.get(level + 1); // Карта уровня выше
+        const upperMap = levelMaps.get(level + 1); // Карта уровня выше для поиска целей лестниц
         
         const z = level * levelHeight;
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                if (!currentMap.get(key)) continue; // Нет платформы - пропускаем
+                
+                // Пропускаем пустые клетки текущего уровня
+                if (!currentMap.get(key)) continue;
 
-                // Определяем тип платформы
-                let stairType = null; // 'x_pos', 'x_neg', 'y_pos', 'y_neg' или null
+                let stairType = null;
 
+                // Ищем цель для лестницы ТОЛЬКО если есть уровень выше
                 if (upperMap) {
-                    // Проверяем 4 направления
-                    // Приоритет: если есть несколько вариантов, выбираем первый по хешу или фиксированный порядок
+                    // Проверяем 4 направления строго через ОДНУ пустую клетку (расстояние 2)
+                    // Приоритет фиксирован для детерминизма: +X -> -X -> +Y -> -Y
                     
-                    // Проверка +X: (gx+1, gy) должна быть пустой, а (gx+2, gy) платформой
-                    if (gx + 2 < gridSize) {
-                        const nextKey = `${gx+1},${gy}`;
-                        const targetKey = `${gx+2},${gy}`;
-                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                    // +X: цель в (gx+2, gy), промежуток (gx+1, gy) пуст
+                    if (!stairType && gx + 2 < gridSize) {
+                        if (!upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) {
                             stairType = 'x_pos';
                         }
                     }
                     
-                    // Проверка -X
+                    // -X: цель в (gx-2, gy), промежуток (gx-1, gy) пуст
                     if (!stairType && gx - 2 >= 0) {
-                        const nextKey = `${gx-1},${gy}`;
-                        const targetKey = `${gx-2},${gy}`;
-                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                        if (!upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) {
                             stairType = 'x_neg';
                         }
                     }
 
-                    // Проверка +Y
+                    // +Y: цель в (gx, gy+2), промежуток (gx, gy+1) пуст
                     if (!stairType && gy + 2 < gridSize) {
-                        const nextKey = `${gx},${gy+1}`;
-                        const targetKey = `${gx},${gy+2}`;
-                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                        if (!upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) {
                             stairType = 'y_pos';
                         }
                     }
 
-                    // Проверка -Y
+                    // -Y: цель в (gx, gy-2), промежуток (gx, gy-1) пуст
                     if (!stairType && gy - 2 >= 0) {
-                        const nextKey = `${gx},${gy-1}`;
-                        const targetKey = `${gx},${gy-2}`;
-                        if (!upperMap.get(nextKey) && upperMap.get(targetKey)) {
+                        if (!upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) {
                             stairType = 'y_neg';
                         }
                     }
@@ -158,6 +152,8 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 // Создаем примитив
                 if (stairType) {
+                    // Платформа со встроенной лестницей
+                    // Масштаб Z = levelHeight растягивает единичную геометрию на всю высоту яруса
                     primitives.push({
                         type: `platform_stair_${stairType}`,
                         position: { 
@@ -166,7 +162,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             z 
                         },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: levelHeight }, // Масштабируем под размер клетки и высоту яруса
+                        scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame'
