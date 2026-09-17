@@ -4,82 +4,64 @@
  * Чистая функция: принимает координаты и конфиг, возвращает массив PrimitiveRecord
  */
 
+// @ts-check
+/**
+ * ChunkGenerator — оркестратор генерации одного чанка
+ */
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 
-/**
- * Генерация одного чанка
- * @param {number} cx - координата чанка по X
- * @param {number} cy - координата чанка по Y
- * @param {number} cz - координата чанка по Z
- * @param {number} seed - сид мира
- * @param {Object} config - конфигурация генерации
- * @returns {Array} массив PrimitiveRecord
- */
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
-    
-    // Локальный RNG для чанка (детерминированный)
     const chunkSeed = hash3D(cx, cy, cz, seed);
     const rng = createRNG(Math.floor(chunkSeed * 1000000));
-    
-    // Границы чанка в мировых координатах
     const bounds = chunkToBounds(cx, cy, cz, config.chunkSize);
     const cellSize = config.chunkSize / config.gridSize;
     
-    // Счетчик инстансов для бюджета
     let instanceCount = 0;
     const maxInstances = config.maxInstancesPerChunk || 30000;
     
-    // === ЭТАП A: Ярусы (платформы) ===
+    // Этапы A-C остаются без изменений...
     const platforms = generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize);
     primitives.push(...platforms);
     instanceCount += platforms.length;
     
-    // === ЭТАП B: Комнаты и стены ===
     if (instanceCount < maxInstances) {
         const rooms = generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...rooms);
         instanceCount += rooms.length;
     }
     
-    // === ЭТАП C: Горизонтальные соединения (мосты) ===
     if (instanceCount < maxInstances) {
         const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...connections);
         instanceCount += connections.length;
     }
 
-    // === ЭТАП C.1: Вертикальные соединения (лестницы + линии отладки) ===
+    // === ЭТАП C.1: РАМПЫ (вместо лестниц) ===
     if (instanceCount < maxInstances) {
-        const stairs = generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...stairs);
-        instanceCount += stairs.length;
+        const ramps = generateRamps(cx, cy, cz, seed, config, rng, bounds, cellSize);
+        primitives.push(...ramps);
+        instanceCount += ramps.length;
     }
     
-    // === ЭТАП D: Монолиты ===
+    // Остальные этапы (Mega, Pierce, Decor, Micro) остаются без изменений
     if (instanceCount < maxInstances) {
         const mega = generateMegaStructures(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...mega);
         instanceCount += mega.length;
     }
-    
-    // === ЭТАП E: Протыкающие фигуры ===
     if (instanceCount < maxInstances) {
         const pierce = generatePierce(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...pierce);
         instanceCount += pierce.length;
     }
-    
-    // === ЭТАП F: Крупный декор ===
     if (instanceCount < maxInstances) {
         const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...decor);
         instanceCount += decor.length;
     }
-    
-    // === ЭТАП G: Микро-декор (только если включен и есть бюджет) ===
     if (config.enableMicro && instanceCount < maxInstances) {
         const micro = generateMicro(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...micro);
@@ -344,11 +326,13 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
+
+
 /**
- * Этап C.1: Генерация лестниц (ИСПРАВЛЕННАЯ ВЕРСИЯ)
- * Реализует Anchor Mode и строгий лимит на количество лестниц
+ * Этап C.1: Генерация рамп (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+ * Реализует Anchor Mode: рампа цепляется за угол платформы и тянется к цели
  */
-function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+function generateRamps(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, platformThickness } = config;
     
@@ -375,7 +359,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const targetLevel = level + targetLevels;
                 if (targetLevel > endLevel) continue;
 
-                // Ищем лучшую цель для ЭТОЙ КЛЕТКИ (независимо от угла)
+                // Ищем лучшую цель для ЭТОЙ КЛЕТКИ
                 let bestEnd = null;
                 let minDist = Infinity;
                 let bestCorner = null;
@@ -415,7 +399,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                     if (dist < minDist) {
                                         minDist = dist;
                                         bestEnd = { x: endX, y: endY, dx, dy, tx: nx, ty: ny, tcx: tCorner.x, tcy: tCorner.y };
-                                        bestCorner = corner; // Запоминаем угол, для которого нашли эту цель
+                                        bestCorner = corner;
                                     }
                                 }
                             }
@@ -461,14 +445,14 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         }
                     }
 
-                    // ГЕНЕРИРУЕМ ТОЛЬКО ОДНУ ЛЕСТНИЦУ ДЛЯ ЭТОЙ ПАРЫ
+                    // ГЕНЕРИРУЕМ ТОЛЬКО ОДНУ РАМПУ ДЛЯ ЭТОЙ ПАРЫ
                     if (isValid && rng() < stairsChance) {
                         const startX = bounds.min.x + (gx + bestCorner.x) * cellSize;
                         const startY = bounds.min.y + (gy + bestCorner.y) * cellSize;
                         const startZ = level * levelHeight + platformThickness / 2;
                         const endZ = targetLevel * levelHeight + platformThickness / 2;
 
-                        // Отладочные маркеры и линия (остаются прежними)
+                        // Отладочные маркеры и линия
                         if (config.showStairStarts) {
                             primitives.push({ type: 'sphere', position: { x: startX, y: startY, z: startZ }, scale: { x: 0.8, y: 0.8, z: 0.8 }, paletteSlot: 'glow', flags: { emissive: true }, role: 'debug' });
                         }
@@ -491,9 +475,9 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         const horizontalDist = Math.sqrt(dx*dx + dy*dy);
                         const tiltDeg = Math.atan2(dz, horizontalDist) * (180 / Math.PI);
 
-                        // Создаем примитив лестницы с ЯКОРНЫМИ ДАННЫМИ
+                        // Создаем примитив РАМПЫ с ЯКОРНЫМИ ДАННЫМИ
                         primitives.push({
-                            type: `stair_${targetLevels}`,
+                            type: 'ramp', // Используем новый тип вместо stair_N
                             position: { x: startX, y: startY, z: startZ }, // Якорь в точке старта!
                             rotation: { tiltX: -tiltDeg, tiltY: 0, twistZ: rotZ },
                             scale: { x: 1, y: 1, z: 1 },
@@ -506,7 +490,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             lengthScale: config.stairLengthScale || 1.0
                         });
                         
-                        // ВАЖНО: Прерываем цикл углов, чтобы не создать вторую лестницу с этой же клетки
+                        // Прерываем цикл углов
                         break; 
                     }
                 }
@@ -515,6 +499,8 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
+
+export default { generateChunk };
 
 /**
  * Этап D: Монолиты (крупные структуры)
