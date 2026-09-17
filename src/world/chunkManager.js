@@ -122,6 +122,14 @@ class ChunkManager {
      * @param {Object} config 
      * @returns {THREE.InstancedMesh|null}
      */
+    /**
+     * Создание InstancedMesh для группы примитивов
+     * @param {string} type - тип геометрии
+     * @param {string} slot - цветовой слот
+     * @param {Array} items - массив примитивов
+     * @param {Object} config 
+     * @returns {THREE.InstancedMesh|null}
+     */
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
@@ -138,9 +146,9 @@ class ChunkManager {
         
         const dummy = new THREE.Object3D();
         // Вспомогательные векторы для построения матрицы ориентации
-        const xAxis = new THREE.Vector3();
-        const yAxis = new THREE.Vector3();
-        const zAxis = new THREE.Vector3();
+        const dirX = new THREE.Vector3(); // Направление вдоль линии (локальный X)
+        const upZ = new THREE.Vector3();  // Перпендикуляр к поверхности рампы (локальный Y)
+        const sideY = new THREE.Vector3(); // Горизонтальное направление вбок (локальный Z)
         const tempMatrix = new THREE.Matrix4();
         
         for (let i = 0; i < items.length; i++) {
@@ -158,29 +166,30 @@ class ChunkManager {
                 const hasLineData = item.lineStart && item.lineEnd;
                 
                 if (hasLineData) {
-                    // 1. Вычисляем направление подъема (локальная ось X)
-                    xAxis.set(
+                    // 1. Локальная ось X: направление вдоль линии подъема
+                    dirX.set(
                         item.lineEnd.x - item.lineStart.x,
                         item.lineEnd.y - item.lineStart.y,
                         item.lineEnd.z - item.lineStart.z
                     ).normalize();
                     
-                    // 2. Вертикаль мира (ось Z)
-                    zAxis.set(0, 0, 1);
+                    // 2. Вертикаль мира (ось Z сцены)
+                    const worldUp = new THREE.Vector3(0, 0, 1);
                     
-                    // 3. Локальная ось Y (перпендикуляр к направлению и вертикали)
-                    // Порядок crossVectors важен для правой системы координат
-                    yAxis.crossVectors(zAxis, xAxis).normalize();
+                    // 3. Локальная ось Z (боковая): перпендикуляр к направлению и вертикали
+                    // crossVectors(a, b) дает вектор, перпендикулярный обоим.
+                    // Здесь мы получаем "горизонтальный" вектор, лежащий в плоскости платформы
+                    sideY.crossVectors(worldUp, dirX).normalize();
                     
-                    // 4. Пересчитываем Z для полной ортонормированности
-                    zAxis.crossVectors(xAxis, yAxis).normalize();
+                    // 4. Локальная ось Y (верхняя грань): перпендикуляр к X и боковой оси
+                    // Это вектор, направленный "вверх" от поверхности рампы
+                    upZ.crossVectors(dirX, sideY).normalize();
                     
                     // 5. Коррекция длины (масштабирование вдоль оси X)
                     if (item.lineLength && config.stairLengthScale) {
                         const baseLength = geometry.boundingBox ? 
                             geometry.boundingBox.max.x - geometry.boundingBox.min.x : 1;
                         
-                        // Защита от деления на ноль и NaN
                         if (baseLength > 0.001) {
                             scaleX = (item.lineLength * config.stairLengthScale) / baseLength;
                         } else {
@@ -188,8 +197,10 @@ class ChunkManager {
                         }
                     }
                     
-                    // 6. Строим матрицу поворота напрямую из осей
-                    tempMatrix.makeBasis(xAxis, yAxis, zAxis);
+                    // 6. Строим матрицу: makeBasis(x, y, z)
+                    // ВАЖНО: передаем оси в порядке (dirX, upZ, sideY), чтобы сопоставить их
+                    // с локальными осями объекта (X, Y, Z)
+                    tempMatrix.makeBasis(dirX, upZ, sideY);
                     
                     // 7. Применяем трансформации
                     dummy.position.set(posX, posY, posZ);
@@ -201,7 +212,6 @@ class ChunkManager {
                     let tiltX = item.rotation.tiltX || 0;
                     let twistZ = item.rotation.twistZ || 0;
                     
-                    // Применяем ручные коррекции из панели отладки
                     tiltX += config.stairTiltOffset || 0;
                     twistZ += config.stairTwistOffset || 0;
                     
