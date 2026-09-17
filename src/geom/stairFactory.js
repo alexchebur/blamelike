@@ -15,10 +15,10 @@ function createBaseStairPlatform() {
     geometries.push(base);
 
     // 2. Лестница
-    // Делаем много мелких ступеней для плавности
-    const steps = 30; 
+    // Делаем много мелких ступеней для плавности (20 штук)
+    const steps = 20; 
     const stepHeight = 1 / steps;
-    const stepDepth = 1 / steps;
+    const stepDepth = 0.5 / steps; // Лестница занимает только половину клетки (0.5 по X)
     const stairWidth = 0.6; // Лестница чуть уже клетки
 
     for (let i = 0; i < steps; i++) {
@@ -26,9 +26,9 @@ function createBaseStairPlatform() {
         const step = new THREE.BoxGeometry(stepDepth, stepHeight, stairWidth);
         
         // Позиционируем ступень:
-        // X: от 0 до 1 (вдоль клетки)
+        // X: от 0 (центр) до 0.5 (край клетки)
         // Z: от 0.1 (верх платформы) до 1 (верх яруса)
-        const x = (i / steps) * 1; 
+        const x = (i / steps) * 0.5; 
         const z = 0.1 + (i / steps) * (1 - 0.1);
         
         step.translate(x, 0, z);
