@@ -500,7 +500,7 @@ function generateRamps(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
-export default { generateChunk };
+
 
 /**
  * Этап D: Монолиты (крупные структуры)
