@@ -1,50 +1,54 @@
-// @ts-check
+// src/geom/stairFactory.js
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /**
- * Создает геометрию лестницы, выровненную по вектору подъема
- * ВАЖНО: Локальный центр (0,0,0) теперь находится в НИЖНЕЙ ТОЧКЕ ПЕРВОЙ СТУПЕНЬКИ
- * Ось X направлена вдоль подъема, ось Y - вертикально вверх
+ * Создает базовую геометрию платформы с лестницей (единичные размеры)
+ * Лестница идет от центра к краю (+X) и вверх
  */
-export function createStairGeometry(levels, levelHeight, width, stepDepth) {
+function createBaseStairPlatform() {
     const geometries = [];
-    const totalSteps = Math.floor((levelHeight * levels) / 1.5);
     
-    for (let i = 0; i < totalSteps; i++) {
-        // Ступенька создается относительно начала координат
-        const stepGeo = new THREE.BoxGeometry(stepDepth, 1.5, width);
-        
-        // Смещаем ступеньку ВПЕРЕД по X и ВВЕРХ по Y
-        // Первая ступенька начинается прямо в (0, 0.75, 0)
-        stepGeo.translate(
-            i * stepDepth + (stepDepth / 2), 
-            i * 1.5 + 0.75, 
-            0
-        );
-        geometries.push(stepGeo);
+    // Платформа 1x1x0.1 (толщина условная)
+    const base = new THREE.BoxGeometry(1, 1, 0.1);
+    base.translate(0, 0, 0.05);
+    geometries.push(base);
+
+    // Лестница из 5 ступеней
+    const steps = 5;
+    for (let i = 0; i < steps; i++) {
+        // Ступень: глубина 0.2, высота 0.2, ширина 0.8
+        const step = new THREE.BoxGeometry(0.2, 0.2, 0.8);
+        // Позиция: 
+        // X: от 0.1 до 0.9 (в пределах правой половины)
+        // Z: от 0.1 до 0.9 (вверх)
+        const x = 0.1 + (i * 0.2) + 0.1; 
+        const z = 0.1 + (i * 0.2) + 0.1;
+        step.translate(x, 0, z);
+        geometries.push(step);
     }
-
-    // Боковые стенки тоже смещаем относительно начала
-    const sideHeight = levelHeight * levels;
-    const sideLength = totalSteps * stepDepth;
-    const sideGeo = new THREE.BoxGeometry(sideLength, sideHeight, 0.2);
     
-    // Левая стенка
-    sideGeo.translate(sideLength / 2, sideHeight / 2, -width / 2 - 0.1);
-    geometries.push(sideGeo);
-    
-    // Правая стенка
-    const sideGeo2 = sideGeo.clone();
-    sideGeo2.translate(0, 0, width + 0.2);
-    geometries.push(sideGeo2);
-
     return mergeGeometries(geometries);
 }
 
-// Экспортируем готовые геометрии
-export const stairGeometries = {
-    1: createStairGeometry(1, 20, 2, 1.5),
-    2: createStairGeometry(2, 20, 2, 1.5),
-    3: createStairGeometry(3, 20, 2, 1.5)
-};
+// Кэш геометрий
+const geomCache = {};
+
+export function getPlatformStairGeometry(direction) {
+    if (geomCache[direction]) return geomCache[direction];
+
+    let geo = createBaseStairPlatform();
+    
+    // Поворачиваем базовую геометрию (которая смотрит в +X) в нужную сторону
+    if (direction === 'x_neg') {
+        geo.rotateZ(Math.PI);
+    } else if (direction === 'y_pos') {
+        geo.rotateZ(-Math.PI / 2);
+    } else if (direction === 'y_neg') {
+        geo.rotateZ(Math.PI / 2);
+    }
+    // 'x_pos' остается как есть
+
+    geomCache[direction] = geo;
+    return geo;
+}
