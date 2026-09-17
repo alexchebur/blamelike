@@ -1,17 +1,23 @@
+// src/gen/chunkGenerator.js
 // @ts-check
 /**
  * ChunkGenerator — оркестратор генерации одного чанка
  * Чистая функция: принимает координаты и конфиг, возвращает массив PrimitiveRecord
  */
 
-// @ts-check
-/**
- * ChunkGenerator — оркестратор генерации одного чанка
- */
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 
+/**
+ * Генерация одного чанка
+ * @param {number} cx - координата чанка по X
+ * @param {number} cy - координата чанка по Y
+ * @param {number} cz - координата чанка по Z
+ * @param {number} seed - сид мира
+ * @param {Object} config - конфигурация генерации
+ * @returns {Array} массив PrimitiveRecord
+ */
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
     const chunkSeed = hash3D(cx, cy, cz, seed);
@@ -22,46 +28,47 @@ export function generateChunk(cx, cy, cz, seed, config) {
     let instanceCount = 0;
     const maxInstances = config.maxInstancesPerChunk || 30000;
     
-    // Этапы A-C остаются без изменений...
+    // === ЭТАП A: Платформы с интегрированными лестницами ===
     const platforms = generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize);
     primitives.push(...platforms);
     instanceCount += platforms.length;
     
+    // === ЭТАП B: Комнаты и стены ===
     if (instanceCount < maxInstances) {
         const rooms = generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...rooms);
         instanceCount += rooms.length;
     }
     
+    // === ЭТАП C: Горизонтальные соединения (мосты) ===
     if (instanceCount < maxInstances) {
         const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...connections);
         instanceCount += connections.length;
     }
 
-    // === ЭТАП C.1: РАМПЫ (вместо лестниц) ===
-    if (instanceCount < maxInstances) {
-        const ramps = generateRamps(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...ramps);
-        instanceCount += ramps.length;
-    }
-    
-    // Остальные этапы (Mega, Pierce, Decor, Micro) остаются без изменений
+    // === ЭТАП D: Монолиты ===
     if (instanceCount < maxInstances) {
         const mega = generateMegaStructures(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...mega);
         instanceCount += mega.length;
     }
+    
+    // === ЭТАП E: Протыкающие фигуры ===
     if (instanceCount < maxInstances) {
         const pierce = generatePierce(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...pierce);
         instanceCount += pierce.length;
     }
+    
+    // === ЭТАП F: Крупный декор ===
     if (instanceCount < maxInstances) {
         const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...decor);
         instanceCount += decor.length;
     }
+    
+    // === ЭТАП G: Микро-декор ===
     if (config.enableMicro && instanceCount < maxInstances) {
         const micro = generateMicro(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...micro);
@@ -71,11 +78,9 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
-// src/gen/chunkGenerator.js
-// ... импорты
-
 /**
  * Этап A: Генерация платформ с интегрированными лестницами
+ * Лестница является частью меша платформы и выходит за её границы на 1 клетку
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -91,33 +96,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                // Используем hash3D для детерминированного решения о наличии платформы
-                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
-                const isPlatform = baseHash < roomDensity;
-                map.set(key, isPlatform);
-            }
-        }
-        levelMaps.set(level, map);
-    }
-
-/**
- * Этап A: Генерация платформ с интегрированными лестницами
- */
-function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
-    const primitives = [];
-    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
-    const startLevel = Math.ceil(bounds.min.z / levelHeight);
-    const endLevel = Math.floor(bounds.max.z / levelHeight);
-
-    // 1. Предварительная генерация карт всех уровней для анализа соседей
-    const levelMaps = new Map();
-
-    for (let level = startLevel; level <= endLevel; level++) {
-        const map = new Map();
-        for (let gx = 0; gx < gridSize; gx++) {
-            for (let gy = 0; gy < gridSize; gy++) {
-                const key = `${gx},${gy}`;
-                // Используем hash3D для детерминированного решения о наличии платформы
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 const isPlatform = baseHash < roomDensity;
                 map.set(key, isPlatform);
@@ -143,8 +121,8 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 let stairType = null;
 
                 // Ищем цель для лестницы ТОЛЬКО если есть уровень выше
+                // Проверяем строго через ОДНУ пустую клетку (расстояние 2)
                 if (upperMap) {
-                    // Проверяем 4 направления строго через ОДНУ пустую клетку (расстояние 2)
                     // Приоритет фиксирован для детерминизма: +X -> -X -> +Y -> -Y
                     
                     // +X: цель в (gx+2, gy), промежуток (gx+1, gy) пуст
@@ -179,7 +157,8 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 // Создаем примитив
                 if (stairType) {
                     // Платформа со встроенной лестницей
-                    // Масштаб Z = levelHeight растягивает единичную геометрию на всю высоту яруса
+                    // Геометрия лестницы выходит за пределы клетки на 1.0 единицу
+                    // Масштаб Z растягивает единичную геометрию на всю высоту яруса
                     primitives.push({
                         type: `platform_stair_${stairType}`,
                         position: { 
@@ -229,7 +208,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const zLevel = level * levelHeight;
-        // Смещение центра стены, чтобы она стояла НА платформе
         const zWall = zLevel + (levelHeight + platformThickness) / 2; 
         
         for (let gx = 0; gx < gridSize; gx++) {
@@ -397,182 +375,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     
     return primitives;
 }
-
-
-
-/**
- * Этап C.1: Генерация рамп (ИСПРАВЛЕННАЯ ВЕРСИЯ)
- * Реализует Anchor Mode: рампа цепляется за угол платформы и тянется к цели
- */
-function generateRamps(cx, cy, cz, seed, config, rng, bounds, cellSize) {
-    const primitives = [];
-    const { levelHeight, gridSize, roomDensity, stairsChance, stairHeights, platformThickness } = config;
-    
-    if (!stairHeights) return primitives;
-
-    const startLevel = Math.ceil(bounds.min.z / levelHeight);
-    const endLevel = Math.floor(bounds.max.z / levelHeight);
-
-    for (let level = startLevel; level < endLevel; level++) {
-        for (let gx = 0; gx < gridSize; gx++) {
-            for (let gy = 0; gy < gridSize; gy++) {
-                // Проверяем наличие платформы-источника
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
-                
-                // Определяем высоту цели ОДИН РАЗ для всей клетки
-                const heightRoll = rng();
-                let targetLevels = 1;
-                const w1 = stairHeights.oneLevel || 0.6;
-                const w2 = stairHeights.twoLevels || 0.3;
-                
-                if (heightRoll > w1) targetLevels = 2;
-                if (heightRoll > (w1 + w2)) targetLevels = 3;
-                
-                const targetLevel = level + targetLevels;
-                if (targetLevel > endLevel) continue;
-
-                // Ищем лучшую цель для ЭТОЙ КЛЕТКИ
-                let bestEnd = null;
-                let minDist = Infinity;
-                let bestCorner = null;
-
-                // Перебираем все 4 угла как потенциальные точки старта
-                const corners = [
-                    { x: 0, y: 0 }, { x: 1, y: 0 }, 
-                    { x: 0, y: 1 }, { x: 1, y: 1 }
-                ];
-
-                for (const corner of corners) {
-                    const startX = bounds.min.x + (gx + corner.x) * cellSize;
-                    const startY = bounds.min.y + (gy + corner.y) * cellSize;
-
-                    // Поиск цели в радиусе 2-3 клеток
-                    for (let dx = -3; dx <= 3; dx++) {
-                        for (let dy = -3; dy <= 3; dy++) {
-                            const distGrid = Math.max(Math.abs(dx), Math.abs(dy));
-                            if (distGrid < 2 || distGrid > 3) continue; 
-                            
-                            const nx = gx + dx;
-                            const ny = gy + dy;
-                            if (nx < 0 || nx >= gridSize || ny < 0 || ny >= gridSize) continue;
-
-                            if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                                const targetCorners = [
-                                    { x: 0, y: 0 }, { x: 1, y: 0 }, 
-                                    { x: 0, y: 1 }, { x: 1, y: 1 }
-                                ];
-                                
-                                for (const tCorner of targetCorners) {
-                                    const endX = bounds.min.x + (nx + tCorner.x) * cellSize;
-                                    const endY = bounds.min.y + (ny + tCorner.y) * cellSize;
-                                    
-                                    const dist = Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2));
-                                    
-                                    if (dist < minDist) {
-                                        minDist = dist;
-                                        bestEnd = { x: endX, y: endY, dx, dy, tx: nx, ty: ny, tcx: tCorner.x, tcy: tCorner.y };
-                                        bestCorner = corner;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Если нашли валидную пару Старт(Угол) -> Цель
-                if (bestEnd && bestCorner) {
-                    let isValid = true;
-                    
-                    // Проверка зоны высадки и препятствий (остается прежней)
-                    let diagDx = 0, diagDy = 0;
-                    if (bestEnd.tcx === 0) diagDx = -1; else diagDx = 1;
-                    if (bestEnd.tcy === 0) diagDy = -1; else diagDy = 1;
-                    
-                    const diagX = bestEnd.tx + diagDx;
-                    const diagY = bestEnd.ty + diagDy;
-                    if (diagX >= 0 && diagX < gridSize && diagY >= 0 && diagY < gridSize) {
-                        if (hash3D(cx * gridSize + diagX, cy * gridSize + diagY, targetLevel, seed) < roomDensity) {
-                            isValid = false;
-                        }
-                    }
-
-                    if (isValid) {
-                        const steps = Math.max(Math.abs(bestEnd.dx), Math.abs(bestEnd.dy));
-                        for (let s = 1; s < steps; s++) {
-                            const t = s / steps;
-                            const checkX = Math.round(gx + bestEnd.dx * t);
-                            const checkY = Math.round(gy + bestEnd.dy * t);
-                            
-                            for (let l = level; l <= targetLevel; l++) {
-                                if ((l === level && checkX === gx && checkY === gy) || 
-                                    (l === targetLevel && checkX === gx + bestEnd.dx && checkY === gy + bestEnd.dy)) continue;
-                                
-                                if (checkX >= 0 && checkX < gridSize && checkY >= 0 && checkY < gridSize) {
-                                    if (hash3D(cx * gridSize + checkX, cy * gridSize + checkY, l, seed) < roomDensity) {
-                                        isValid = false; break;
-                                    }
-                                }
-                            }
-                            if (!isValid) break;
-                        }
-                    }
-
-                    // ГЕНЕРИРУЕМ ТОЛЬКО ОДНУ РАМПУ ДЛЯ ЭТОЙ ПАРЫ
-                    if (isValid && rng() < stairsChance) {
-                        const startX = bounds.min.x + (gx + bestCorner.x) * cellSize;
-                        const startY = bounds.min.y + (gy + bestCorner.y) * cellSize;
-                        const startZ = level * levelHeight + platformThickness / 2;
-                        const endZ = targetLevel * levelHeight + platformThickness / 2;
-
-                        // Отладочные маркеры и линия
-                        if (config.showStairStarts) {
-                            primitives.push({ type: 'sphere', position: { x: startX, y: startY, z: startZ }, scale: { x: 0.8, y: 0.8, z: 0.8 }, paletteSlot: 'glow', flags: { emissive: true }, role: 'debug' });
-                        }
-                        if (config.showStairEnds) {
-                            primitives.push({ type: 'sphere', position: { x: bestEnd.x, y: bestEnd.y, z: endZ }, scale: { x: 0.8, y: 0.8, z: 0.8 }, paletteSlot: 'accent', flags: { emissive: true }, role: 'debug' });
-                        }
-
-                        primitives.push({
-                            type: 'line', position: { x: startX, y: startY, z: startZ },
-                            scale: { x: bestEnd.x, y: bestEnd.y, z: endZ },
-                            paletteSlot: 'glow', role: 'connector'
-                        });
-
-                        // Расчет параметров для Anchor Mode
-                        const dx = bestEnd.x - startX;
-                        const dy = bestEnd.y - startY;
-                        const dz = endZ - startZ;
-                        const lineLength = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                        const rotZ = Math.atan2(dy, dx) * (180 / Math.PI);
-                        const horizontalDist = Math.sqrt(dx*dx + dy*dy);
-                        const tiltDeg = Math.atan2(dz, horizontalDist) * (180 / Math.PI);
-
-                        // Создаем примитив РАМПЫ с ЯКОРНЫМИ ДАННЫМИ
-                        primitives.push({
-                            type: 'ramp', // Используем новый тип вместо stair_N
-                            position: { x: startX, y: startY, z: startZ }, // Якорь в точке старта!
-                            rotation: { tiltX: -tiltDeg, tiltY: 0, twistZ: rotZ },
-                            scale: { x: 1, y: 1, z: 1 },
-                            paletteSlot: 'baseLight',
-                            role: 'connector',
-                            // Данные для векторной ориентации в рендере
-                            lineStart: { x: startX, y: startY, z: startZ },
-                            lineEnd: { x: bestEnd.x, y: bestEnd.y, z: endZ },
-                            lineLength: lineLength,
-                            lengthScale: config.stairLengthScale || 1.0
-                        });
-                        
-                        // Прерываем цикл углов
-                        break; 
-                    }
-                }
-            }
-        }
-    }
-    return primitives;
-}
-
-
 
 /**
  * Этап D: Монолиты (крупные структуры)
