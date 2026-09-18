@@ -104,7 +104,7 @@ export const defaultConfig = {
     minRoomSize: 2,
     maxRoomSize: 5,
     minConnectionsPerRoom: 1,
-    platformThickness: 2,
+    platformThickness: 4,
     
     // Connections
     bridgeChance: 0.4,
