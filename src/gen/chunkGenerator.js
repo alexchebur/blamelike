@@ -83,23 +83,24 @@ export function generateChunk(cx, cy, cz, seed, config) {
 
 /**
  * Этап A: Генерация платформ с интегрированными лестницами
- * ГАРАНТИЯ: Все платформы одного уровня имеют строго одинаковую высоту Z
+ * ГАРАНТИЯ: Лестница создается ТОЛЬКО если есть целевая платформа через 1 клетку на уровне выше
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
-    // Определяем диапазон уровней
+    // Определяем диапазон уровней строго по границам чанка
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
-    // 1. Предварительная генерация карт всех уровней (без Cellular Automata, чистый хеш)
+    // 1. Предварительная генерация карт всех уровней для анализа соседей
     const levelMaps = new Map();
     for (let level = startLevel; level <= endLevel; level++) {
         const map = new Map();
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
+                // Используем hash3D для детерминированного решения о наличии платформы
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 map.set(key, baseHash < roomDensity);
             }
@@ -107,48 +108,46 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         levelMaps.set(level, map);
     }
 
-    // 2. Создание примитивов
+    // 2. Создание примитивов на основе анализа карт
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
-        const upperMap = levelMaps.get(level + 1); 
-        
-        // !!! КЛЮЧЕВОЙ МОМЕНТ: Единая Z для всего уровня !!!
+        const upperMap = levelMaps.get(level + 1); // Карта уровня выше (может быть undefined на последнем уровне)
         const z = level * levelHeight;
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
                 
-                // Пропускаем пустые клетки
+                // Пропускаем пустые клетки текущего уровня
                 if (!currentMap.get(key)) continue;
 
                 let stairType = null;
                 let targetGx = gx;
                 let targetGy = gy;
 
-                // Ищем цель для лестницы ТОЛЬКО на уровне выше
+                // Ищем цель ТОЛЬКО если существует уровень выше
                 if (upperMap) {
-                    // Проверка +X
+                    // Строгая проверка: [ПУСТО] -> [ЦЕЛЬ] на расстоянии ровно 2 клетки
+                    // Приоритет фиксирован для детерминизма: +X > -X > +Y > -Y
+                    
                     if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) {
-                        stairType = 'x_pos'; targetGx = gx + 2;
-                    } 
-                    // Проверка -X
-                    else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) {
-                        stairType = 'x_neg'; targetGx = gx - 2;
-                    }
-                    // Проверка +Y
-                    else if (gy + 2 < gridSize && !upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) {
-                        stairType = 'y_pos'; targetGy = gy + 2;
-                    }
-                    // Проверка -Y
-                    else if (gy - 2 >= 0 && !upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) {
-                        stairType = 'y_neg'; targetGy = gy - 2;
+                        stairType = 'x_pos'; 
+                        targetGx = gx + 2;
+                    } else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) {
+                        stairType = 'x_neg'; 
+                        targetGx = gx - 2;
+                    } else if (gy + 2 < gridSize && !upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) {
+                        stairType = 'y_pos'; 
+                        targetGy = gy + 2;
+                    } else if (gy - 2 >= 0 && !upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) {
+                        stairType = 'y_neg'; 
+                        targetGy = gy - 2;
                     }
                 }
 
+                // === КЛЮЧЕВОЙ МОМЕНТ: ЯВНЫЙ ВЫБОР ТИПА И ОТЛАДКА ===
                 if (stairType) {
-                    // Платформа со встроенной лестницей
-                    // Позиция Z та же самая: level * levelHeight
+                    // 1. Создаем платформу с интегрированной лестницей
                     primitives.push({
                         type: `platform_stair_${stairType}`,
                         position: { 
@@ -162,9 +161,45 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         flags: {},
                         role: 'frame'
                     });
+
+                    // 2. 🟢 НЕОНОВЫЙ МАРКЕР: Источник лестницы (текущий уровень)
+                    // Слот 'glow' + emissive:true дает ярко-оранжевое свечение (#ff6600)
+                    primitives.push({
+                        type: 'sphere',
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: bounds.min.y + (gy + 0.5) * cellSize, 
+                            z: z + platformThickness / 2 // Ровно на верхней грани платформы
+                        },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: 1.2, y: 1.2, z: 1.2 },
+                        paletteSlot: 'glow', 
+                        flags: { emissive: true },
+                        role: 'debug'
+                    });
+
+                    // 3. 🔵 МАТОВЫЙ МАРКЕР: Целевая платформа (уровень выше)
+                    // Слот 'accent' дает тёмно-серый цвет (#4a4a4a), контрастный к glow
+                    primitives.push({
+                        type: 'sphere',
+                        position: { 
+                            x: bounds.min.x + (targetGx + 0.5) * cellSize, 
+                            y: bounds.min.y + (targetGy + 0.5) * cellSize, 
+                            z: (level + 1) * levelHeight + platformThickness / 2
+                        },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: 1.8, y: 1.8, z: 1.8 }, // Чуть больше источника для различия
+                        paletteSlot: 'accent', 
+                        flags: { emissive: false },
+                        role: 'debug'
+                    });
+                    
+                    // 4. Лог в консоль для железного доказательства связи
+                    console.log(
+                        `🪜 STAIR [${stairType}] | SOURCE: (${gx},${gy}) Lvl ${level} -> TARGET: (${targetGx},${targetGy}) Lvl ${level+1}`
+                    );
                 } else {
-                    // Обычная платформа
-                    // Позиция Z та же самая: level * levelHeight
+                    // Обычная платформа БЕЗ маркеров и лестниц
                     primitives.push({
                         type: 'box',
                         position: { 
