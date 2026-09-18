@@ -5,32 +5,41 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 /**
  * Создает геометрию платформы со встроенной лестницей (единичные размеры)
  * Платформа: [-0.5 .. 0.5], Лестница: [0.66 .. 1.66] (смещена вправо на 2/3)
+ * Толщина базы: 0.2 (соответствует platformThickness=4 при levelHeight=20)
  */
-// src/geom/stairFactory.js
 function createBaseStairPlatform() {
     const geometries = [];
     
-    // 1. Платформа (основание)
-    // Толщина 0.2 соответствует platformThickness=4 при levelHeight=20
-    const base = new THREE.BoxGeometry(1, 1, 0.2); 
-    base.translate(0, 0, 0.1); // Поднимаем на половину толщины
+    // 1. Платформа (основание): 1x1x0.2, центр в (0,0,0.1)
+    // Нижняя грань на Z=0, верхняя на Z=0.2
+    const base = new THREE.BoxGeometry(1, 1, 0.2);
+    base.translate(0, 0, 0.1);
     geometries.push(base);
 
     // 2. Лестница
     const steps = 20; 
     const stairLength = 1.0; 
-    const startOffset = 0.5 + (1 / 6); // Смещение на 2/3 ребра
+    
+    // Начало лестницы: 0.5 (грань) + 0.166 (1/6 клетки) = 0.666 (2/3 от центра до края)
+    const startOffset = 0.5 + (1 / 6); 
+    
+    // Ширина лестницы: узкая, 0.3
     const width = 0.3; 
     
     // Подъем начинается от верха базы (0.2) до верха яруса (1.0)
-    const stepH = (1 - 0.2) / steps; 
+    // Высота подъема = 1.0 - 0.2 = 0.8
+    const stepH = 0.8 / steps; 
     const stepD = stairLength / steps;
 
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, width, stepH);
+        
+        // X: Начинаем СТРОГО от startOffset (2/3 ребра) и идем до startOffset + 1.0
         const x = startOffset + (i * stepD) + (stepD / 2);
-        // Z начинается от 0.2 (верх новой базы)
+        
+        // Z: От 0.2 (верх новой базы) до 1.0 (верх яруса)
         const z = 0.2 + (i * stepH) + (stepH / 2);
+        
         step.translate(x, 0, z);
         geometries.push(step);
     }
@@ -46,7 +55,6 @@ export function getPlatformStairGeometry(direction) {
     let geo = createBaseStairPlatform();
     
     // Поворот вокруг центра (0,0), который является центром БАЗОВОЙ платформы
-    // При повороте смещение "вправо" корректно перейдет в нужное направление
     if (direction === 'x_neg') geo.rotateZ(Math.PI);
     else if (direction === 'y_pos') geo.rotateZ(-Math.PI / 2);
     else if (direction === 'y_neg') geo.rotateZ(Math.PI / 2);
