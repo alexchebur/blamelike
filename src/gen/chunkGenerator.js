@@ -208,7 +208,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             z 
                         },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: platformThickness },
+                        scale: { x: cellSize, y: cellSize, z: levelHeight + platformThickness },
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame'
