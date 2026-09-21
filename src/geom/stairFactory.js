@@ -33,8 +33,7 @@ function createBaseStairPlatform(thicknessRatio = 0.2) {
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, width, stepH);
         
-        // X: Лестница идет от центра клетки (0.5) к краю (1.5 в мировых, но тут локальные)
-        // В локальных координатах меша: от 0.5 до 1.0
+        // X: Лестница идет от центра клетки (0.5) к краю (1.0 в локальных координатах)
         const x = 0.5 + (i * stepD) + (stepD / 2); 
         
         // Z: Равномерный подъем от верха плиты
