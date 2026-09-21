@@ -107,45 +107,71 @@ class ChunkManager {
         return grouped;
     }
     
+    /**
+     * Создание InstancedMesh для группы примитивов
+     * @param {string} type - тип геометрии
+     * @param {string} slot - цветовой слот
+     * @param {Array} items - массив примитивов
+     * @param {Object} config 
+     * @returns {THREE.InstancedMesh|null}
+     */
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
+        // Получаем палитру из конфига
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
+        // Создаем геометрию (общую для всех инстансов этого типа)
         const geometry = this.createGeometry(type, config);
+        
+        // Создаем материал
         const material = new THREE.MeshLambertMaterial({
-            color: new THREE.Color(colorHex), 
-            flatShading: true, 
+            color: new THREE.Color(colorHex),
+            flatShading: true,
             side: THREE.DoubleSide
         });
         
+        // Создаем InstancedMesh
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
-        mesh.frustumCulled = true;
+        mesh.frustumCulled = true; 
         
         const dummy = new THREE.Object3D();
         
+        // === БАЗОВЫЙ ПОВОРОТ ДЛЯ СИСТЕМЫ Z-UP ===
+        // Стандартные геометрии Three.js растут вдоль оси Y.
+        // Чтобы они корректно стояли в мире, где высота — это Z,
+        // нам нужно повернуть их на -90 градусов по оси X.
+        const baseRotation = new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
+        // ==========================================
+
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             
-            // Стандартная установка трансформаций для всех новых примитивов
-            dummy.position.set(
-                item.position.x, 
-                item.position.y, 
-                item.position.z
-            );
+            dummy.position.set(item.position.x, item.position.y, item.position.z);
             
+            // Базовые углы из генератора
+            let tiltX = item.rotation.tiltX || 0;
+            let tiltY = item.rotation.tiltY || 0;
+            let twistZ = item.rotation.twistZ || 0;
+            
+            // === ПРИМЕНЯЕМ СМЕЩЕНИЯ ТОЛЬКО ДЛЯ ЛЕСТНИЦ ===
+            if (type.startsWith('stair_')) {
+                twistZ += config.stairTwistOffset || 0;
+                tiltX += config.stairTiltOffset || 0;
+            }
+            
+            // Устанавливаем поворот из данных + базовый поворот для Z-up
             dummy.rotation.set(
-                THREE.MathUtils.degToRad(item.rotation.tiltX || 0),
-                THREE.MathUtils.degToRad(item.rotation.tiltY || 0),
-                THREE.MathUtils.degToRad(item.rotation.twistZ || 0)
+                THREE.MathUtils.degToRad(tiltX),
+                THREE.MathUtils.degToRad(tiltY),
+                THREE.MathUtils.degToRad(twistZ)
             );
             
-            dummy.scale.set(
-                item.scale.x, 
-                item.scale.y, 
-                item.scale.z
-            );
+            // Применяем базовый поворот (преумножаем кватернион)
+            dummy.quaternion.premultiply(new THREE.Quaternion().setFromEuler(baseRotation));
+            
+            dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
             
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
