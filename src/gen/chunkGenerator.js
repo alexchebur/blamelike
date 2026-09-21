@@ -66,6 +66,10 @@ export function generateChunk(cx, cy, cz, seed, config) {
 
 /**
  * Этап A: Генерация платформ с жесткой привязкой к гриду
+ * ВСЕ ПЛАТФОРМЫ:
+ * - Нижняя грань строго на zBase = level * levelHeight
+ * - Верхняя грань плиты строго на zBase + platformThickness
+ * - Лестница (если есть) идет от zBase + platformThickness до zBase + levelHeight
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -95,7 +99,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
         const upperMap = levelMaps.get(level + 1); 
-        const zBase = level * levelHeight; // Нижняя грань уровня
+        const zBase = level * levelHeight; // НИЖНЯЯ ГРАНЬ УРОВНЯ
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -106,21 +110,21 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 // Ищем цель ТОЛЬКО на соседней клетке (dx=1, dy=0 или dx=0, dy=1)
                 // И ТОЛЬКО на один уровень выше
-                // ВАЖНО: Проверяем, что промежуточная клетка ПУСТАЯ
                 if (upperMap) {
-                    // Проверка соседей: +X, -X, +Y, -Y
-                    if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) stairType = 'x_pos';
-                    else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) stairType = 'x_neg';
-                    else if (gy + 2 < gridSize && !upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) stairType = 'y_pos';
-                    else if (gy - 2 >= 0 && !upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) stairType = 'y_neg';
+                    if (gx + 1 < gridSize && upperMap.get(`${gx+1},${gy}`)) stairType = 'x_pos';
+                    else if (gx - 1 >= 0 && upperMap.get(`${gx-1},${gy}`)) stairType = 'x_neg';
+                    else if (gy + 1 < gridSize && upperMap.get(`${gx},${gy+1}`)) stairType = 'y_pos';
+                    else if (gy - 1 >= 0 && upperMap.get(`${gx},${gy-1}`)) stairType = 'y_neg';
                 }
 
                 const posX = bounds.min.x + (gx + 0.5) * cellSize;
                 const posY = bounds.min.y + (gy + 0.5) * cellSize;
 
                 if (stairType) {
-                    // Платформа с лестницей
-                    // Позиция Z = zBase (нижняя грань), так как геометрия лестницы строится от 0 вверх
+                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
+                    // Геометрия: плита [0..thicknessRatio], лестница [thicknessRatio..1.0]
+                    // Позиция: zBase (низ платформы)
+                    // Масштаб: levelHeight (чтобы 1.0 превратилось в levelHeight)
                     primitives.push({
                         type: `platform_stair_${stairType}`,
                         position: { x: posX, y: posY, z: zBase },
@@ -132,8 +136,10 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         params: { thicknessRatio }
                     });
                 } else {
-                    // Обычная платформа
-                    // BoxGeometry центрирована, поэтому смещаем центр на половину толщины вверх
+                    // === ОБЫЧНАЯ ПЛАТФОРМА ===
+                    // BoxGeometry центрирована. Чтобы низ был на zBase:
+                    // position.z = zBase + platformThickness / 2
+                    // scale.z = platformThickness
                     primitives.push({
                         type: 'box',
                         position: { 
@@ -153,7 +159,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
 /**
  * Этап B: Генерация комнат и стен
  */
