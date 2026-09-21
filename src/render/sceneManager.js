@@ -30,6 +30,7 @@ class SceneManager {
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
         this.prevTime = performance.now();
+        this.isPointerLocked = false; // Флаг захвата указателя (опционально)
         // ============================
 
         // Освещение
@@ -50,6 +51,18 @@ class SceneManager {
         document.addEventListener('keydown', (event) => this.onKeyDown(event));
         document.addEventListener('keyup', (event) => this.onKeyUp(event));
         document.addEventListener('mousemove', (event) => this.onMouseMove(event));
+        
+        // Обработчики для захвата/освобождения курсора (опционально, для удобства)
+        document.addEventListener('pointerlockchange', () => {
+            this.isPointerLocked = !!document.pointerLockElement;
+        });
+        
+        // Клик по канвасу для захвата курсора (если нужно)
+        this.renderer?.domElement.addEventListener('click', () => {
+             if (!this.isPointerLocked) {
+                 this.container.requestPointerLock();
+             }
+        });
     }
 
     onKeyDown(event) {
@@ -107,11 +120,13 @@ class SceneManager {
     }
 
     onMouseMove(event) {
-        // Движение мыши вращает камеру
+        // Вращение только при зажатой ЛКМ (buttons === 1)
+        if (event.buttons !== 1) return;
+
         const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
         const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 
-        // Чувствительность мыши (можно вынести в конфиг)
+        // Чувствительность мыши
         const sensitivity = 0.002;
 
         this.euler.setFromQuaternion(this.camera.quaternion);
@@ -127,7 +142,6 @@ class SceneManager {
 
     /**
      * Обновление позиции камеры на основе WASD
-     * Вызывается каждый кадр
      */
     updateCameraMovement() {
         const time = performance.now();
@@ -140,20 +154,18 @@ class SceneManager {
 
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
-        this.direction.y = Number(this.moveUp) - Number(this.moveDown); // Вверх/Вниз
+        this.direction.y = Number(this.moveUp) - Number(this.moveDown); 
         
-        this.direction.normalize(); // Это обеспечивает постоянную скорость по диагонали
+        this.direction.normalize(); 
 
-        const speed = 100.0; // Скорость перемещения
+        const speed = 100.0; 
 
         if (this.moveForward || this.moveBackward) this.velocity.z -= this.direction.z * speed * delta;
         if (this.moveLeft || this.moveRight) this.velocity.x -= this.direction.x * speed * delta;
         if (this.moveUp || this.moveDown) this.velocity.y -= this.direction.y * speed * delta;
 
-        // Реализуем движение "в сторону взгляда" (Fly mode)
         const moveSpeed = 50.0 * delta;
         
-        // Получаем векторы направления из кватерниона камеры
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
         
@@ -162,7 +174,7 @@ class SceneManager {
         if (this.moveRight) this.camera.position.addScaledVector(right, moveSpeed);
         if (this.moveLeft) this.camera.position.addScaledVector(right, -moveSpeed);
         
-        // Вертикальное движение строго по мировой оси Z (так как Z у нас высота)
+        // Вертикальное движение строго по мировой оси Z
         if (this.moveUp) this.camera.position.z += moveSpeed;
         if (this.moveDown) this.camera.position.z -= moveSpeed;
 
@@ -176,19 +188,26 @@ class SceneManager {
         // 1. Создаем сцену
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
-        // 2. Настраиваем туман (экспоненциальный для эффекта глубины)
+        // 2. Настраиваем туман
         this.updateFog();
         // 3. Создаем камеру
         this.camera = new THREE.PerspectiveCamera(
-            75, // FOV
+            75, 
             window.innerWidth / window.innerHeight,
             0.1,
-            2000 // Дальность отсечения
+            2000 
         );
         
         // === НАЧАЛЬНАЯ ПОЗИЦИЯ И УГОЛ ===
-        // Камера смотрит вдоль оси -Y, Z вверх
+        // Важно: указываем, что "верх" для камеры — это ось Z
+        this.camera.up.set(0, 0, 1);
+        
+        // Начальная позиция: чуть выше пола (Z=20), смещена назад по Y
         this.camera.position.set(0, 150, 20); 
+        
+        // Начальный угол: 0,0,0 означает, что камера смотрит вдоль своей локальной оси -Z.
+        // При camera.up=(0,0,1) и позиции (0,150,20), локальная -Z направлена вдоль мировой -Y.
+        // Это дает вид "прямо перед собой" (голова вверху).
         this.euler.set(0, 0, 0, 'YXZ');
         this.camera.quaternion.setFromEuler(this.euler);
         // =================================
@@ -204,10 +223,7 @@ class SceneManager {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.container.appendChild(this.renderer.domElement);
 
-        // 5. Управление камерой теперь кастомное, OrbitControls не нужен
-        
         // === СОЗДАНИЕ МАНИФЕСТА ОСЕЙ ===
-        // Длина осей 30 единиц. Красный=X, Зеленый=Y, Синий=Z (высота!)
         this.axisHelper = new THREE.AxesHelper(30);
         if (this.axisHelper.material) {
             this.axisHelper.material.linewidth = 2; 
@@ -221,17 +237,12 @@ class SceneManager {
     }
 
     /**
-     * Настройка освещения (Hemisphere + Directional)
+     * Настройка освещения
      */
     setupLighting() {
-        // Hemisphere light для общего мягкого света
-        this.hemisphereLight = new THREE.HemisphereLight(
-            0xffffff, // цвет неба
-            0x444444, // цвет земли
-            0.6       // интенсивность
-        );
+        this.hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
         this.scene.add(this.hemisphereLight);
-        // Directional light для направления и теней
+        
         this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         this.directionalLight.position.set(100, 200, 100);
         this.directionalLight.castShadow = this.config.enableShadows;
@@ -240,7 +251,6 @@ class SceneManager {
             this.directionalLight.shadow.mapSize.height = 2048;
             this.directionalLight.shadow.camera.near = 0.5;
             this.directionalLight.shadow.camera.far = 500;
-            // Настройка области теней под размер чанка
             const d = 200;
             this.directionalLight.shadow.camera.left = -d;
             this.directionalLight.shadow.camera.right = d;
@@ -250,54 +260,33 @@ class SceneManager {
         this.scene.add(this.directionalLight);
     }
 
-    /**
-     * Обновление параметров тумана
-     */
     updateFog() {
         if (this.fog) {
             this.scene.fog = null;
         }
-        this.fog = new THREE.FogExp2(
-            this.config.backgroundColor,
-            this.config.fogDensity
-        );
+        this.fog = new THREE.FogExp2(this.config.backgroundColor, this.config.fogDensity);
         this.scene.fog = this.fog;
     }
 
-    /**
-     * Обновление настроек сцены из конфига
-     * @param {Object} newConfig 
-     */
     updateConfig(newConfig) {
         Object.assign(this.config, newConfig);
-        // Обновляем фон и туман
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
-        // Обновляем тени
         this.renderer.shadowMap.enabled = this.config.enableShadows;
         if (this.directionalLight) {
             this.directionalLight.castShadow = this.config.enableShadows;
         }
     }
 
-    /**
-     * Обработчик изменения размера окна браузера
-     */
     onWindowResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    /**
-     * Рендеринг текущего кадра
-     * Вызывается каждый кадр в главном цикле приложения
-     */
     render() {
-        // Обновляем движение камеры (WASD)
         this.updateCameraMovement();
         
-        // Обновление позиции осей перед камерой
         if (this.axisHelper && this.camera) {
             const direction = new THREE.Vector3();
             this.camera.getWorldDirection(direction);
