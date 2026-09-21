@@ -1,23 +1,9 @@
 // src/gen/chunkGenerator.js
 // @ts-check
-/**
- * ChunkGenerator — оркестратор генерации одного чанка
- * Чистая функция: принимает координаты и конфиг, возвращает массив PrimitiveRecord
- */
-
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 
-/**
- * Генерация одного чанка
- * @param {number} cx - координата чанка по X
- * @param {number} cy - координата чанка по Y
- * @param {number} cz - координата чанка по Z
- * @param {number} seed - сид мира
- * @param {Object} config - конфигурация генерации
- * @returns {Array} массив PrimitiveRecord
- */
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
     const chunkSeed = hash3D(cx, cy, cz, seed);
@@ -79,31 +65,25 @@ export function generateChunk(cx, cy, cz, seed, config) {
 }
 
 /**
- * Этап A: Генерация платформ с интегрированными лестницами
- * ИСПРАВЛЕНО: 
- * 1. Все платформы имеют одинаковую толщину (platformThickness).
- * 2. Лестницы синхронизированы с верхними гранями платформ.
+ * Этап A: Генерация платформ с жесткой привязкой к гриду
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
-    // Относительная толщина платформы для геометрии лестницы
-    // Если levelHeight=20, а thickness=4, то ratio=0.2
+    // Относительная толщина для геометрии лестницы
     const thicknessRatio = platformThickness / levelHeight;
 
-    // Определяем диапазон уровней строго по границам чанка
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
-    // 1. Предварительная генерация карт всех уровней для анализа соседей
+    // 1. Генерируем карту всех уровней
     const levelMaps = new Map();
     for (let level = startLevel; level <= endLevel; level++) {
         const map = new Map();
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                // Используем hash3D для детерминированного решения о наличии платформы
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 map.set(key, baseHash < roomDensity);
             }
@@ -111,73 +91,54 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         levelMaps.set(level, map);
     }
 
-    // 2. Создание примитивов на основе анализа карт
+    // 2. Создаем примитивы
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
-        const upperMap = levelMaps.get(level + 1); // Карта уровня выше
-        const z = level * levelHeight; // Нижняя грань текущего уровня
+        const upperMap = levelMaps.get(level + 1); 
+        const zBase = level * levelHeight; // Нижняя грань уровня
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
-                
-                // Пропускаем пустые клетки текущего уровня
                 if (!currentMap.get(key)) continue;
 
                 let stairType = null;
-                let targetGx = gx;
-                let targetGy = gy;
 
-                // Ищем цель ТОЛЬКО если существует уровень выше
+                // Ищем цель ТОЛЬКО на соседней клетке (dx=1, dy=0 или dx=0, dy=1)
+                // И ТОЛЬКО на один уровень выше
                 if (upperMap) {
-                    // Строгая проверка: [ПУСТО] -> [ЦЕЛЬ] на расстоянии ровно 2 клетки
-                    // Приоритет фиксирован для детерминизма: +X > -X > +Y > -Y
-                    
-                    if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) {
-                        stairType = 'x_pos'; 
-                        targetGx = gx + 2;
-                    } else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) {
-                        stairType = 'x_neg'; 
-                        targetGx = gx - 2;
-                    } else if (gy + 2 < gridSize && !upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) {
-                        stairType = 'y_pos'; 
-                        targetGy = gy + 2;
-                    } else if (gy - 2 >= 0 && !upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) {
-                        stairType = 'y_neg'; 
-                        targetGy = gy - 2;
-                    }
+                    // Проверка соседей: +X, -X, +Y, -Y
+                    if (gx + 1 < gridSize && upperMap.get(`${gx+1},${gy}`)) stairType = 'x_pos';
+                    else if (gx - 1 >= 0 && upperMap.get(`${gx-1},${gy}`)) stairType = 'x_neg';
+                    else if (gy + 1 < gridSize && upperMap.get(`${gx},${gy+1}`)) stairType = 'y_pos';
+                    else if (gy - 1 >= 0 && upperMap.get(`${gx},${gy-1}`)) stairType = 'y_neg';
                 }
 
-                // Базовые параметры для любой платформы
                 const posX = bounds.min.x + (gx + 0.5) * cellSize;
                 const posY = bounds.min.y + (gy + 0.5) * cellSize;
 
                 if (stairType) {
-                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
-                    // Позиция Z остается на уровне нижней грани (z), так как геометрия лестницы
-                    // строится от 0 до levelHeight внутри себя.
+                    // Платформа с лестницей
+                    // Позиция Z = zBase (нижняя грань), так как геометрия лестницы строится от 0 вверх
                     primitives.push({
                         type: `platform_stair_${stairType}`,
-                        position: { x: posX, y: posY, z },
+                        position: { x: posX, y: posY, z: zBase },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame',
-                        // Передаем параметр толщины для корректной генерации геометрии
-                        params: { thicknessRatio } 
+                        params: { thicknessRatio }
                     });
-
                 } else {
-                    // === ОБЫЧНАЯ ПЛАТФОРМА ===
-                    // BoxGeometry центрирована, поэтому смещаем Z на половину толщины вверх,
-                    // чтобы низ платформы был ровно на z.
+                    // Обычная платформа
+                    // BoxGeometry центрирована, поэтому смещаем центр на половину толщины вверх
                     primitives.push({
                         type: 'box',
                         position: { 
                             x: posX, 
                             y: posY, 
-                            z: z + platformThickness / 2 
+                            z: zBase + platformThickness / 2 
                         },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: platformThickness },
@@ -193,7 +154,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Этап B: Генерация комнат и стен (плоские стены, прилипшие к полу)
+ * Этап B: Генерация комнат и стен
  */
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -205,14 +166,12 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     for (let level = startLevel; level <= endLevel; level++) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
-        const zLevel = level * levelHeight;
-        // Стены стоят на платформе, их центр смещен на половину высоты платформы + половину высоты стены
-        const zWallBase = zLevel + platformThickness;
-        const zWallCenter = zWallBase + levelHeight / 2;
+        const zBase = level * levelHeight;
+        // Центр стены: начало уровня + толщина платформы + половина высоты стены
+        const zWallCenter = zBase + platformThickness + levelHeight / 2;
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                // Стены
                 const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
                 if (wallHash < wallDensity) {
                     const x = bounds.min.x + (gx + 0.5) * cellSize;
@@ -229,7 +188,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     });
                 }
                 
-                // Колонны
                 const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed);
                 if (pillarHash < pillarDensity) {
                     const x = bounds.min.x + gx * cellSize;
@@ -248,32 +206,27 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
     }
-    
     return primitives;
 }
 
 /**
- * Этап C: Генерация горизонтальных соединений (мосты) с гарантией связности
+ * Этап C: Мосты, жестко лежащие на платформах
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { gridSize, levelHeight, roomDensity, platformThickness } = config;
     
-    // Толщина самого моста (должна совпадать со scale.z при создании примитива)
-    const bridgeThickness = 0.5; 
-    
+    const bridgeThickness = 0.5;
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
-        // Пропускаем уровень, если он слишком "пустой" для наличия мостов
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const zBase = level * levelHeight;
-        // Центр моста должен быть смещен на половину его толщины выше платформы
+        // Центр моста лежит на верхней грани платформы + половина толщины моста
         const zBridgeCenter = zBase + platformThickness + (bridgeThickness / 2);
         
-        // 1. Собираем координаты всех платформ этого яруса
         const platforms = [];
         const platformSet = new Set();
         
@@ -288,16 +241,14 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
         if (platforms.length < 2) continue;
 
-        // 2. Алгоритм связности (упрощенный Prim's algorithm)
+        // Упрощенный Prim's algorithm
         const connected = new Set();
         connected.add(`${platforms[0].gx},${platforms[0].gy}`);
-        
         const edgesToAdd = [];
         let safetyCounter = 0;
         
         while (connected.size < platforms.length && safetyCounter < 500) {
             safetyCounter++;
-            
             const connectedKeys = Array.from(connected);
             const sourceKey = connectedKeys[Math.floor(rng() * connectedKeys.length)];
             const [sx, sy] = sourceKey.split(',').map(Number);
@@ -305,11 +256,9 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             let nearest = null;
             let minDist = Infinity;
             
-            // Ищем ближайшего несвязанного соседа в радиусе 2 клеток
             for (let dx = -2; dx <= 2; dx++) {
                 for (let dy = -2; dy <= 2; dy++) {
                     if (dx === 0 && dy === 0) continue;
-                    
                     const nx = sx + dx;
                     const ny = sy + dy;
                     const key = `${nx},${ny}`;
@@ -330,7 +279,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
 
-        // 3. Постройка внутренних мостов
         for (const edge of edgesToAdd) {
             const x1 = bounds.min.x + (edge.sx + 0.5) * cellSize;
             const y1 = bounds.min.y + (edge.sy + 0.5) * cellSize;
@@ -339,8 +287,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             const midX = (x1 + x2) / 2;
             const midY = (y1 + y2) / 2;
-            
-            // Расстояние между центрами платформ
             const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
             
             const angleRad = Math.atan2(y2 - y1, x2 - x1);
@@ -350,30 +296,22 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 type: 'box',
                 position: { x: midX, y: midY, z: zBridgeCenter },
                 rotation: { tiltX: 0, tiltY: 0, twistZ: angleDeg },
-                scale: { 
-                    x: dist, 
-                    y: cellSize * 0.2, // Ширина моста
-                    z: bridgeThickness   // Толщина моста
-                },
+                scale: { x: dist, y: cellSize * 0.2, z: bridgeThickness },
                 paletteSlot: 'accent',
                 flags: {},
                 role: 'connector'
             });
         }
 
-        // 4. Граничные соединения (EdgeAgreement)
-        // Проверяем правую границу чанка (+X)
+        // Граничные соединения
         const rightDecisions = edgeAgreement.getBoundaryDecisions(cx, cy, cz, 'x', 1, seed, config);
         for (let i = 0; i < gridSize; i++) {
             const decision = rightDecisions[i];
             const internalKey = `${gridSize - 1},${i}`;
             
-            // Если платформа есть и согласование границы требует прохода
             if (platformSet.has(internalKey) && decision.hasPassage) {
-                 const x1 = bounds.min.x + (gridSize - 0.5) * cellSize; // Центр крайней платформы
+                 const x1 = bounds.min.x + (gridSize - 0.5) * cellSize;
                  const y1 = bounds.min.y + (i + 0.5) * cellSize;
-                 
-                 // Мост идет до самой границы чанка
                  const x2 = bounds.max.x;
                  const dist = cellSize / 2;
                  
@@ -381,11 +319,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     type: 'box',
                     position: { x: (x1 + x2) / 2, y: y1, z: zBridgeCenter },
                     rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                    scale: { 
-                        x: dist, 
-                        y: cellSize * 0.2, 
-                        z: bridgeThickness 
-                    },
+                    scale: { x: dist, y: cellSize * 0.2, z: bridgeThickness },
                     paletteSlot: 'accent',
                     flags: {},
                     role: 'connector'
@@ -393,26 +327,19 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
     }
-    
     return primitives;
 }
-/**
- * Этап D: Монолиты (крупные структуры)
- */
+
+// Остальные функции (MegaStructures, Pierce, Decor, Micro) остаются без изменений
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
-    
     for (let i = 0; i < 3; i++) {
         if (hash3D(cx, cy, cz + i * 0.3, seed) < megaBlockChance) {
             const height = (megaBlockMinHeight + rng() * (megaBlockMaxHeight - megaBlockMinHeight)) * levelHeight;
             primitives.push({
                 type: 'box',
-                position: { 
-                    x: bounds.min.x + rng() * (bounds.max.x - bounds.min.x), 
-                    y: bounds.min.y + rng() * (bounds.max.y - bounds.min.y), 
-                    z: bounds.min.z + (bounds.max.z - bounds.min.z) / 2 
-                },
+                position: { x: bounds.min.x + rng() * (bounds.max.x - bounds.min.x), y: bounds.min.y + rng() * (bounds.max.y - bounds.min.y), z: bounds.min.z + (bounds.max.z - bounds.min.z) / 2 },
                 rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                 scale: { x: 10 + rng() * 20, y: 10 + rng() * 20, z: height },
                 paletteSlot: 'baseDark',
@@ -424,50 +351,30 @@ function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
-/**
- * Этап E: Протыкающие фигуры
- */
 function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt } = config;
-    
     if (!pierceWeights) return primitives;
-
     const area = (bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y);
     const count = Math.floor(area * scatterDensity / 1000);
-    
     const types = [];
     let totalWeight = 0;
     for (const [type, weight] of Object.entries(pierceWeights)) {
         types.push({ item: type, weight });
         totalWeight += weight;
     }
-
     for (let i = 0; i < count; i++) {
         if (hash3D(cx, cy, cz + i * 0.7, seed) < scatterDensity) {
             let random = rng() * totalWeight;
             let selectedType = 'cylinder';
-            
             for (const t of types) {
                 random -= t.weight;
-                if (random <= 0) {
-                    selectedType = t.item;
-                    break;
-                }
+                if (random <= 0) { selectedType = t.item; break; }
             }
-            
             primitives.push({
                 type: selectedType,
-                position: { 
-                    x: bounds.min.x + rng() * (bounds.max.x - bounds.min.x), 
-                    y: bounds.min.y + rng() * (bounds.max.y - bounds.min.y), 
-                    z: bounds.min.z + (bounds.max.z - bounds.min.z) / 2 
-                },
-                rotation: { 
-                    tiltX: (rng() - 0.5) * 2 * pierceMaxTilt, 
-                    tiltY: (rng() - 0.5) * 2 * pierceMaxTilt, 
-                    twistZ: 0 
-                },
+                position: { x: bounds.min.x + rng() * (bounds.max.x - bounds.min.x), y: bounds.min.y + rng() * (bounds.max.y - bounds.min.y), z: bounds.min.z + (bounds.max.z - bounds.min.z) / 2 },
+                rotation: { tiltX: (rng() - 0.5) * 2 * pierceMaxTilt, tiltY: (rng() - 0.5) * 2 * pierceMaxTilt, twistZ: 0 },
                 scale: { x: 2 + rng() * 3, y: 2 + rng() * 3, z: pierceMinHeight + rng() * (pierceMaxHeight - pierceMinHeight) },
                 paletteSlot: 'accent',
                 flags: {},
@@ -478,17 +385,12 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
-/**
- * Этап F: Крупный декор
- */
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { decorDensity } = config;
     if (!decorDensity) return primitives;
-
     const width = bounds.max.x - bounds.min.x;
     const depth = bounds.max.y - bounds.min.y;
-    
     const antennaCount = Math.floor(width * (decorDensity.antennas || 0));
     for (let i = 0; i < antennaCount; i++) {
         primitives.push({
@@ -501,7 +403,6 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             role: 'decor'
         });
     }
-    
     const sphereCount = Math.floor(width * (decorDensity.spheres || 0));
     for (let i = 0; i < sphereCount; i++) {
         primitives.push({
@@ -514,23 +415,17 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             role: 'decor'
         });
     }
-    
     return primitives;
 }
 
-/**
- * Этап G: Микро-декор
- */
 function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { microDensity } = config;
     if (!microDensity) return primitives;
-
     const width = bounds.max.x - bounds.min.x;
     const depth = bounds.max.y - bounds.min.y;
     const height = bounds.max.z - bounds.min.z;
     const microCount = Math.floor(width * microDensity * 10);
-    
     for (let i = 0; i < microCount; i++) {
         primitives.push({
             type: 'box',
