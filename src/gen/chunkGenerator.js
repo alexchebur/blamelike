@@ -106,12 +106,13 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 // Ищем цель ТОЛЬКО на соседней клетке (dx=1, dy=0 или dx=0, dy=1)
                 // И ТОЛЬКО на один уровень выше
+                // ВАЖНО: Проверяем, что промежуточная клетка ПУСТАЯ
                 if (upperMap) {
                     // Проверка соседей: +X, -X, +Y, -Y
-                    if (gx + 1 < gridSize && upperMap.get(`${gx+1},${gy}`)) stairType = 'x_pos';
-                    else if (gx - 1 >= 0 && upperMap.get(`${gx-1},${gy}`)) stairType = 'x_neg';
-                    else if (gy + 1 < gridSize && upperMap.get(`${gx},${gy+1}`)) stairType = 'y_pos';
-                    else if (gy - 1 >= 0 && upperMap.get(`${gx},${gy-1}`)) stairType = 'y_neg';
+                    if (gx + 2 < gridSize && !upperMap.get(`${gx+1},${gy}`) && upperMap.get(`${gx+2},${gy}`)) stairType = 'x_pos';
+                    else if (gx - 2 >= 0 && !upperMap.get(`${gx-1},${gy}`) && upperMap.get(`${gx-2},${gy}`)) stairType = 'x_neg';
+                    else if (gy + 2 < gridSize && !upperMap.get(`${gx},${gy+1}`) && upperMap.get(`${gx},${gy+2}`)) stairType = 'y_pos';
+                    else if (gy - 2 >= 0 && !upperMap.get(`${gx},${gy-1}`) && upperMap.get(`${gx},${gy-2}`)) stairType = 'y_neg';
                 }
 
                 const posX = bounds.min.x + (gx + 0.5) * cellSize;
