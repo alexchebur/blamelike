@@ -3,7 +3,6 @@
  * Главная точка входа приложения Blame! Industrial Landscape Generator
  * Инициализирует сцену, менеджер чанков, панель управления и запускает цикл рендеринга
  */
-
 import SceneManager from './render/sceneManager.js';
 import ControlPanel from './ui/controlPanel.js';
 import ChunkManager from './world/chunkManager.js';
@@ -23,7 +22,7 @@ class App {
         
         this.init();
     }
-    
+
     /**
      * Инициализация приложения
      */
@@ -55,7 +54,7 @@ class App {
             this.isInitialized = true;
             
             console.log('✅ Blame! Generator ready!');
-            console.log('📍 Управление камерой: WASD + мышь');
+            console.log('📍 Управление камерой: WASD + QE + мышь');
             console.log('🎨 Панель настроек: справа вверху');
             
             // 6. Запускаем цикл рендеринга
@@ -67,7 +66,7 @@ class App {
             this.loading.style.color = '#ff4444';
         }
     }
-    
+
     /**
      * Обновление чанков вокруг камеры
      */
@@ -79,7 +78,7 @@ class App {
         
         this.chunkManager.update(cameraPos, config);
     }
-    
+
     /**
      * Обработчик изменения конфигурации из панели
      * @param {Object} config 
@@ -98,22 +97,22 @@ class App {
         this.chunkManager.clear();
         this.updateChunks();
     }
-    
+
     /**
      * Цикл анимации и рендеринга
      */
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        // Обновляем контролы камеры
-        this.sceneManager.controls.update();
+        // Обновляем движение камеры (WASD) внутри sceneManager
+        // this.sceneManager.controls.update(); // <-- УДАЛЕНО, так как controls больше нет
         
         // Обновляем чанки при движении камеры
         if (this.isInitialized) {
             this.updateChunks();
         }
         
-        // Рендерим сцену
+        // Рендерим сцену (внутри также вызывается updateCameraMovement)
         this.sceneManager.render();
     }
 }
