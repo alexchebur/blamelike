@@ -2,34 +2,42 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-function createBaseStairPlatform() {
+/**
+ * Создает нормализованную геометрию: 
+ * - Плита занимает по Z диапазон [0 .. thicknessRatio]
+ * - Лестница занимает [thicknessRatio .. 1.0]
+ * @param {number} thicknessRatio - Относительная толщина плиты (platformThickness / levelHeight)
+ */
+function createBaseStairPlatform(thicknessRatio = 0.2) {
     const geometries = [];
     
-    // 1. Платформа (основание): 1x1x0.2
-    const base = new THREE.BoxGeometry(1, 1, 0.2);
-    base.translate(0, 0, 0.1);
+    // 1. ОСНОВАНИЕ (Платформа)
+    // Высота = thicknessRatio. Центр = thicknessRatio / 2
+    const baseH = thicknessRatio;
+    const base = new THREE.BoxGeometry(1, 1, baseH);
+    base.translate(0, 0, baseH / 2); 
     geometries.push(base);
 
-    // 2. Лестница
-    const steps = 20; 
-    const stairLength = 1.0; 
+    // 2. ЛЕСТНИЦА
+    // Подъем строго от верха плиты (baseH) до верха единичного куба (1.0)
+    const stairStartZ = baseH;
+    const stairEndZ = 1.0; 
+    const stairHeight = stairEndZ - stairStartZ;
     
-    // Смещение начала на 2/3 ребра
-    const startOffset = 0.5 + (1 / 6); 
-    const width = 0.3; 
-    
-    // !!! ИЗМЕНЕНИЕ: Подъем идет до 1.2 (а не 1.0)
-    // Это компенсирует толщину целевой платформы (0.2)
-    // Локальная высота подъема = 1.2 - 0.2 = 1.0
-    const stepH = 1.0 / steps; 
-    const stepD = stairLength / steps;
+    const steps = 20;
+    const stepH = stairHeight / steps;
+    const stepD = 1.0 / steps; // Длина лестницы = 1 клетка (в единичном пространстве)
+    const width = 0.6; // Ширина пролета
 
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, width, stepH);
+        // X: от 0.5 до 1.5 (выход за пределы клетки для соединения со следующей)
+        // Но в единичной системе координат меша мы работаем в [0..1].
+        // Сдвиг на 0.5 нужен, чтобы лестница начиналась от края платформы.
+        const x = 0.5 + (i * stepD) + (stepD / 2); 
         
-        const x = startOffset + (i * stepD) + (stepD / 2);
-        // Z начинается от 0.2 и идет до 1.2
-        const z = 0.2 + (i * stepH) + (stepH / 2);
+        // Z: Равномерный подъем
+        const z = stairStartZ + (i * stepH) + (stepH / 2);
         
         step.translate(x, 0, z);
         geometries.push(step);
@@ -40,12 +48,17 @@ function createBaseStairPlatform() {
 
 const geomCache = {};
 
-export function getPlatformStairGeometry(direction) {
-    if (geomCache[direction]) return geomCache[direction];
-    let geo = createBaseStairPlatform();
+export function getPlatformStairGeometry(direction, thicknessRatio) {
+    // Ключ кеша должен учитывать толщину, иначе при изменении параметра получим старую геометрию
+    const key = `${direction}_${thicknessRatio.toFixed(3)}`;
+    if (geomCache[key]) return geomCache[key];
+
+    let geo = createBaseStairPlatform(thicknessRatio);
+    
     if (direction === 'x_neg') geo.rotateZ(Math.PI);
     else if (direction === 'y_pos') geo.rotateZ(-Math.PI / 2);
     else if (direction === 'y_neg') geo.rotateZ(Math.PI / 2);
-    geomCache[direction] = geo;
+
+    geomCache[key] = geo;
     return geo;
 }
