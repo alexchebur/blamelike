@@ -155,45 +155,90 @@ class ChunkManager {
         return mesh;
     }
 
+    /**
+     * Создание геометрии по типу
+     * @param {string} type 
+     * @param {Object} config 
+     * @returns {THREE.BufferGeometry}
+     */
     createGeometry(type, config) {
         const segments = config.maxSegments || 16;
-        
+        const levelHeight = config.levelHeight || 20;
+
         switch (type) {
-            case 'box': 
+            case 'box':
                 return new THREE.BoxGeometry(1, 1, 1);
-            case 'cylinder': 
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            case 'cone': 
-                return new THREE.ConeGeometry(0.5, 1, segments);
-            case 'octahedron': 
-                return new THREE.OctahedronGeometry(0.5);
-            case 'capsule': 
-                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            case 'torus': 
-                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            case 'prism': 
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
-            case 'sphere': 
-                return new THREE.SphereGeometry(0.5, segments, segments);
-            case 'obelisk': 
-                return new THREE.ConeGeometry(0.4, 1, 4); 
-            case 'spire': 
-                return new THREE.ConeGeometry(0.2, 1, 8);
             
-            // Новые типы платформ с интегрированными лестницами
+            // Для вертикальных объектов (цилиндры, конусы) в системе Z-up 
+            // мы должны повернуть их, чтобы они "росли" вдоль Z, 
+            // либо оставить как есть, если мы планируем крутить их матрицами инстансов.
+            // В текущей архитектуре мы крутим инстансы, поэтому оставляем базу по Y,
+            // но для визуальной целостности при camera.up=Z лучше иметь базу, 
+            // которая адекватно реагирует на tiltX/Y.
+            case 'cylinder':
+                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
+            case 'cone':
+                return new THREE.ConeGeometry(0.5, 1, segments);
+            case 'octahedron':
+                return new THREE.OctahedronGeometry(0.5);
+            case 'capsule':
+                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
+            case 'torus':
+                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
+            case 'prism':
+                return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+            case 'sphere':
+                return new THREE.SphereGeometry(0.5, segments, segments);
+            
+            // --- Специфичные типы ---
+            case 'obelisk':
+                return new THREE.ConeGeometry(0.4, 1, 4); 
+            case 'spire':
+                return new THREE.ConeGeometry(0.2, 1, 8);
+
+            // --- Лестницы (геометрия, выровненная по вектору подъема) ---
+            case 'stair_1':
+            case 'stair_2':
+            case 'stair_3':
+                const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
+                const stepH = 1.5; 
+                const stepD = 1.5;  
+                const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
+                const totalHeight = levels * levelHeight;
+                const stepsCount = Math.floor(totalHeight / stepH);
+                const totalLength = stepsCount * stepD; 
+                
+                const geometries = [];
+                for (let i = 0; i < stepsCount; i++) {
+                    const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
+                    // Смещаем ступеньку вдоль локальной оси X (направление лестницы)
+                    // и вверх по локальной оси Y
+                    const xLocal = -totalLength / 2 + (i * stepD) + (stepD / 2);
+                    const yLocal = -totalHeight / 2 + (i * stepH) + (stepH / 2);
+                    stepGeo.translate(xLocal, yLocal, 0);
+                    geometries.push(stepGeo);
+                }
+                return mergeGeometries(geometries);
+
+            // --- Новые типы платформ с интегрированными лестницами ---
             case 'platform_stair_x_pos':
             case 'platform_stair_x_neg':
             case 'platform_stair_y_pos':
             case 'platform_stair_y_neg':
-                const dir = type.replace('platform_stair_', '');
-                return getPlatformStairGeometry(dir);
+                // Убедись, что эта функция импортирована или определена выше!
+                if (typeof getPlatformStairGeometry !== 'undefined') {
+                    const dir = type.replace('platform_stair_', '');
+                    return getPlatformStairGeometry(dir);
+                } else {
+                    console.warn('getPlatformStairGeometry is not defined');
+                    return new THREE.BoxGeometry(1, 1, 1);
+                }
 
             default:
                 console.warn(`Unknown geometry type: ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
-
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
