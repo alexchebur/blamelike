@@ -78,17 +78,20 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
-// src/gen/chunkGenerator.js
-// ... (начало файла без изменений)
-
 /**
  * Этап A: Генерация платформ с интегрированными лестницами
- * ГАРАНТИЯ: Лестница создается ТОЛЬКО если есть целевая платформа через 1 клетку на уровне выше
+ * ИСПРАВЛЕНО: 
+ * 1. Все платформы имеют одинаковую толщину (platformThickness).
+ * 2. Лестницы синхронизированы с верхними гранями платформ.
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
+    // Относительная толщина платформы для геометрии лестницы
+    // Если levelHeight=20, а thickness=4, то ratio=0.2
+    const thicknessRatio = platformThickness / levelHeight;
+
     // Определяем диапазон уровней строго по границам чанка
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
@@ -111,8 +114,8 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     // 2. Создание примитивов на основе анализа карт
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
-        const upperMap = levelMaps.get(level + 1); // Карта уровня выше (может быть undefined на последнем уровне)
-        const z = level * levelHeight;
+        const upperMap = levelMaps.get(level + 1); // Карта уровня выше
+        const z = level * levelHeight; // Нижняя грань текущего уровня
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -145,70 +148,39 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     }
                 }
 
-                // === КЛЮЧЕВОЙ МОМЕНТ: ЯВНЫЙ ВЫБОР ТИПА И ОТЛАДКА ===
+                // Базовые параметры для любой платформы
+                const posX = bounds.min.x + (gx + 0.5) * cellSize;
+                const posY = bounds.min.y + (gy + 0.5) * cellSize;
+
                 if (stairType) {
-                    // 1. Создаем платформу с интегрированной лестницей
+                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
+                    // Позиция Z остается на уровне нижней грани (z), так как геометрия лестницы
+                    // строится от 0 до levelHeight внутри себя.
                     primitives.push({
                         type: `platform_stair_${stairType}`,
-                        position: { 
-                            x: bounds.min.x + (gx + 0.5) * cellSize, 
-                            y: bounds.min.y + (gy + 0.5) * cellSize, 
-                            z 
-                        },
+                        position: { x: posX, y: posY, z },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'base',
                         flags: {},
-                        role: 'frame'
+                        role: 'frame',
+                        // Передаем параметр толщины для корректной генерации геометрии
+                        params: { thicknessRatio } 
                     });
 
-                    // 2. 🟢 НЕОНОВЫЙ МАРКЕР: Источник лестницы (текущий уровень)
-                    // Слот 'glow' + emissive:true дает ярко-оранжевое свечение (#ff6600)
-                    primitives.push({
-                        type: 'sphere',
-                        position: { 
-                            x: bounds.min.x + (gx + 0.5) * cellSize, 
-                            y: bounds.min.y + (gy + 0.5) * cellSize, 
-                            z: z + platformThickness / 2 // Ровно на верхней грани платформы
-                        },
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: 1.2, y: 1.2, z: 1.2 },
-                        paletteSlot: 'glow', 
-                        flags: { emissive: true },
-                        role: 'debug'
-                    });
-
-                    // 3. 🔵 МАТОВЫЙ МАРКЕР: Целевая платформа (уровень выше)
-                    // Слот 'accent' дает тёмно-серый цвет (#4a4a4a), контрастный к glow
-                    primitives.push({
-                        type: 'sphere',
-                        position: { 
-                            x: bounds.min.x + (targetGx + 0.5) * cellSize, 
-                            y: bounds.min.y + (targetGy + 0.5) * cellSize, 
-                            z: (level + 1) * levelHeight + platformThickness / 2
-                        },
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: 1.8, y: 1.8, z: 1.8 }, // Чуть больше источника для различия
-                        paletteSlot: 'accent', 
-                        flags: { emissive: false },
-                        role: 'debug'
-                    });
-                    
-                    // 4. Лог в консоль для железного доказательства связи
-                    console.log(
-                        `🪜 STAIR [${stairType}] | SOURCE: (${gx},${gy}) Lvl ${level} -> TARGET: (${targetGx},${targetGy}) Lvl ${level+1}`
-                    );
                 } else {
-                    // Обычная платформа БЕЗ маркеров и лестниц
+                    // === ОБЫЧНАЯ ПЛАТФОРМА ===
+                    // BoxGeometry центрирована, поэтому смещаем Z на половину толщины вверх,
+                    // чтобы низ платформы был ровно на z.
                     primitives.push({
                         type: 'box',
                         position: { 
-                            x: bounds.min.x + (gx + 0.5) * cellSize, 
-                            y: bounds.min.y + (gy + 0.5) * cellSize, 
-                            z 
+                            x: posX, 
+                            y: posY, 
+                            z: z + platformThickness / 2 
                         },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: levelHeight + platformThickness },
+                        scale: { x: cellSize, y: cellSize, z: platformThickness },
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame'
@@ -234,7 +206,9 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const zLevel = level * levelHeight;
-        const zWall = zLevel + (levelHeight + platformThickness) / 2; 
+        // Стены стоят на платформе, их центр смещен на половину высоты платформы + половину высоты стены
+        const zWallBase = zLevel + platformThickness;
+        const zWallCenter = zWallBase + levelHeight / 2;
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -246,7 +220,7 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     
                     primitives.push({
                         type: 'box',
-                        position: { x, y, z: zWall },
+                        position: { x, y, z: zWallCenter },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize * 0.9, y: cellSize * 0.1, z: levelHeight },
                         paletteSlot: 'baseDark',
@@ -263,7 +237,7 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     
                     primitives.push({
                         type: 'cylinder',
-                        position: { x, y, z: zWall },
+                        position: { x, y, z: zWallCenter },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize * 0.15, y: cellSize * 0.15, z: levelHeight },
                         paletteSlot: 'accent',
@@ -283,7 +257,7 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
+    const { gridSize, levelHeight, roomDensity, bridgeChance, platformThickness } = config;
     
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
@@ -292,6 +266,8 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const z = level * levelHeight;
+        // Мосты лежат чуть выше поверхности платформы
+        const zBridge = z + platformThickness + 0.5;
         
         // 1. Собираем координаты всех платформ этого яруса
         const platforms = [];
@@ -365,7 +341,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             primitives.push({
                 type: 'box',
-                position: { x: midX, y: midY, z: z + 1 },
+                position: { x: midX, y: midY, z: zBridge },
                 rotation: { tiltX: 0, tiltY: 0, twistZ: angleDeg },
                 scale: { x: dist, y: cellSize * 0.2, z: 0.5 },
                 paletteSlot: 'accent',
@@ -388,7 +364,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                  
                  primitives.push({
                     type: 'box',
-                    position: { x: (x1 + x2) / 2, y: y1, z: z + 1 },
+                    position: { x: (x1 + x2) / 2, y: y1, z: zBridge },
                     rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                     scale: { x: dist, y: cellSize * 0.2, z: 0.5 },
                     paletteSlot: 'accent',
