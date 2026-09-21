@@ -257,17 +257,21 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { gridSize, levelHeight, roomDensity, bridgeChance, platformThickness } = config;
+    const { gridSize, levelHeight, roomDensity, platformThickness } = config;
+    
+    // Толщина самого моста (должна совпадать со scale.z при создании примитива)
+    const bridgeThickness = 0.5; 
     
     const startLevel = Math.ceil(bounds.min.z / levelHeight);
     const endLevel = Math.floor(bounds.max.z / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
+        // Пропускаем уровень, если он слишком "пустой" для наличия мостов
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
-        const z = level * levelHeight;
-        // Мосты лежат чуть выше поверхности платформы
-        const zBridge = z + platformThickness + 0.5;
+        const zBase = level * levelHeight;
+        // Центр моста должен быть смещен на половину его толщины выше платформы
+        const zBridgeCenter = zBase + platformThickness + (bridgeThickness / 2);
         
         // 1. Собираем координаты всех платформ этого яруса
         const platforms = [];
@@ -301,6 +305,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             let nearest = null;
             let minDist = Infinity;
             
+            // Ищем ближайшего несвязанного соседа в радиусе 2 клеток
             for (let dx = -2; dx <= 2; dx++) {
                 for (let dy = -2; dy <= 2; dy++) {
                     if (dx === 0 && dy === 0) continue;
@@ -325,7 +330,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
 
-        // 3. Постройка мостов
+        // 3. Постройка внутренних мостов
         for (const edge of edgesToAdd) {
             const x1 = bounds.min.x + (edge.sx + 0.5) * cellSize;
             const y1 = bounds.min.y + (edge.sy + 0.5) * cellSize;
@@ -334,6 +339,8 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             const midX = (x1 + x2) / 2;
             const midY = (y1 + y2) / 2;
+            
+            // Расстояние между центрами платформ
             const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
             
             const angleRad = Math.atan2(y2 - y1, x2 - x1);
@@ -341,9 +348,13 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             primitives.push({
                 type: 'box',
-                position: { x: midX, y: midY, z: zBridge },
+                position: { x: midX, y: midY, z: zBridgeCenter },
                 rotation: { tiltX: 0, tiltY: 0, twistZ: angleDeg },
-                scale: { x: dist, y: cellSize * 0.2, z: 0.5 },
+                scale: { 
+                    x: dist, 
+                    y: cellSize * 0.2, // Ширина моста
+                    z: bridgeThickness   // Толщина моста
+                },
                 paletteSlot: 'accent',
                 flags: {},
                 role: 'connector'
@@ -351,22 +362,30 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         }
 
         // 4. Граничные соединения (EdgeAgreement)
+        // Проверяем правую границу чанка (+X)
         const rightDecisions = edgeAgreement.getBoundaryDecisions(cx, cy, cz, 'x', 1, seed, config);
         for (let i = 0; i < gridSize; i++) {
             const decision = rightDecisions[i];
             const internalKey = `${gridSize - 1},${i}`;
             
+            // Если платформа есть и согласование границы требует прохода
             if (platformSet.has(internalKey) && decision.hasPassage) {
-                 const x1 = bounds.min.x + (gridSize - 0.5) * cellSize;
+                 const x1 = bounds.min.x + (gridSize - 0.5) * cellSize; // Центр крайней платформы
                  const y1 = bounds.min.y + (i + 0.5) * cellSize;
+                 
+                 // Мост идет до самой границы чанка
                  const x2 = bounds.max.x;
                  const dist = cellSize / 2;
                  
                  primitives.push({
                     type: 'box',
-                    position: { x: (x1 + x2) / 2, y: y1, z: zBridge },
+                    position: { x: (x1 + x2) / 2, y: y1, z: zBridgeCenter },
                     rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                    scale: { x: dist, y: cellSize * 0.2, z: 0.5 },
+                    scale: { 
+                        x: dist, 
+                        y: cellSize * 0.2, 
+                        z: bridgeThickness 
+                    },
                     paletteSlot: 'accent',
                     flags: {},
                     role: 'connector'
@@ -377,7 +396,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     
     return primitives;
 }
-
 /**
  * Этап D: Монолиты (крупные структуры)
  */
