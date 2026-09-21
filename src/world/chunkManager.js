@@ -18,7 +18,7 @@ class ChunkManager {
         this.lastCameraChunk = null;
         this.config = null;
     }
-    
+
     update(cameraPos, config) {
         this.config = config;
         const currentChunk = worldToChunk(
@@ -27,21 +27,18 @@ class ChunkManager {
             cameraPos.z, 
             config.chunkSize
         );
-        
         if (!this.lastCameraChunk || 
             currentChunk.cx !== this.lastCameraChunk.cx ||
             currentChunk.cy !== this.lastCameraChunk.cy ||
             currentChunk.cz !== this.lastCameraChunk.cz) {
-            
             this.lastCameraChunk = currentChunk;
             this.updateVisibleChunks(currentChunk, config, cameraPos);
         }
     }
-    
+
     updateVisibleChunks(centerChunk, config, cameraPos) {
         const { viewChunksXY, viewChunksZ } = config;
         const desiredChunks = new Set();
-        
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
             for (let dy = -viewChunksXY; dy <= viewChunksXY; dy++) {
                 for (let dz = -viewChunksZ; dz <= viewChunksZ; dz++) {
@@ -50,7 +47,6 @@ class ChunkManager {
                     const cz = centerChunk.cz + dz;
                     const key = createChunkKey(cx, cy, cz);
                     desiredChunks.add(key);
-                    
                     if (!this.activeChunks.has(key)) {
                         this.loadChunk(cx, cy, cz, config, cameraPos);
                     } else {
@@ -61,37 +57,32 @@ class ChunkManager {
         }
         this.unloadUnusedChunks(desiredChunks);
     }
-    
+
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
-        
         if (!chunkData) {
             //console.log(`🔄 Generating data for chunk [${cx}, ${cy}, ${cz}]`);
             chunkData = generateChunk(cx, cy, cz, config.seed, config);
             this.cache.set(key, chunkData);
         }
-        
         const group = this.createChunkMesh(chunkData, config);
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
     }
-    
+
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
-        
-        // Группируем все примитивы (линии больше не генерируются)
+        // Группируем все примитивы
         const grouped = this.groupPrimitives(primitives);
-        
         for (const [typeSlot, items] of Object.entries(grouped)) {
             const [type, slot] = typeSlot.split('|');
             const mesh = this.createInstancedMesh(type, slot, items, config);
             if (mesh) group.add(mesh);
         }
-        
         return group;
     }
-    
+
     groupPrimitives(primitives) {
         const grouped = {};
         for (const prim of primitives) {
@@ -99,14 +90,13 @@ class ChunkManager {
             if (prim.type === 'line' || prim.type.startsWith('stair_') || prim.type === 'ramp') {
                 continue;
             }
-            
             const key = `${prim.type}|${prim.paletteSlot}`;
             if (!grouped[key]) grouped[key] = [];
             grouped[key].push(prim);
         }
         return grouped;
     }
-    
+
     /**
      * Создание InstancedMesh для группы примитивов
      * @param {string} type - тип геометрии
@@ -115,54 +105,64 @@ class ChunkManager {
      * @param {Object} config 
      * @returns {THREE.InstancedMesh|null}
      */
-
-
-    /**
-     * Создание InstancedMesh для группы примитивов
-     */
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
         
+        // Получаем палитру из конфига
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-        // ИСПРАВЛЕНИЕ: Передаем параметры первого элемента (они одинаковы для группы)
-        // или пустой объект, если их нет
+        // ИСПРАВЛЕНИЕ: Извлекаем параметры из первого элемента группы
+        // Они одинаковы для всех элементов одного типа в этой группе
         const params = items[0].params || {};
+        
+        // Создаем геометрию, передавая параметры
         const geometry = this.createGeometry(type, config, params);
         
+        // Создаем материал
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex),
             flatShading: true,
             side: THREE.DoubleSide
         });
 
+        // Создаем InstancedMesh
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
         mesh.frustumCulled = true; 
         
         const dummy = new THREE.Object3D();
+        // === БАЗОВЫЙ ПОВОРОТ ДЛЯ СИСТЕМЫ Z-UP ===
+        // Стандартные геометрии Three.js растут вдоль оси Y.
+        // Чтобы они корректно стояли в мире, где высота — это Z,
+        // нам нужно повернуть их на -90 градусов по оси X.
         const baseRotation = new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
+        // ==========================================
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             dummy.position.set(item.position.x, item.position.y, item.position.z);
             
+            // Базовые углы из генератора
             let tiltX = item.rotation.tiltX || 0;
             let tiltY = item.rotation.tiltY || 0;
             let twistZ = item.rotation.twistZ || 0;
 
+            // === ПРИМЕНЯЕМ СМЕЩЕНИЯ ТОЛЬКО ДЛЯ ЛЕСТНИЦ ===
             if (type.startsWith('platform_stair_')) {
                 twistZ += config.stairTwistOffset || 0;
                 tiltX += config.stairTiltOffset || 0;
             }
             
+            // Устанавливаем поворот из данных + базовый поворот для Z-up
             dummy.rotation.set(
                 THREE.MathUtils.degToRad(tiltX),
                 THREE.MathUtils.degToRad(tiltY),
                 THREE.MathUtils.degToRad(twistZ)
             );
             
+            // Применяем базовый поворот (преумножаем кватернион)
             dummy.quaternion.premultiply(new THREE.Quaternion().setFromEuler(baseRotation));
+            
             dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
@@ -175,22 +175,16 @@ class ChunkManager {
      * Создание геометрии по типу
      * @param {string} type 
      * @param {Object} config 
+     * @param {Object} params - дополнительные параметры (например, thicknessRatio)
      * @returns {THREE.BufferGeometry}
      */
-    createGeometry(type, config) {
+    createGeometry(type, config, params = {}) {
         const segments = config.maxSegments || 16;
         const levelHeight = config.levelHeight || 20;
-
+        
         switch (type) {
             case 'box':
                 return new THREE.BoxGeometry(1, 1, 1);
-            
-            // Для вертикальных объектов (цилиндры, конусы) в системе Z-up 
-            // мы должны повернуть их, чтобы они "росли" вдоль Z, 
-            // либо оставить как есть, если мы планируем крутить их матрицами инстансов.
-            // В текущей архитектуре мы крутим инстансы, поэтому оставляем базу по Y,
-            // но для визуальной целостности при camera.up=Z лучше иметь базу, 
-            // которая адекватно реагирует на tiltX/Y.
             case 'cylinder':
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
             case 'cone':
@@ -205,44 +199,20 @@ class ChunkManager {
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
             case 'sphere':
                 return new THREE.SphereGeometry(0.5, segments, segments);
-            
             // --- Специфичные типы ---
             case 'obelisk':
                 return new THREE.ConeGeometry(0.4, 1, 4); 
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
-
-            // --- Лестницы (геометрия, выровненная по вектору подъема) ---
-            case 'stair_1':
-            case 'stair_2':
-            case 'stair_3':
-                const levels = type === 'stair_1' ? 1 : type === 'stair_2' ? 2 : 3;
-                const stepH = 1.5; 
-                const stepD = 1.5;  
-                const width = (config.stairWidthRatio || 0.1) * (config.chunkSize / config.gridSize);
-                const totalHeight = levels * levelHeight;
-                const stepsCount = Math.floor(totalHeight / stepH);
-                const totalLength = stepsCount * stepD; 
-                
-                const geometries = [];
-                for (let i = 0; i < stepsCount; i++) {
-                    const stepGeo = new THREE.BoxGeometry(stepD, stepH, width);
-                    // Смещаем ступеньку вдоль локальной оси X (направление лестницы)
-                    // и вверх по локальной оси Y
-                    const xLocal = -totalLength / 2 + (i * stepD) + (stepD / 2);
-                    const yLocal = -totalHeight / 2 + (i * stepH) + (stepH / 2);
-                    stepGeo.translate(xLocal, yLocal, 0);
-                    geometries.push(stepGeo);
-                }
-                return mergeGeometries(geometries);
-
+            
+            // --- Новые типы платформ с интегрированными лестницами ---
             case 'platform_stair_x_pos':
             case 'platform_stair_x_neg':
             case 'platform_stair_y_pos':
             case 'platform_stair_y_neg':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
                     const dir = type.replace('platform_stair_', '');
-                    // ИСПРАВЛЕНИЕ: Передаем thicknessRatio из params
+                    // ИСПРАВЛЕНИЕ: Используем params.thicknessRatio
                     const thicknessRatio = params.thicknessRatio || (config.platformThickness / levelHeight);
                     return getPlatformStairGeometry(dir, thicknessRatio);
                 } else {
@@ -255,6 +225,7 @@ class ChunkManager {
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
+
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
@@ -264,7 +235,7 @@ class ChunkManager {
             }
         }
     }
-    
+
     disposeChunk(chunk) {
         chunk.traverse((child) => {
             if (child.isInstancedMesh) {
@@ -273,7 +244,7 @@ class ChunkManager {
             }
         });
     }
-    
+
     clear() {
         for (const [key, chunk] of this.activeChunks) {
             this.sceneManager.scene.remove(chunk);
