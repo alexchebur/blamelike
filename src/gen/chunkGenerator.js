@@ -26,28 +26,35 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += rooms.length;
     }
 
-    // === ЭТАП C: Мосты ===
+    // === ЭТАП C: Горизонтальные соединения (мосты) ===
     if (instanceCount < maxInstances) {
         const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...connections);
         instanceCount += connections.length;
     }
 
-    // === ЭТАП D: Монолиты ===
+    // === ЭТАП D: Вертикальные соединения (лестницы) ===
+    if (instanceCount < maxInstances) {
+        const stairs = generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize);
+        primitives.push(...stairs);
+        instanceCount += stairs.length;
+    }
+
+    // === ЭТАП E: Монолиты ===
     if (instanceCount < maxInstances) {
         const mega = generateMegaStructures(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...mega);
         instanceCount += mega.length;
     }
 
-    // === ЭТАП E: Протыкающие фигуры ===
+    // === ЭТАП F: Протыкающие фигуры ===
     if (instanceCount < maxInstances) {
         const pierce = generatePierce(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...pierce);
         instanceCount += pierce.length;
     }
 
-    // === ЭТАП F: Декор ===
+    // === ЭТАП G: Декор ===
     if (instanceCount < maxInstances) {
         const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...decor);
@@ -72,7 +79,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 if (baseHash < roomDensity) {
-                    // Явная мировая позиция с учетом смещения чанка
                     const wx = bounds.min.x + (gx + 0.5) * cellSize;
                     const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                     
@@ -102,7 +108,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const yBase = level * levelHeight;
-        // Стены стоят НА платформе
         const yWallCenter = yBase + platformThickness + (levelHeight - platformThickness) / 2; 
 
         for (let gx = 0; gx < gridSize; gx++) {
@@ -209,6 +214,59 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 paletteSlot: 'accent',
                 role: 'connector'
             });
+        }
+    }
+    return primitives;
+}
+
+function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+    const primitives = [];
+    const { levelHeight, gridSize, roomDensity, stairsChance, platformThickness } = config;
+    
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
+
+    for (let level = startLevel; level < endLevel; level++) {
+        const yBase = level * levelHeight;
+        const targetLevel = level + 1;
+        const yTarget = targetLevel * levelHeight;
+
+        for (let gx = 0; gx < gridSize; gx++) {
+            for (let gy = 0; gy < gridSize; gy++) {
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
+
+                // Ищем соседей на уровень выше
+                const neighbors = [
+                    { dx: 1, dy: 0, variant: 'east' },
+                    { dx: -1, dy: 0, variant: 'west' },
+                    { dx: 0, dy: 1, variant: 'north' },
+                    { dx: 0, dy: -1, variant: 'south' }
+                ];
+
+                for (const n of neighbors) {
+                    const nx = gx + n.dx;
+                    const ny = gy + n.dy;
+                    
+                    if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
+                        if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
+                            if (rng() < stairsChance) {
+                                const wx = bounds.min.x + (gx + 0.5) * cellSize;
+                                const wz = bounds.min.z + (gy + 0.5) * cellSize;
+
+                                primitives.push({
+                                    type: 'platform_stair',
+                                    variant: n.variant,
+                                    position: { x: wx, y: yBase, z: wz },
+                                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                                    scale: { x: cellSize, y: cellSize, z: levelHeight },
+                                    paletteSlot: 'baseLight',
+                                    role: 'connector'
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     return primitives;
