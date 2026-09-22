@@ -4,35 +4,43 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // src/geom/stairFactory.js
 
+// src/geom/stairFactory.js
+
 function createBaseStairPlatform() {
     const geometries = [];
     
-    // 1. Платформа (основание)
-    // Делаем её тонкой (0.1 от высоты), чтобы при масштабе levelHeight она давала ~2 единицы
-    const base = new THREE.BoxGeometry(1, 0.1, 1);
-    // Поднимаем так, чтобы низ был на 0, а верх на 0.1
-    base.translate(0, 0.05, 0); 
+    // Параметры (должны совпадать с дефолтными значениями из config.js для корректной пропорции)
+    // Мы строим геометрию в локальных координатах [0..1] по высоте.
+    // При масштабе levelHeight=20 и thickness=2, плита займет нижние 0.1 (2/20) высоты.
+    const plateRatio = 2 / 20; // platformThickness / levelHeight
+    
+    // 1. ПЛИТА ОСНОВАНИЯ
+    // Высота = plateRatio, ширина/глубина = 1. Центр по Y = plateRatio / 2
+    const base = new THREE.BoxGeometry(1, plateRatio, 1);
+    base.translate(0, plateRatio / 2, 0); 
     geometries.push(base);
 
-    // 2. Лестница
+    // 2. ЛЕСТНИЦА
+    // Начинается сразу над плитой (plateRatio) и идет до верха (1.0)
     const steps = 20; 
     const stairLength = 1.0; 
     const width = 0.3; 
     
-    // Начинаем лестницу сразу от края платформы (0.5)
-    const startOffset = 0.5; 
+    const startOffset = 0.5; // Начинаем от края платформы
     
-    const stepH = 0.9 / steps; // Оставляем 0.1 на платформу, остальное (0.9) на подъем
+    // Доступная высота для ступеней = 1.0 - plateRatio
+    const availableHeight = 1.0 - plateRatio;
+    const stepH = availableHeight / steps; 
     const stepD = stairLength / steps;
 
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, stepH, width);
         
-        // Позиция по X (вдоль лестницы)
+        // X: идем вдоль длины лестницы
         const x = startOffset + (i * stepD); 
         
-        // Позиция по Y. Начинаем от верха платформы (0.1)
-        const y = 0.1 + (i * stepH) + (stepH / 2);
+        // Y: начинаем от верха плиты (plateRatio)
+        const y = plateRatio + (i * stepH) + (stepH / 2);
         
         step.translate(x, y, 0);
         geometries.push(step);
