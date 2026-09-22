@@ -104,67 +104,61 @@ class ChunkManager {
         return grouped;
     }
 
-    /**
-     * Создание InstancedMesh для группы примитивов
-     * @param {string} type - тип геометрии
-     * @param {string} slot - цветовой слот
-     * @param {Array} items - массив примитивов
-     * @param {Object} config 
-     * @returns {THREE.InstancedMesh|null}
-     */
-    createInstancedMesh(type, slot, items, config) {
+     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
 
-        // Получаем палитру из конфига
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
-
-        // Создаем геометрию (общую для всех инстансов этого типа)
-        const geometry = this.createGeometry(type, config);
+        const geometry = this.createGeometry(type, items[0].variant, config);
         
-        // Создаем материал
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex),
             flatShading: true,
             side: THREE.DoubleSide
         });
 
-        // Создаем InstancedMesh
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
-        mesh.frustumCulled = true; 
-        
         const dummy = new THREE.Object3D();
-
-        // === Y-UP SYSTEM: Базовый поворот не нужен ===
-        // Стандартные геометрии Three.js растут вдоль Y, что теперь совпадает с высотой мира.
-        // ==========================================
+        const { chunkSize, gridSize, levelHeight } = config;
+        const cellSize = chunkSize / gridSize;
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             
-            // Позиция: Y теперь высота
-            dummy.position.set(item.position.x, item.position.y, item.position.z);
+            // === GRID-FIRST CONVERSION ===
+            let wx = 0, wy = 0, wz = 0;
+            
+            if (item.grid) {
+                // Базовая позиция центра клетки
+                wx = (item.grid.gx + 0.5) * cellSize;
+                wy = item.grid.level * levelHeight;
+                wz = (item.grid.gy + 0.5) * cellSize;
 
-            // Поворот
-            let tiltX = item.rotation.tiltX || 0;
-            let tiltY = item.rotation.tiltY || 0;
-            let twistZ = item.rotation.twistZ || 0;
-
-            // Применяем смещения только для лестниц (если нужно для отладки)
-            if (type.startsWith('platform_stair_')) {
-                twistZ += config.stairTwistOffset || 0;
-                // tiltX может использоваться для наклона самой лестницы, если factory это поддерживает
+                // Применяем локальные смещения (offset)
+                if (item.offset) {
+                    wx += item.offset.x || 0;
+                    wy += item.offset.y || 0;
+                    wz += item.offset.z || 0;
+                }
+            } else if (item.position) {
+                // Фолбэк для старых типов (декор, монолиты)
+                wx = item.position.x;
+                wy = item.position.y;
+                wz = item.position.z;
             }
 
-            dummy.rotation.set(
-                THREE.MathUtils.degToRad(tiltX),
-                THREE.MathUtils.degToRad(tiltY),
-                THREE.MathUtils.degToRad(twistZ)
-            );
+            dummy.position.set(wx, wy, wz);
 
-            // Масштаб
-            dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
+            // Поворот
+            let twistZ = item.rotation?.twistZ || 0;
+            dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(twistZ));
             
+            // Если есть variant, геометрия уже повернута, но можно добавить доп. поворот
+            if (item.variant === 'west') dummy.rotation.y = Math.PI;
+            else if (item.variant === 'north') dummy.rotation.y = -Math.PI / 2;
+            else if (item.variant === 'south') dummy.rotation.y = Math.PI / 2;
+
+            dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
         }
@@ -176,10 +170,11 @@ class ChunkManager {
     /**
      * Создание геометрии по типу
      * @param {string} type 
+     * @param {string} variant - вариант формы (например, направление лестницы)
      * @param {Object} config 
      * @returns {THREE.BufferGeometry}
      */
-    createGeometry(type, config) {
+    createGeometry(type, variant, config) {
         const segments = config.maxSegments || 16;
         
         switch (type) {
@@ -211,13 +206,10 @@ class ChunkManager {
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
             // --- Лестницы (интегрированные в платформу) ---
-            case 'platform_stair_x_pos':
-            case 'platform_stair_x_neg':
-            case 'platform_stair_y_pos':
-            case 'platform_stair_y_neg':
+            case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
-                    const dir = type.replace('platform_stair_', '');
-                    return getPlatformStairGeometry(dir);
+                    // Если variant не указан, используем 'east' как базу
+                    return getPlatformStairGeometry(variant || 'east');
                 } else {
                     console.warn('getPlatformStairGeometry is not defined');
                     return new THREE.BoxGeometry(1, 1, 1);
@@ -228,7 +220,6 @@ class ChunkManager {
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
-
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
