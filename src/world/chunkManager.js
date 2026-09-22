@@ -78,8 +78,15 @@ class ChunkManager {
         const grouped = this.groupPrimitives(primitives);
 
         for (const [typeSlot, items] of Object.entries(grouped)) {
-            const [type, slot] = typeSlot.split('|');
-            const mesh = this.createInstancedMesh(type, slot, items, config);
+            // typeSlot имеет формат "type|slot" или "type_variant|slot"
+            // Мы используем ТОЛЬКО последний '|' как разделитель слота
+            const lastPipeIndex = typeSlot.lastIndexOf('|');
+            if (lastPipeIndex === -1) continue; // Пропускаем некорректные ключи
+            
+            const slot = typeSlot.substring(lastPipeIndex + 1);
+            const fullTypeWithVariant = typeSlot.substring(0, lastPipeIndex);
+            
+            const mesh = this.createInstancedMesh(fullTypeWithVariant, slot, items, config);
             if (mesh) group.add(mesh);
         }
 
@@ -89,32 +96,33 @@ class ChunkManager {
     groupPrimitives(primitives) {
         const grouped = {};
         for (const prim of primitives) {
-            // Включаем variant в ключ для разделения лестниц
-            const vKey = prim.variant ? `_${prim.variant}` : '';
-            const key = `${prim.type}${vKey}|${prim.paletteSlot}`;
+            // Фильтруем примитивы без позиции или типа (защита от мусора)
+            if (!prim.type || !prim.position) continue;
+            
+            // Формируем ключ: "type[_variant]|paletteSlot"
+            const variantSuffix = prim.variant ? `_${prim.variant}` : '';
+            const key = `${prim.type}${variantSuffix}|${prim.paletteSlot || 'base'}`;
+            
             if (!grouped[key]) grouped[key] = [];
             grouped[key].push(prim);
         }
         return grouped;
     }
 
-    createInstancedMesh(typeSlot, items, config) {
-        // Парсинг ключа "type_variant|slot"
-        const lastPipe = typeSlot.lastIndexOf('|');
-        const slot = typeSlot.substring(lastPipe + 1);
-        const fullType = typeSlot.substring(0, lastPipe);
-        
-        let type = fullType;
-        let variant = null;
-        // Извлекаем вариант если он есть (например platform_stair_east -> type=platform_stair, variant=east)
-        if (fullType.includes('_east') || fullType.includes('_west') || 
-            fullType.includes('_north') || fullType.includes('_south')) {
-            const parts = fullType.split('_');
-            variant = parts.pop();
-            type = parts.join('_');
-        }
+    createInstancedMesh(fullTypeWithVariant, slot, items, config) {
+        if (!items || items.length === 0) return null;
 
-        if (items.length === 0) return null;
+        // Парсим тип и вариант. Вариант всегда идет ПОСЛЕ последнего '_' в первой части ключа
+        let type = fullTypeWithVariant;
+        let variant = null;
+        
+        const lastUnderscore = fullTypeWithVariant.lastIndexOf('_');
+        // Проверяем, что после '_' идет известный вариант, а не часть имени типа
+        const possibleVariant = fullTypeWithVariant.substring(lastUnderscore + 1);
+        if (['east', 'west', 'north', 'south'].includes(possibleVariant)) {
+            variant = possibleVariant;
+            type = fullTypeWithVariant.substring(0, lastUnderscore);
+        }
 
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
@@ -130,8 +138,13 @@ class ChunkManager {
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            // Прямое чтение позиции (теперь она гарантированно есть)
-            dummy.position.set(item.position.x, item.position.y, item.position.z);
+            
+            // === ЗАЩИТНАЯ ПРОВЕРКА ===
+            // Если у примитива нет position, ставим его в (0,0,0) вместо краша
+            const px = item.position?.x ?? 0;
+            const py = item.position?.y ?? 0;
+            const pz = item.position?.z ?? 0;
+            dummy.position.set(px, py, pz);
 
             let twistZ = item.rotation?.twistZ || 0;
             dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(twistZ));
@@ -141,7 +154,7 @@ class ChunkManager {
             else if (variant === 'north') dummy.rotation.y = -Math.PI / 2;
             else if (variant === 'south') dummy.rotation.y = Math.PI / 2;
 
-            dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
+            dummy.scale.set(item.scale?.x ?? 1, item.scale?.y ?? 1, item.scale?.z ?? 1);
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
         }
@@ -170,10 +183,12 @@ class ChunkManager {
                 return new THREE.BoxGeometry(1, 1, 1);
                 
             default:
-                console.warn(`Unknown geometry type: ${type}`);
+                // Логируем неизвестный тип, но НЕ падаем
+                console.warn(`Unknown geometry type: "${type}"`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
+
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
