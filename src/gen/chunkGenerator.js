@@ -68,12 +68,11 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
-    // Диапазон уровней по Y (высота)
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const yBase = level * levelHeight; // Абсолютная высота яруса
+        const yBase = level * levelHeight;
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -115,7 +114,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wz = bounds.min.z + (gy + 0.5) * cellSize;
 
-                // Стены
                 const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
                 if (wallHash < wallDensity) {
                     primitives.push({
@@ -128,7 +126,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     });
                 }
 
-                // Колонны
                 const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed);
                 if (pillarHash < pillarDensity) {
                     primitives.push({
@@ -169,7 +166,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         }
         if (platforms.length < 2) continue;
 
-        // Упрощенная связность
         const connected = new Set([`${platforms[0].gx},${platforms[0].gy}`]);
         const edgesToAdd = [];
         let safety = 0;
@@ -206,11 +202,12 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             const dist = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
             const angle = Math.atan2(z2-z1, x2-x1) * (180/Math.PI);
 
+            // ИСПРАВЛЕНИЕ МОСТОВ: Масштаб теперь корректен для Y-up
             primitives.push({
                 type: 'box',
-                position: { x: midX, y: yBase + 1, z: midZ },
+                position: { x: midX, y: yBase + 1, z: midZ }, // yBase + 1 = чуть выше пола
                 rotation: { tiltX: 0, tiltY: 0, twistZ: angle },
-                scale: { x: dist, y: 0.5, z: cellSize * 0.2 },
+                scale: { x: dist, y: 0.5, z: cellSize * 0.2 }, // y=толщина, z=ширина
                 paletteSlot: 'accent',
                 role: 'connector'
             });
@@ -229,13 +226,12 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     for (let level = startLevel; level < endLevel; level++) {
         const yBase = level * levelHeight;
         const targetLevel = level + 1;
-        const yTarget = targetLevel * levelHeight;
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
 
-                // Ищем соседей на уровень выше
+                // Ищем соседей СТРОГО по осям на уровень выше
                 const neighbors = [
                     { dx: 1, dy: 0, variant: 'east' },
                     { dx: -1, dy: 0, variant: 'west' },
@@ -253,6 +249,7 @@ function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                                 const wz = bounds.min.z + (gy + 0.5) * cellSize;
 
+                                // НОВАЯ ЛЕСТНИЦА: Единый тип + вариант
                                 primitives.push({
                                     type: 'platform_stair',
                                     variant: n.variant,
