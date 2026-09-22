@@ -1,24 +1,11 @@
 // src/gen/chunkGenerator.js
 // @ts-check
-/**
- * ChunkGenerator — оркестратор генерации одного чанка
- * Чистая функция: принимает координаты и конфиг, возвращает массив PrimitiveRecord
- */
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 import { buildLevelGrid } from './levelGrid.js';
 import { buildStructure } from './structureBuilder.js';
 
-/**
- * Генерация одного чанка
- * @param {number} cx - координата чанка по X
- * @param {number} cy - координата чанка по Y (вертикальный индекс чанка)
- * @param {number} cz - координата чанка по Z
- * @param {number} seed - сид мира
- * @param {Object} config - конфигурация генерации
- * @returns {Array} массив PrimitiveRecord
- */
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
     const chunkSeed = hash3D(cx, cy, cz, seed);
@@ -30,6 +17,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
     const maxInstances = config.maxInstancesPerChunk || 30000;
 
     // === ЭТАП A+B: Сетка уровней и Структуры (Платформы, Стены, Колонны) ===
+    // Используем новые модули вместо старой generatePlatforms
     const levelMaps = buildLevelGrid(cx, cy, cz, seed, config, bounds);
     const structures = buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps);
     primitives.push(...structures);
@@ -72,6 +60,9 @@ export function generateChunk(cx, cy, cz, seed, config) {
 
     return primitives;
 }
+
+// ... (остальные функции generateConnections, generateMegaStructures и т.д. остаются как в предыдущем ответе, 
+// но убедись, что везде используется bounds.min.y для высоты, а не z)
 
 /**
  * Этап C: Генерация горизонтальных соединений (мостов) с учетом Y-up
