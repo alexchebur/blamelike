@@ -101,14 +101,30 @@ class ChunkManager {
         }
         return grouped;
     }
-    createInstancedMesh(type, slot, items, config) {
+    createInstancedMesh(typeSlot, items, config) {
+        // typeSlot теперь может быть "platform_stair_east|base"
+        const lastPipeIndex = typeSlot.lastIndexOf('|');
+        const slot = typeSlot.substring(lastPipeIndex + 1);
+        const fullType = typeSlot.substring(0, lastPipeIndex);
+        
+        // Извлекаем базовый тип и вариант
+        let type = fullType;
+        let variant = null;
+        if (fullType.includes('_east') || fullType.includes('_west') || 
+            fullType.includes('_north') || fullType.includes('_south')) {
+            const parts = fullType.split('_');
+            variant = parts.pop();
+            type = parts.join('_');
+        }
+
         if (items.length === 0) return null;
 
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-        // Передаем variant для лестниц
-        const geometry = this.createGeometry(type, items[0].variant, config);
+        const geometry = this.createGeometry(type, variant, config);
+        
+        // ... остальной код создания материала и меша без изменений ...
         
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex),
