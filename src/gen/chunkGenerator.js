@@ -64,15 +64,18 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
+// src/gen/chunkGenerator.js (фрагмент функции generatePlatforms)
+
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
+    // Диапазон уровней по Y (высота)
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const yBase = level * levelHeight;
+        const yBase = level * levelHeight; // Абсолютная высота яруса
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -81,21 +84,61 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     const wx = bounds.min.x + (gx + 0.5) * cellSize;
                     const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                     
-                    primitives.push({
-                        type: 'box',
-                        position: { x: wx, y: yBase + platformThickness / 2, z: wz },
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: platformThickness, z: cellSize },
-                        paletteSlot: 'base',
-                        role: 'frame'
-                    });
+                    // Проверяем, нужна ли здесь лестница на уровень выше
+                    let stairVariant = null;
+                    if (level < endLevel) {
+                        const targetLevel = level + 1;
+                        // Ищем соседей строго по осям
+                        const neighbors = [
+                            { dx: 1, dy: 0, v: 'east' }, { dx: -1, dy: 0, v: 'west' },
+                            { dx: 0, dy: 1, v: 'north' }, { dx: 0, dy: -1, v: 'south' }
+                        ];
+                        for (const n of neighbors) {
+                            const nx = gx + n.dx;
+                            const ny = gy + n.dy;
+                            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
+                                if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
+                                    if (rng() < config.stairsChance) {
+                                        stairVariant = n.v;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (stairVariant) {
+                        // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
+                        // Используем 'accent' для выделения
+                        primitives.push({
+                            type: 'platform_stair',
+                            variant: stairVariant,
+                            position: { x: wx, y: yBase, z: wz },
+                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                            // Масштаб по Y равен высоте яруса, но геометрия внутри stairFactory
+                            // должна корректно обрабатывать thicknessRatio
+                            scale: { x: cellSize, y: cellSize, z: levelHeight },
+                            paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
+                            role: 'connector'
+                        });
+                    } else {
+                        // === ОБЫЧНАЯ ПЛАТФОРМА ===
+                        // Используем 'base'
+                        primitives.push({
+                            type: 'box',
+                            position: { x: wx, y: yBase + platformThickness / 2, z: wz },
+                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                            scale: { x: cellSize, y: platformThickness, z: cellSize },
+                            paletteSlot: 'base', // <-- СТАНДАРТНЫЙ ЦВЕТ
+                            role: 'frame'
+                        });
+                    }
                 }
             }
         }
     }
     return primitives;
 }
-
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
