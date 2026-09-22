@@ -101,21 +101,20 @@ class App {
     /**
      * Цикл анимации и рендеринга
      */
+    /**
+     * Цикл анимации и рендеринга
+     */
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        // Обновляем движение камеры (WASD) внутри sceneManager
-        // this.sceneManager.controls.update(); // <-- УДАЛЕНО, так как controls больше нет
-        
-        // Обновляем чанки при движении камеры
+        // Обновляем чанки при движении камеры (ВАЖНО: вызывать каждый кадр!)
         if (this.isInitialized) {
             this.updateChunks();
         }
         
-        // Рендерим сцену (внутри также вызывается updateCameraMovement)
+        // Рендерим сцену (внутри sceneManager также вызывается updateCameraMovement для FPS)
         this.sceneManager.render();
     }
-}
 
 // Запускаем приложение когда DOM готов
 document.addEventListener('DOMContentLoaded', () => {
