@@ -67,19 +67,20 @@ export function generateChunk(cx, cy, cz, seed, config) {
 /**
  * Этап A: Генерация платформ с жесткой привязкой к гриду
  * ВСЕ ПЛАТФОРМЫ:
- * - Нижняя грань строго на zBase = level * levelHeight
- * - Верхняя грань плиты строго на zBase + platformThickness
- * - Лестница (если есть) идет от zBase + platformThickness до zBase + levelHeight
+ * - Нижняя грань строго на yBase = level * levelHeight
+ * - Верхняя грань плиты строго на yBase + platformThickness
+ * - Лестница (если есть) идет от yBase + platformThickness до yBase + levelHeight
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
-    // Относительная толщина для геометрии лестницы
+    // Относительная толщина для геометрии лестницы (передаем в params, если factory это поддерживает)
     const thicknessRatio = platformThickness / levelHeight;
 
-    const startLevel = Math.ceil(bounds.min.z / levelHeight);
-    const endLevel = Math.floor(bounds.max.z / levelHeight);
+    // Определяем диапазон уровней по вертикали (Y)
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     // 1. Генерируем карту всех уровней
     const levelMaps = new Map();
@@ -88,6 +89,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
+                // Используем hash3D для детерминированного решения о наличии платформы
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 map.set(key, baseHash < roomDensity);
             }
@@ -99,7 +101,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     for (let level = startLevel; level <= endLevel; level++) {
         const currentMap = levelMaps.get(level);
         const upperMap = levelMaps.get(level + 1); 
-        const zBase = level * levelHeight; // НИЖНЯЯ ГРАНЬ УРОВНЯ
+        const yBase = level * levelHeight; // НИЖНЯЯ ГРАНЬ УРОВНЯ
 
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -123,13 +125,13 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (stairType) {
                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
                     // Геометрия: плита [0..thicknessRatio], лестница [thicknessRatio..1.0]
-                    // Позиция: zBase (низ платформы)
+                    // Позиция: yBase (низ платформы)
                     // Масштаб: levelHeight (чтобы 1.0 превратилось в levelHeight)
                     primitives.push({
                         type: `platform_stair_${stairType}`,
-                        position: { x: posX, y: posY, z: zBase },
+                        position: { x: posX, y: posY, z: 0 }, // Z пока 0, так как мы в плоскости XZ
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: levelHeight },
+                        scale: { x: cellSize, y: cellSize, z: 1 }, // Z-масштаб не важен для плоской платформы, но пусть будет 1
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame',
@@ -137,18 +139,18 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     });
                 } else {
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
-                    // BoxGeometry центрирована. Чтобы низ был на zBase:
-                    // position.z = zBase + platformThickness / 2
-                    // scale.z = platformThickness
+                    // BoxGeometry центрирована. Чтобы низ был на yBase:
+                    // position.y = yBase + platformThickness / 2
+                    // scale.y = platformThickness
                     primitives.push({
                         type: 'box',
                         position: { 
                             x: posX, 
-                            y: posY, 
-                            z: zBase + platformThickness / 2 
+                            y: yBase + platformThickness / 2, 
+                            z: 0 
                         },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: platformThickness },
+                        scale: { x: cellSize, y: platformThickness, z: cellSize },
                         paletteSlot: 'base',
                         flags: {},
                         role: 'frame'
