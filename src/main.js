@@ -28,7 +28,7 @@ class App {
      */
     async init() {
         try {
-            console.log('🚀 Initializing Blame! Generator...');
+            console.log(' Initializing Blame! Generator...');
             
             // 1. Создаем менеджер сцены (Three.js)
             this.sceneManager = new SceneManager(this.container);
@@ -54,7 +54,7 @@ class App {
             this.isInitialized = true;
             
             console.log('✅ Blame! Generator ready!');
-            console.log('📍 Управление камерой: WASD + QE + мышь');
+            console.log(' Управление камерой: WASD + QE + ЛКМ');
             console.log('🎨 Панель настроек: справа вверху');
             
             // 6. Запускаем цикл рендеринга
@@ -101,13 +101,10 @@ class App {
     /**
      * Цикл анимации и рендеринга
      */
-    /**
-     * Цикл анимации и рендеринга
-     */
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        // Обновляем чанки при движении камеры (ВАЖНО: вызывать каждый кадр!)
+        // Обновляем чанки при движении камеры (ВАЖНО: каждый кадр!)
         if (this.isInitialized) {
             this.updateChunks();
         }
@@ -115,6 +112,7 @@ class App {
         // Рендерим сцену (внутри sceneManager также вызывается updateCameraMovement для FPS)
         this.sceneManager.render();
     }
+}
 
 // Запускаем приложение когда DOM готов
 document.addEventListener('DOMContentLoaded', () => {
