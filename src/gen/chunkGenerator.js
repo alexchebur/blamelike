@@ -109,15 +109,16 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                     if (stairVariant) {
                         // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
-                        // Используем 'accent' для выделения
+                        // КЛЮЧЕВОЙ МОМЕНТ:
+                        // 1. position.y = yBase (нижняя грань уровня), а НЕ центр.
+                        // 2. scale.y = levelHeight (полная высота перехода).
+                        // Геометрия внутри stairFactory сама разобьет это на "плиту" и "ступени".
                         primitives.push({
                             type: 'platform_stair',
                             variant: stairVariant,
-                            position: { x: wx, y: yBase, z: wz },
+                            position: { x: wx, y: yBase, z: wz }, 
                             rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            // Масштаб по Y равен высоте яруса, но геометрия внутри stairFactory
-                            // должна корректно обрабатывать thicknessRatio
-                            scale: { x: cellSize, y: cellSize, z: levelHeight },
+                            scale: { x: cellSize, y: levelHeight, z: cellSize }, // Y теперь равен высоте яруса!
                             paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
                             role: 'connector'
                         });
