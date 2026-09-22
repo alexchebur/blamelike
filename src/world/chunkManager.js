@@ -104,11 +104,13 @@ class ChunkManager {
         return grouped;
     }
 
-     createInstancedMesh(type, slot, items, config) {
+    createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
 
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
+        
+        // Передаем variant в createGeometry
         const geometry = this.createGeometry(type, items[0].variant, config);
         
         const material = new THREE.MeshLambertMaterial({
@@ -119,6 +121,8 @@ class ChunkManager {
 
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
         const dummy = new THREE.Object3D();
+        
+        // Получаем параметры чанка для конвертации grid -> world
         const { chunkSize, gridSize, levelHeight } = config;
         const cellSize = chunkSize / gridSize;
 
@@ -141,7 +145,7 @@ class ChunkManager {
                     wz += item.offset.z || 0;
                 }
             } else if (item.position) {
-                // Фолбэк для старых типов (декор, монолиты)
+                // Фолбэк для старых типов или объектов без грида
                 wx = item.position.x;
                 wy = item.position.y;
                 wz = item.position.z;
@@ -153,10 +157,11 @@ class ChunkManager {
             let twistZ = item.rotation?.twistZ || 0;
             dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(twistZ));
             
-            // Если есть variant, геометрия уже повернута, но можно добавить доп. поворот
+            // Обработка variant для поворота вокруг Y (для лестниц и стен)
             if (item.variant === 'west') dummy.rotation.y = Math.PI;
             else if (item.variant === 'north') dummy.rotation.y = -Math.PI / 2;
             else if (item.variant === 'south') dummy.rotation.y = Math.PI / 2;
+            // 'east' — базовое направление, поворот 0
 
             dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
             dummy.updateMatrix();
@@ -166,7 +171,6 @@ class ChunkManager {
         mesh.instanceMatrix.needsUpdate = true;
         return mesh;
     }
-
     /**
      * Создание геометрии по типу
      * @param {string} type 
@@ -176,45 +180,24 @@ class ChunkManager {
      */
     createGeometry(type, variant, config) {
         const segments = config.maxSegments || 16;
-        
         switch (type) {
-            case 'box':
-                return new THREE.BoxGeometry(1, 1, 1);
+            case 'box': return new THREE.BoxGeometry(1, 1, 1);
+            case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
+            case 'cone': return new THREE.ConeGeometry(0.5, 1, segments);
+            case 'octahedron': return new THREE.OctahedronGeometry(0.5);
+            case 'capsule': return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
+            case 'torus': return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
+            case 'sphere': return new THREE.SphereGeometry(0.5, segments, segments);
+            case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
+            case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
             
-            case 'cylinder':
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            
-            case 'cone':
-                return new THREE.ConeGeometry(0.5, 1, segments);
-            
-            case 'octahedron':
-                return new THREE.OctahedronGeometry(0.5);
-            
-            case 'capsule':
-                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            
-            case 'torus':
-                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            
-            case 'sphere':
-                return new THREE.SphereGeometry(0.5, segments, segments);
-            
-            case 'obelisk':
-                return new THREE.ConeGeometry(0.4, 1, 4); 
-            
-            case 'spire':
-                return new THREE.ConeGeometry(0.2, 1, 8);
-
-            // --- Лестницы (интегрированные в платформу) ---
+            // Единый тип для лестниц
             case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
-                    // Если variant не указан, используем 'east' как базу
                     return getPlatformStairGeometry(variant || 'east');
-                } else {
-                    console.warn('getPlatformStairGeometry is not defined');
-                    return new THREE.BoxGeometry(1, 1, 1);
                 }
-
+                return new THREE.BoxGeometry(1, 1, 1);
+                
             default:
                 console.warn(`Unknown geometry type: ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
