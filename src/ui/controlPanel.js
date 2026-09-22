@@ -35,10 +35,14 @@ class ControlPanel {
         worldFolder.add(this.config, 'chunkSize', 50, 200, 10).name('Chunk Size');
         worldFolder.add(this.config, 'gridSize', 5, 20, 1).name('Grid Size');
         worldFolder.add(this.config, 'levelHeight', 10, 50, 5).name('Level Height');
-        worldFolder.add(this.config, 'zMin', -200, 0, 10).name('Z Min');
-        worldFolder.add(this.config, 'zMax', 0, 200, 10).name('Z Max');
+        
+        // === ИЗМЕНЕНО: zMin/zMax заменены на yMin/yMax ===
+        worldFolder.add(this.config, 'yMin', -200, 0, 10).name('Y Min (Bottom)');
+        worldFolder.add(this.config, 'yMax', 0, 200, 10).name('Y Max (Top)');
+        // ================================================
+
         worldFolder.add(this.config, 'viewChunksXY', 1, 5, 1).name('View Chunks XY');
-        worldFolder.add(this.config, 'viewChunksZ', 1, 5, 1).name('View Chunks Z');
+        worldFolder.add(this.config, 'viewChunksZ', 1, 5, 1).name('View Chunks Z (Depth)');
         
         // --- Layout ---
         const layoutFolder = this.gui.addFolder('Layout');
