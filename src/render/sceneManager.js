@@ -9,16 +9,18 @@ class SceneManager {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
-        
+
         // === FPS CONTROLS STATE ===
         this.euler = new THREE.Euler(0, 0, 0, 'YXZ'); // Порядок YXZ важен для FPS
         this.PI_2 = Math.PI / 2;
+        
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
         this.moveUp = false; // Q
         this.moveDown = false; // E
+        
         this.velocity = new THREE.Vector3();
         this.direction = new THREE.Vector3();
         this.prevTime = performance.now();
@@ -28,7 +30,7 @@ class SceneManager {
         this.hemisphereLight = null;
         this.fog = null;
         this.axisHelper = null;
-        
+
         this.init();
         this._bindEvents();
     }
@@ -70,16 +72,20 @@ class SceneManager {
         const sensitivity = 0.002;
 
         this.euler.setFromQuaternion(this.camera.quaternion);
+
         this.euler.y -= movementX * sensitivity;
         this.euler.x -= movementY * sensitivity;
+
+        // Ограничение взгляда вверх/вниз
         this.euler.x = Math.max(-this.PI_2, Math.min(this.PI_2, this.euler.x));
+
         this.camera.quaternion.setFromEuler(this.euler);
     }
 
     updateCameraMovement() {
         const time = performance.now();
         const delta = (time - this.prevTime) / 1000;
-        
+
         // Трение
         this.velocity.x -= this.velocity.x * 10.0 * delta;
         this.velocity.z -= this.velocity.z * 10.0 * delta;
@@ -95,19 +101,25 @@ class SceneManager {
         if (this.moveLeft || this.moveRight) this.velocity.x -= this.direction.x * speed * delta;
         if (this.moveUp || this.moveDown) this.velocity.y -= this.direction.y * speed * delta;
 
-        // Движение относительно взгляда камеры
+        // Движение относительно взгляда камеры (только горизонтальное)
         const moveSpeed = 50.0 * delta;
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
         
+        // Обнуляем Y компонент для движения "по полу", чтобы не лететь вверх при взгляде вверх
+        forward.y = 0;
+        forward.normalize();
+        right.y = 0;
+        right.normalize();
+
         if (this.moveForward) this.camera.position.addScaledVector(forward, moveSpeed);
         if (this.moveBackward) this.camera.position.addScaledVector(forward, -moveSpeed);
         if (this.moveRight) this.camera.position.addScaledVector(right, moveSpeed);
         if (this.moveLeft) this.camera.position.addScaledVector(right, -moveSpeed);
-        
-        // Вертикальное движение строго по Z
-        if (this.moveUp) this.camera.position.z += moveSpeed;
-        if (this.moveDown) this.camera.position.z -= moveSpeed;
+
+        // Вертикальное движение строго по Y (теперь это высота!)
+        if (this.moveUp) this.camera.position.y += moveSpeed;
+        if (this.moveDown) this.camera.position.y -= moveSpeed;
 
         this.prevTime = time;
     }
@@ -119,11 +131,11 @@ class SceneManager {
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         
-        // === КЛЮЧЕВОЙ МОМЕНТ: ВЕРХ ЭТО Z ===
-        this.camera.up.set(0, 0, 1); 
+        // === КЛЮЧЕВОЙ МОМЕНТ: ВЕРХ ЭТО Y ===
+        this.camera.up.set(0, 1, 0); 
         
-        // Начальная позиция: смотрим вдоль оси Y, Z=20 (чуть выше пола)
-        this.camera.position.set(0, 150, 20); 
+        // Начальная позиция: смотрим вдоль -Z, Y=50 (чуть выше пола)
+        this.camera.position.set(0, 50, 100); 
         this.euler.set(0, 0, 0, 'YXZ');
         this.camera.quaternion.setFromEuler(this.euler);
 
@@ -138,14 +150,16 @@ class SceneManager {
         this.scene.add(this.axisHelper);
 
         this.setupLighting();
+
         window.addEventListener('resize', () => this.onWindowResize());
     }
 
     setupLighting() {
         this.hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
         this.scene.add(this.hemisphereLight);
+
         this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        this.directionalLight.position.set(100, 200, 100);
+        this.directionalLight.position.set(100, 200, 100); // Свет теперь падает сверху (Y=200)
         this.directionalLight.castShadow = this.config.enableShadows;
         this.scene.add(this.directionalLight);
     }
@@ -173,12 +187,14 @@ class SceneManager {
     render() {
         this.updateCameraMovement();
         
+        // Обновляем позицию осей, чтобы они всегда были перед камерой
         if (this.axisHelper && this.camera) {
             const direction = new THREE.Vector3();
             this.camera.getWorldDirection(direction);
             const axisPos = new THREE.Vector3().copy(this.camera.position).add(direction.multiplyScalar(60)); 
             this.axisHelper.position.copy(axisPos);
         }
+
         this.renderer.render(this.scene, this.camera);
     }
 }
