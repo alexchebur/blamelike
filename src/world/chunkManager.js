@@ -89,27 +89,24 @@ class ChunkManager {
     groupPrimitives(primitives) {
         const grouped = {};
         for (const prim of primitives) {
-            // Включаем variant в ключ, чтобы разные направления лестниц 
-            // попадали в разные InstancedMesh
-            const variantKey = prim.variant ? `_${prim.variant}` : '';
-            const key = `${prim.type}${variantKey}|${prim.paletteSlot}`;
-            
-            if (!grouped[key]) {
-                grouped[key] = [];
-            }
+            // Включаем variant в ключ для разделения лестниц
+            const vKey = prim.variant ? `_${prim.variant}` : '';
+            const key = `${prim.type}${vKey}|${prim.paletteSlot}`;
+            if (!grouped[key]) grouped[key] = [];
             grouped[key].push(prim);
         }
         return grouped;
     }
+
     createInstancedMesh(typeSlot, items, config) {
-        // typeSlot теперь может быть "platform_stair_east|base"
-        const lastPipeIndex = typeSlot.lastIndexOf('|');
-        const slot = typeSlot.substring(lastPipeIndex + 1);
-        const fullType = typeSlot.substring(0, lastPipeIndex);
+        // Парсинг ключа "type_variant|slot"
+        const lastPipe = typeSlot.lastIndexOf('|');
+        const slot = typeSlot.substring(lastPipe + 1);
+        const fullType = typeSlot.substring(0, lastPipe);
         
-        // Извлекаем базовый тип и вариант
         let type = fullType;
         let variant = null;
+        // Извлекаем вариант если он есть (например platform_stair_east -> type=platform_stair, variant=east)
         if (fullType.includes('_east') || fullType.includes('_west') || 
             fullType.includes('_north') || fullType.includes('_south')) {
             const parts = fullType.split('_');
@@ -123,60 +120,26 @@ class ChunkManager {
         const colorHex = activePalette[slot] || activePalette.base;
         
         const geometry = this.createGeometry(type, variant, config);
-        
-        // ... остальной код создания материала и меша без изменений ...
-        
         const material = new THREE.MeshLambertMaterial({
-            color: new THREE.Color(colorHex),
-            flatShading: true,
-            side: THREE.DoubleSide
+            color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
         });
 
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
         mesh.frustumCulled = true; 
-        
         const dummy = new THREE.Object3D();
-        
-        // === ПАРАМЕТРЫ ЧАНКА ДЛЯ КОНВЕРТАЦИИ GRID -> WORLD ===
-        const { chunkSize, gridSize, levelHeight } = config;
-        const cellSize = chunkSize / gridSize;
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            
-            // === КЛЮЧЕВОЙ БЛОК: КОНВЕРТАЦИЯ GRID-FIRST В МИРОВЫЕ КООРДИНАТЫ ===
-            let wx = 0, wy = 0, wz = 0;
-            
-            if (item.grid) {
-                // Базовый центр клетки
-                wx = (item.grid.gx + 0.5) * cellSize;
-                wy = item.grid.level * levelHeight;
-                wz = (item.grid.gy + 0.5) * cellSize;
+            // Прямое чтение позиции (теперь она гарантированно есть)
+            dummy.position.set(item.position.x, item.position.y, item.position.z);
 
-                // Применяем локальные смещения (offset)
-                if (item.offset) {
-                    wx += item.offset.x || 0;
-                    wy += item.offset.y || 0;
-                    wz += item.offset.z || 0;
-                }
-            } else if (item.position) {
-                // Фолбэк для старого декора/монолитов
-                wx = item.position.x;
-                wy = item.position.y;
-                wz = item.position.z;
-            }
-
-            dummy.position.set(wx, wy, wz);
-
-            // Поворот
             let twistZ = item.rotation?.twistZ || 0;
             dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(twistZ));
             
-            // Обработка variant для поворота вокруг Y (для лестниц)
-            if (item.variant === 'west') dummy.rotation.y = Math.PI;
-            else if (item.variant === 'north') dummy.rotation.y = -Math.PI / 2;
-            else if (item.variant === 'south') dummy.rotation.y = Math.PI / 2;
-            // 'east' — базовое направление, поворот 0
+            // Применяем поворот варианта для лестниц
+            if (variant === 'west') dummy.rotation.y = Math.PI;
+            else if (variant === 'north') dummy.rotation.y = -Math.PI / 2;
+            else if (variant === 'south') dummy.rotation.y = Math.PI / 2;
 
             dummy.scale.set(item.scale.x, item.scale.y, item.scale.z);
             dummy.updateMatrix();
@@ -189,48 +152,28 @@ class ChunkManager {
 
     createGeometry(type, variant, config) {
         const segments = config.maxSegments || 16;
-        
         switch (type) {
-            case 'box':
-                return new THREE.BoxGeometry(1, 1, 1);
+            case 'box': return new THREE.BoxGeometry(1, 1, 1);
+            case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
+            case 'cone': return new THREE.ConeGeometry(0.5, 1, segments);
+            case 'octahedron': return new THREE.OctahedronGeometry(0.5);
+            case 'capsule': return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
+            case 'torus': return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
+            case 'sphere': return new THREE.SphereGeometry(0.5, segments, segments);
+            case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
+            case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
             
-            case 'cylinder':
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            
-            case 'cone':
-                return new THREE.ConeGeometry(0.5, 1, segments);
-            
-            case 'octahedron':
-                return new THREE.OctahedronGeometry(0.5);
-            
-            case 'capsule':
-                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            
-            case 'torus':
-                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            
-            case 'sphere':
-                return new THREE.SphereGeometry(0.5, segments, segments);
-            
-            case 'obelisk':
-                return new THREE.ConeGeometry(0.4, 1, 4); 
-            
-            case 'spire':
-                return new THREE.ConeGeometry(0.2, 1, 8);
-
-            // --- Лестницы ---
             case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
                     return getPlatformStairGeometry(variant || 'east');
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
-
+                
             default:
                 console.warn(`Unknown geometry type: ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
-
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
