@@ -66,80 +66,85 @@ export function generateChunk(cx, cy, cz, seed, config) {
 
 // src/gen/chunkGenerator.js (фрагмент функции generatePlatforms)
 
+// В src/gen/chunkGenerator.js
+
+/**
+ * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ
+ */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
+    const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
     
-    // Диапазон уровней по Y (высота)
-    const startLevel = Math.ceil(bounds.min.y / levelHeight);
-    const endLevel = Math.floor(bounds.max.y / levelHeight);
+    // Диапазон уровней по Z (высота в текущей системе)
+    const startLevel = Math.ceil(bounds.min.z / levelHeight);
+    const endLevel = Math.floor(bounds.max.z / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const yBase = level * levelHeight; // Абсолютная высота яруса
+        const zBase = level * levelHeight; 
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
-                if (baseHash < roomDensity) {
-                    const wx = bounds.min.x + (gx + 0.5) * cellSize;
-                    const wz = bounds.min.z + (gy + 0.5) * cellSize; 
+                if (baseHash >= roomDensity) continue;
+
+                const wx = bounds.min.x + (gx + 0.5) * cellSize;
+                const wy = bounds.min.y + (gy + 0.5) * cellSize; 
+                
+                // Проверяем наличие соседа на уровень выше для лестницы
+                let stairDir = null;
+                if (level < endLevel && rng() < stairsChance) {
+                    const targetLevel = level + 1;
+                    // Ищем только прямых соседей (dx=±1, dy=0 или dx=0, dy=±1)
+                    const neighbors = [
+                        { dx: 1, dy: 0, dir: 'east' }, { dx: -1, dy: 0, dir: 'west' },
+                        { dx: 0, dy: 1, dir: 'north' }, { dx: 0, dy: -1, dir: 'south' }
+                    ];
                     
-                    // Проверяем, нужна ли здесь лестница на уровень выше
-                    let stairVariant = null;
-                    if (level < endLevel) {
-                        const targetLevel = level + 1;
-                        // Ищем соседей строго по осям
-                        const neighbors = [
-                            { dx: 1, dy: 0, v: 'east' }, { dx: -1, dy: 0, v: 'west' },
-                            { dx: 0, dy: 1, v: 'north' }, { dx: 0, dy: -1, v: 'south' }
-                        ];
-                        for (const n of neighbors) {
-                            const nx = gx + n.dx;
-                            const ny = gy + n.dy;
-                            if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
-                                if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                                    if (rng() < config.stairsChance) {
-                                        stairVariant = n.v;
-                                        break;
-                                    }
-                                }
+                    for (const n of neighbors) {
+                        const nx = gx + n.dx;
+                        const ny = gy + n.dy;
+                        if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
+                            if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
+                                stairDir = n.dir;
+                                break; // Нашли первого подходящего соседа
                             }
                         }
                     }
+                }
 
-                    if (stairVariant) {
-                        // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
-                        // КЛЮЧЕВОЙ МОМЕНТ:
-                        // 1. position.y = yBase (нижняя грань уровня), а НЕ центр.
-                        // 2. scale.y = levelHeight (полная высота перехода).
-                        // Геометрия внутри stairFactory сама разобьет это на "плиту" и "ступени".
-                        primitives.push({
-                            type: 'platform_stair',
-                            variant: stairVariant,
-                            position: { x: wx, y: yBase, z: wz }, 
-                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            scale: { x: cellSize, y: levelHeight, z: cellSize }, // Y теперь равен высоте яруса!
-                            paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
-                            role: 'connector'
-                        });
-                    } else {
-                        // === ОБЫЧНАЯ ПЛАТФОРМА ===
-                        // Используем 'base'
-                        primitives.push({
-                            type: 'box',
-                            position: { x: wx, y: yBase + platformThickness / 2, z: wz },
-                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                            scale: { x: cellSize, y: platformThickness, z: cellSize },
-                            paletteSlot: 'base', // <-- СТАНДАРТНЫЙ ЦВЕТ
-                            role: 'frame'
-                        });
-                    }
+                if (stairDir) {
+                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
+                    // Используем специальный тип, который рендерер знает как "платформа+лестница"
+                    primitives.push({
+                        type: 'platform_stair',
+                        variant: stairDir, // Направление: east, west, north, south
+                        position: { x: wx, y: wy, z: zBase },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize, y: cellSize, z: levelHeight },
+                        paletteSlot: 'accent', // Выделяем цветом
+                        role: 'connector'
+                    });
+                } else {
+                    // === ОБЫЧНАЯ ПЛАТФОРМА ===
+                    primitives.push({
+                        type: 'box',
+                        position: { x: wx, y: wy, z: zBase + platformThickness / 2 },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize, y: cellSize, z: platformThickness },
+                        paletteSlot: 'base',
+                        role: 'frame'
+                    });
                 }
             }
         }
     }
     return primitives;
 }
+
+// УДАЛИТЕ ИЛИ ЗАКОММЕНТИРУЙТЕ ФУНКЦИЮ generateStairs, она больше не нужна!
+/*
+function generateStairs(...) { ... }
+*/
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
@@ -260,58 +265,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
-function generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize) {
-    const primitives = [];
-    const { levelHeight, gridSize, roomDensity, stairsChance, platformThickness } = config;
-    
-    const startLevel = Math.ceil(bounds.min.y / levelHeight);
-    const endLevel = Math.floor(bounds.max.y / levelHeight);
 
-    for (let level = startLevel; level < endLevel; level++) {
-        const yBase = level * levelHeight;
-        const targetLevel = level + 1;
-
-        for (let gx = 0; gx < gridSize; gx++) {
-            for (let gy = 0; gy < gridSize; gy++) {
-                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) >= roomDensity) continue;
-
-                // Ищем соседей СТРОГО по осям на уровень выше
-                const neighbors = [
-                    { dx: 1, dy: 0, variant: 'east' },
-                    { dx: -1, dy: 0, variant: 'west' },
-                    { dx: 0, dy: 1, variant: 'north' },
-                    { dx: 0, dy: -1, variant: 'south' }
-                ];
-
-                for (const n of neighbors) {
-                    const nx = gx + n.dx;
-                    const ny = gy + n.dy;
-                    
-                    if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
-                        if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                            if (rng() < stairsChance) {
-                                const wx = bounds.min.x + (gx + 0.5) * cellSize;
-                                const wz = bounds.min.z + (gy + 0.5) * cellSize;
-
-                                // НОВАЯ ЛЕСТНИЦА: Единый тип + вариант
-                                primitives.push({
-                                    type: 'platform_stair',
-                                    variant: n.variant,
-                                    position: { x: wx, y: yBase, z: wz },
-                                    rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                                    scale: { x: cellSize, y: cellSize, z: levelHeight },
-                                    paletteSlot: 'baseLight',
-                                    role: 'connector'
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return primitives;
-}
 
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
