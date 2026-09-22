@@ -89,16 +89,18 @@ class ChunkManager {
     groupPrimitives(primitives) {
         const grouped = {};
         for (const prim of primitives) {
-            // Пропускаем отладочные маркеры, если они есть
-            if (prim.role === 'debug') continue;
+            // Включаем variant в ключ, чтобы разные направления лестниц 
+            // попадали в разные InstancedMesh
+            const variantKey = prim.variant ? `_${prim.variant}` : '';
+            const key = `${prim.type}${variantKey}|${prim.paletteSlot}`;
             
-            const key = `${prim.type}|${prim.paletteSlot}`;
-            if (!grouped[key]) grouped[key] = [];
+            if (!grouped[key]) {
+                grouped[key] = [];
+            }
             grouped[key].push(prim);
         }
         return grouped;
     }
-
     createInstancedMesh(type, slot, items, config) {
         if (items.length === 0) return null;
 
