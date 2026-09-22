@@ -28,7 +28,7 @@ class App {
      */
     async init() {
         try {
-            console.log(' Initializing Blame! Generator...');
+            console.log('🚀 Initializing Blame! Generator...');
             
             // 1. Создаем менеджер сцены (Three.js)
             this.sceneManager = new SceneManager(this.container);
@@ -54,8 +54,8 @@ class App {
             this.isInitialized = true;
             
             console.log('✅ Blame! Generator ready!');
-            console.log(' Управление камерой: WASD + QE + ЛКМ');
-            console.log('🎨 Панель настроек: справа вверху');
+            console.log('📍 Управление камерой: ЛКМ + Драг / ПКМ + Драг / Колесо');
+            console.log(' Панель настроек: справа вверху');
             
             // 6. Запускаем цикл рендеринга
             this.animate();
@@ -84,7 +84,7 @@ class App {
      * @param {Object} config 
      */
     onConfigChange(config) {
-        console.log('⚙️ Config changed, regenerating world...');
+        console.log('️ Config changed, regenerating world...');
         
         // Обновляем настройки сцены (туман, фон, тени)
         this.sceneManager.updateConfig({
@@ -104,12 +104,20 @@ class App {
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        // Обновляем чанки при движении камеры (ВАЖНО: каждый кадр!)
+        // === КРИТИЧЕСКИ ВАЖНО: Обновляем OrbitControls каждый кадр ===
+        // Без этого камера не обновляет свои матрицы, что приводит к ошибкам
+        // при получении позиции и рендеринге
+        if (this.sceneManager && this.sceneManager.controls) {
+            this.sceneManager.controls.update();
+        }
+        // ============================================================
+        
+        // Обновляем чанки при движении камеры
         if (this.isInitialized) {
             this.updateChunks();
         }
         
-        // Рендерим сцену (внутри sceneManager также вызывается updateCameraMovement для FPS)
+        // Рендерим сцену
         this.sceneManager.render();
     }
 }
