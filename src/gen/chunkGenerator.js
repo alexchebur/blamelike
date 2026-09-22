@@ -110,14 +110,14 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, le
                         const bridgeHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.25, seed);
                         if (bridgeHash < bridgeChance) {
                             const x1 = bounds.min.x + (gx + 0.5) * cellSize;
-                            const y1 = bounds.min.y + (gy + 0.5) * cellSize; // Это Z в мире
+                            const z1 = bounds.min.z + (gy + 0.5) * cellSize; // Глубина это Z
                             const x2 = bounds.min.x + (nx + 0.5) * cellSize;
-                            const y2 = bounds.min.y + (ny + 0.5) * cellSize; // Это Z в мире
+                            const z2 = bounds.min.z + (ny + 0.5) * cellSize;
 
                             const midX = (x1 + x2) / 2;
-                            const midZ = (y1 + y2) / 2; // Мировая Z
-                            const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-                            const angleRad = Math.atan2(y2 - y1, x2 - x1);
+                            const midZ = (z1 + z2) / 2;
+                            const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(z2 - z1, 2));
+                            const angleRad = Math.atan2(z2 - z1, x2 - x1);
                             const angleDeg = angleRad * (180 / Math.PI);
 
                             primitives.push({
