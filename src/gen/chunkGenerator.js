@@ -3,8 +3,6 @@
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
-import { buildLevelGrid } from './levelGrid.js';
-import { buildStructure } from './structureBuilder.js';
 
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
@@ -16,16 +14,21 @@ export function generateChunk(cx, cy, cz, seed, config) {
     let instanceCount = 0;
     const maxInstances = config.maxInstancesPerChunk || 30000;
 
-    // === ЭТАП A+B: Сетка уровней и Структуры (Платформы, Стены, Колонны) ===
-    // Используем новые модули вместо старой generatePlatforms
-    const levelMaps = buildLevelGrid(cx, cy, cz, seed, config, bounds);
-    const structures = buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps);
-    primitives.push(...structures);
-    instanceCount += structures.length;
+    // === ЭТАП A: Платформы (Ярусы) ===
+    const platforms = generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize);
+    primitives.push(...platforms);
+    instanceCount += platforms.length;
 
-    // === ЭТАП C: Горизонтальные соединения (мосты) ===
+    // === ЭТАП B: Комнаты и стены ===
     if (instanceCount < maxInstances) {
-        const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, levelMaps);
+        const rooms = generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize);
+        primitives.push(...rooms);
+        instanceCount += rooms.length;
+    }
+
+    // === ЭТАП C: Мосты ===
+    if (instanceCount < maxInstances) {
+        const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...connections);
         instanceCount += connections.length;
     }
@@ -44,81 +47,43 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += pierce.length;
     }
 
-    // === ЭТАП F: Крупный декор ===
+    // === ЭТАП F: Декор ===
     if (instanceCount < maxInstances) {
         const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...decor);
         instanceCount += decor.length;
     }
 
-    // === ЭТАП G: Микро-декор ===
-    if (config.enableMicro && instanceCount < maxInstances) {
-        const micro = generateMicro(cx, cy, cz, seed, config, rng, bounds);
-        primitives.push(...micro);
-        instanceCount += micro.length;
-    }
-
     return primitives;
 }
 
-// ... (остальные функции generateConnections, generateMegaStructures и т.д. остаются как в предыдущем ответе, 
-// но убедись, что везде используется bounds.min.y для высоты, а не z)
-
-/**
- * Этап C: Генерация горизонтальных соединений (мостов) с учетом Y-up
- */
-function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, levelMaps) {
+function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { gridSize, levelHeight, bridgeChance } = config;
+    const { levelHeight, platformThickness, gridSize, roomDensity } = config;
     
+    // Диапазон уровней по Y (высота)
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const currentMap = levelMaps.get(level);
-        if (!currentMap) continue;
-
-        const yBase = level * levelHeight;
+        const yBase = level * levelHeight; // Абсолютная высота яруса
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                const key = `${gx},${gy}`;
-                if (!currentMap.get(key)) continue;
-
-                // Проверяем соседей справа и снизу (чтобы не дублировать)
-                const neighbors = [
-                    { dx: 1, dy: 0 },
-                    { dx: 0, dy: 1 }
-                ];
-
-                for (const n of neighbors) {
-                    const nx = gx + n.dx;
-                    const ny = gy + n.dy;
-                    const nKey = `${nx},${ny}`;
-
-                    if (nx < gridSize && ny < gridSize && currentMap.get(nKey)) {
-                        const bridgeHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.25, seed);
-                        if (bridgeHash < bridgeChance) {
-                            // Мост описываем через grid средней точки для простоты
-                            primitives.push({
-                                type: 'box',
-                                grid: { 
-                                    gx: (gx + nx) / 2, 
-                                    gy: (gy + ny) / 2, 
-                                    level: level 
-                                },
-                                offset: { y: 1 }, // Чуть выше пола платформы
-                                rotation: { 
-                                    tiltX: 0, 
-                                    tiltY: 0, 
-                                    twistZ: (n.dx !== 0 ? 0 : 90) // Поворот на 90 градусов для мостов по Y
-                                },
-                                scale: { x: cellSize, y: 0.5, z: cellSize * 0.2 },
-                                paletteSlot: 'accent',
-                                role: 'connector'
-                            });
-                        }
-                    }
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                if (baseHash < roomDensity) {
+                    // Явная мировая позиция с учетом смещения чанка
+                    const wx = bounds.min.x + (gx + 0.5) * cellSize;
+                    const wz = bounds.min.z + (gy + 0.5) * cellSize; 
+                    
+                    primitives.push({
+                        type: 'box',
+                        position: { x: wx, y: yBase + platformThickness / 2, z: wz },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize, y: platformThickness, z: cellSize },
+                        paletteSlot: 'base',
+                        role: 'frame'
+                    });
                 }
             }
         }
@@ -126,32 +91,145 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, le
     return primitives;
 }
 
-/**
- * Этап D: Монолиты (крупные структуры) в системе Y-up
- */
-function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
+function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight, gridSize } = config;
+    const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
     
-    for (let i = 0; i < 3; i++) {
-        if (hash3D(cx, cy, cz + i * 0.3, seed) < megaBlockChance) {
-            const heightInLevels = megaBlockMinHeight + rng() * (megaBlockMaxHeight - megaBlockMinHeight);
-            const height = heightInLevels * levelHeight;
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
+
+    for (let level = startLevel; level <= endLevel; level++) {
+        if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+        
+        const yBase = level * levelHeight;
+        // Стены стоят НА платформе
+        const yWallCenter = yBase + platformThickness + (levelHeight - platformThickness) / 2; 
+
+        for (let gx = 0; gx < gridSize; gx++) {
+            for (let gy = 0; gy < gridSize; gy++) {
+                const wx = bounds.min.x + (gx + 0.5) * cellSize;
+                const wz = bounds.min.z + (gy + 0.5) * cellSize;
+
+                // Стены
+                const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
+                if (wallHash < wallDensity) {
+                    primitives.push({
+                        type: 'box',
+                        position: { x: wx, y: yWallCenter, z: wz },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize * 0.9, y: levelHeight, z: cellSize * 0.1 },
+                        paletteSlot: 'baseDark',
+                        role: 'frame'
+                    });
+                }
+
+                // Колонны
+                const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed);
+                if (pillarHash < pillarDensity) {
+                    primitives.push({
+                        type: 'cylinder',
+                        position: { x: wx, y: yWallCenter, z: wz },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize * 0.15, y: levelHeight, z: cellSize * 0.15 },
+                        paletteSlot: 'accent',
+                        role: 'frame'
+                    });
+                }
+            }
+        }
+    }
+    return primitives;
+}
+
+function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+    const primitives = [];
+    const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
+    
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
+
+    for (let level = startLevel; level <= endLevel; level++) {
+        if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+        const yBase = level * levelHeight;
+
+        const platforms = [];
+        const platformSet = new Set();
+        for (let gx = 0; gx < gridSize; gx++) {
+            for (let gy = 0; gy < gridSize; gy++) {
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
+                    platforms.push({ gx, gy });
+                    platformSet.add(`${gx},${gy}`);
+                }
+            }
+        }
+        if (platforms.length < 2) continue;
+
+        // Упрощенная связность
+        const connected = new Set([`${platforms[0].gx},${platforms[0].gy}`]);
+        const edgesToAdd = [];
+        let safety = 0;
+        while (connected.size < platforms.length && safety++ < 500) {
+            const keys = Array.from(connected);
+            const srcKey = keys[Math.floor(rng() * keys.length)];
+            const [sx, sy] = srcKey.split(',').map(Number);
             
-            // Выбираем случайную клетку грида для привязки
-            const gx = Math.floor(rng() * gridSize);
-            const gy = Math.floor(rng() * gridSize);
+            let nearest = null, minDist = Infinity;
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    if (dx===0 && dy===0) continue;
+                    const nx = sx+dx, ny = sy+dy;
+                    const k = `${nx},${ny}`;
+                    if (platformSet.has(k) && !connected.has(k)) {
+                        const d = Math.abs(dx)+Math.abs(dy);
+                        if (d < minDist) { minDist = d; nearest = {gx:nx, gy:ny}; }
+                    }
+                }
+            }
+            if (nearest) {
+                connected.add(`${nearest.gx},${nearest.gy}`);
+                edgesToAdd.push({sx, sy, tx:nearest.gx, ty:nearest.gy});
+            }
+        }
+
+        for (const e of edgesToAdd) {
+            const x1 = bounds.min.x + (e.sx + 0.5) * cellSize;
+            const z1 = bounds.min.z + (e.sy + 0.5) * cellSize;
+            const x2 = bounds.min.x + (e.tx + 0.5) * cellSize;
+            const z2 = bounds.min.z + (e.ty + 0.5) * cellSize;
             
+            const midX = (x1+x2)/2, midZ = (z1+z2)/2;
+            const dist = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
+            const angle = Math.atan2(z2-z1, x2-x1) * (180/Math.PI);
+
             primitives.push({
                 type: 'box',
-                grid: { gx, gy, level: 0 }, // Уровень 0 как база, но растягиваем по высоте
-                offset: { 
-                    x: (rng() - 0.5) * (bounds.max.x - bounds.min.x) / gridSize, 
-                    y: height / 2, 
-                    z: (rng() - 0.5) * (bounds.max.z - bounds.min.z) / gridSize 
+                position: { x: midX, y: yBase + 1, z: midZ },
+                rotation: { tiltX: 0, tiltY: 0, twistZ: angle },
+                scale: { x: dist, y: 0.5, z: cellSize * 0.2 },
+                paletteSlot: 'accent',
+                role: 'connector'
+            });
+        }
+    }
+    return primitives;
+}
+
+function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
+    const primitives = [];
+    const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
+    
+    for (let i = 0; i < 3; i++) {
+        if (hash3D(cx, cy, cz + i*0.3, seed) < megaBlockChance) {
+            const h = (megaBlockMinHeight + rng()*(megaBlockMaxHeight-megaBlockMinHeight)) * levelHeight;
+            primitives.push({
+                type: 'box',
+                position: { 
+                    x: bounds.min.x + rng()*(bounds.max.x-bounds.min.x), 
+                    y: bounds.min.y + h/2, 
+                    z: bounds.min.z + rng()*(bounds.max.z-bounds.min.z) 
                 },
                 rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                scale: { x: 10 + rng() * 20, y: height, z: 10 + rng() * 20 },
+                scale: { x: 10+rng()*20, y: h, z: 10+rng()*20 },
                 paletteSlot: 'baseDark',
                 role: 'frame'
             });
@@ -160,54 +238,36 @@ function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
-/**
- * Этап E: Протыкающие фигуры в системе Y-up
- */
 function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt, gridSize } = config;
+    const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt } = config;
     if (!pierceWeights) return primitives;
 
-    const area = (bounds.max.x - bounds.min.x) * (bounds.max.z - bounds.min.z);
+    const area = (bounds.max.x-bounds.min.x) * (bounds.max.z-bounds.min.z);
     const count = Math.floor(area * scatterDensity / 1000);
     
-    const types = [];
-    let totalWeight = 0;
-    for (const [type, weight] of Object.entries(pierceWeights)) {
-        types.push({ item: type, weight });
-        totalWeight += weight;
-    }
+    const types = Object.entries(pierceWeights).map(([t,w]) => ({item:t, weight:w}));
+    const totalW = types.reduce((s,t) => s+t.weight, 0);
 
-    for (let i = 0; i < count; i++) {
-        if (hash3D(cx, cy, cz + i * 0.7, seed) < scatterDensity) {
-            let random = rng() * totalWeight;
-            let selectedType = 'cylinder';
-            for (const t of types) {
-                random -= t.weight;
-                if (random <= 0) {
-                    selectedType = t.item;
-                    break;
-                }
-            }
-
-            const height = pierceMinHeight + rng() * (pierceMaxHeight - pierceMinHeight);
-            const gx = Math.floor(rng() * gridSize);
-            const gy = Math.floor(rng() * gridSize);
+    for (let i=0; i<count; i++) {
+        if (hash3D(cx, cy, cz+i*0.7, seed) < scatterDensity) {
+            let r = rng()*totalW, sel='cylinder';
+            for (const t of types) { r-=t.weight; if(r<=0){sel=t.item; break;} }
             
+            const h = pierceMinHeight + rng()*(pierceMaxHeight-pierceMinHeight);
             primitives.push({
-                type: selectedType,
-                grid: { gx, gy, level: 0 },
-                offset: { 
-                    x: (rng() - 0.5) * (bounds.max.x - bounds.min.x) / gridSize, 
-                    y: height / 2, 
-                    z: (rng() - 0.5) * (bounds.max.z - bounds.min.z) / gridSize 
+                type: sel,
+                position: { 
+                    x: bounds.min.x + rng()*(bounds.max.x-bounds.min.x), 
+                    y: bounds.min.y + h/2, 
+                    z: bounds.min.z + rng()*(bounds.max.z-bounds.min.z) 
                 },
                 rotation: { 
-                    tiltX: (rng() - 0.5) * 2 * pierceMaxTilt, 
-                    tiltY: (rng() - 0.5) * 2 * pierceMaxTilt, 
+                    tiltX: (rng()-0.5)*2*pierceMaxTilt, 
+                    tiltY: (rng()-0.5)*2*pierceMaxTilt, 
                     twistZ: 0 
                 },
-                scale: { x: 2 + rng() * 3, y: height, z: 2 + rng() * 3 },
+                scale: { x: 2+rng()*3, y: h, z: 2+rng()*3 },
                 paletteSlot: 'accent',
                 role: 'pierce'
             });
@@ -216,74 +276,30 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
-/**
- * Этап F: Крупный декор в системе Y-up
- */
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { decorDensity, gridSize } = config;
+    const { decorDensity } = config;
     if (!decorDensity) return primitives;
 
-    // Антенны (растут вверх по Y)
-    const antennaCount = Math.floor(gridSize * (decorDensity.antennas || 0) * 10);
-    for (let i = 0; i < antennaCount; i++) {
-        const gx = Math.floor(rng() * gridSize);
-        const gy = Math.floor(rng() * gridSize);
+    const w = bounds.max.x-bounds.min.x;
+    const d = bounds.max.z-bounds.min.z;
+
+    for (let i=0; i<Math.floor(w*(decorDensity.antennas||0)); i++) {
         primitives.push({
             type: 'cylinder',
-            grid: { gx, gy, level: 0 },
-            offset: { y: 10 },
-            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-            scale: { x: 0.5, y: 10 + rng() * 20, z: 0.5 },
-            paletteSlot: 'baseLight',
-            role: 'decor'
+            position: { x: bounds.min.x+rng()*w, y: bounds.min.y+10, z: bounds.min.z+rng()*d },
+            rotation: { tiltX:0, tiltY:0, twistZ:0 },
+            scale: { x:0.5, y:10+rng()*20, z:0.5 },
+            paletteSlot: 'baseLight', role: 'decor'
         });
     }
-
-    // Сферы (парят в пространстве)
-    const sphereCount = Math.floor(gridSize * (decorDensity.spheres || 0) * 10);
-    for (let i = 0; i < sphereCount; i++) {
-        const gx = Math.floor(rng() * gridSize);
-        const gy = Math.floor(rng() * gridSize);
+    for (let i=0; i<Math.floor(w*(decorDensity.spheres||0)); i++) {
         primitives.push({
             type: 'sphere',
-            grid: { gx, gy, level: 0 },
-            offset: { y: rng() * (bounds.max.y - bounds.min.y) },
-            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-            scale: { x: 2 + rng() * 3, y: 2 + rng() * 3, z: 2 + rng() * 3 },
-            paletteSlot: 'glow',
-            role: 'decor'
-        });
-    }
-    return primitives;
-}
-
-/**
- * Этап G: Микро-декор в системе Y-up
- */
-function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
-    const primitives = [];
-    const { microDensity, gridSize } = config;
-    if (!microDensity) return primitives;
-
-    const height = bounds.max.y - bounds.min.y;
-    const microCount = Math.floor(gridSize * microDensity * 20);
-    
-    for (let i = 0; i < microCount; i++) {
-        const gx = Math.floor(rng() * gridSize);
-        const gy = Math.floor(rng() * gridSize);
-        primitives.push({
-            type: 'box',
-            grid: { gx, gy, level: 0 },
-            offset: { 
-                x: (rng() - 0.5) * (bounds.max.x - bounds.min.x) / gridSize,
-                y: rng() * height, 
-                z: (rng() - 0.5) * (bounds.max.z - bounds.min.z) / gridSize 
-            },
-            rotation: { tiltX: rng() * 360, tiltY: rng() * 360, twistZ: rng() * 360 },
-            scale: { x: 0.2, y: 0.2, z: 0.2 },
-            paletteSlot: 'shadow',
-            role: 'micro'
+            position: { x: bounds.min.x+rng()*w, y: bounds.min.y+rng()*(bounds.max.y-bounds.min.y), z: bounds.min.z+rng()*d },
+            rotation: { tiltX:0, tiltY:0, twistZ:0 },
+            scale: { x:2+rng()*3, y:2+rng()*3, z:2+rng()*3 },
+            paletteSlot: 'glow', role: 'decor'
         });
     }
     return primitives;
