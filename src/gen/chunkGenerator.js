@@ -78,7 +78,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, levelMaps) {
     const primitives = [];
-    const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
+    const { gridSize, levelHeight, bridgeChance } = config;
     
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
@@ -89,7 +89,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, le
 
         const yBase = level * levelHeight;
         
-        // Проходим по сетке и ищем соседние платформы для мостов
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
@@ -109,22 +108,21 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, le
                     if (nx < gridSize && ny < gridSize && currentMap.get(nKey)) {
                         const bridgeHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.25, seed);
                         if (bridgeHash < bridgeChance) {
-                            const x1 = bounds.min.x + (gx + 0.5) * cellSize;
-                            const z1 = bounds.min.z + (gy + 0.5) * cellSize; // Глубина это Z
-                            const x2 = bounds.min.x + (nx + 0.5) * cellSize;
-                            const z2 = bounds.min.z + (ny + 0.5) * cellSize;
-
-                            const midX = (x1 + x2) / 2;
-                            const midZ = (z1 + z2) / 2;
-                            const dist = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(z2 - z1, 2));
-                            const angleRad = Math.atan2(z2 - z1, x2 - x1);
-                            const angleDeg = angleRad * (180 / Math.PI);
-
+                            // Мост описываем через grid средней точки для простоты
                             primitives.push({
                                 type: 'box',
-                                position: { x: midX, y: yBase + 1, z: midZ }, // Y = высота моста
-                                rotation: { tiltX: 0, tiltY: 0, twistZ: angleDeg },
-                                scale: { x: dist, y: 0.5, z: cellSize * 0.2 }, // Толщина по Y, ширина по Z
+                                grid: { 
+                                    gx: (gx + nx) / 2, 
+                                    gy: (gy + ny) / 2, 
+                                    level: level 
+                                },
+                                offset: { y: 1 }, // Чуть выше пола платформы
+                                rotation: { 
+                                    tiltX: 0, 
+                                    tiltY: 0, 
+                                    twistZ: (n.dx !== 0 ? 0 : 90) // Поворот на 90 градусов для мостов по Y
+                                },
+                                scale: { x: cellSize, y: 0.5, z: cellSize * 0.2 },
                                 paletteSlot: 'accent',
                                 role: 'connector'
                             });
@@ -142,19 +140,24 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize, le
  */
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
+    const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight, gridSize } = config;
     
     for (let i = 0; i < 3; i++) {
         if (hash3D(cx, cy, cz + i * 0.3, seed) < megaBlockChance) {
             const heightInLevels = megaBlockMinHeight + rng() * (megaBlockMaxHeight - megaBlockMinHeight);
             const height = heightInLevels * levelHeight;
             
+            // Выбираем случайную клетку грида для привязки
+            const gx = Math.floor(rng() * gridSize);
+            const gy = Math.floor(rng() * gridSize);
+            
             primitives.push({
                 type: 'box',
-                position: { 
-                    x: bounds.min.x + rng() * (bounds.max.x - bounds.min.x), 
-                    y: bounds.min.y + height / 2, // Центр по высоте
-                    z: bounds.min.z + rng() * (bounds.max.z - bounds.min.z) 
+                grid: { gx, gy, level: 0 }, // Уровень 0 как база, но растягиваем по высоте
+                offset: { 
+                    x: (rng() - 0.5) * (bounds.max.x - bounds.min.x) / gridSize, 
+                    y: height / 2, 
+                    z: (rng() - 0.5) * (bounds.max.z - bounds.min.z) / gridSize 
                 },
                 rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                 scale: { x: 10 + rng() * 20, y: height, z: 10 + rng() * 20 },
@@ -171,7 +174,7 @@ function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
  */
 function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt } = config;
+    const { scatterDensity, pierceWeights, pierceMinHeight, pierceMaxHeight, pierceMaxTilt, gridSize } = config;
     if (!pierceWeights) return primitives;
 
     const area = (bounds.max.x - bounds.min.x) * (bounds.max.z - bounds.min.z);
@@ -197,13 +200,16 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
             }
 
             const height = pierceMinHeight + rng() * (pierceMaxHeight - pierceMinHeight);
+            const gx = Math.floor(rng() * gridSize);
+            const gy = Math.floor(rng() * gridSize);
             
             primitives.push({
                 type: selectedType,
-                position: { 
-                    x: bounds.min.x + rng() * (bounds.max.x - bounds.min.x), 
-                    y: bounds.min.y + height / 2, 
-                    z: bounds.min.z + rng() * (bounds.max.z - bounds.min.z) 
+                grid: { gx, gy, level: 0 },
+                offset: { 
+                    x: (rng() - 0.5) * (bounds.max.x - bounds.min.x) / gridSize, 
+                    y: height / 2, 
+                    z: (rng() - 0.5) * (bounds.max.z - bounds.min.z) / gridSize 
                 },
                 rotation: { 
                     tiltX: (rng() - 0.5) * 2 * pierceMaxTilt, 
@@ -224,22 +230,18 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
  */
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { decorDensity } = config;
+    const { decorDensity, gridSize } = config;
     if (!decorDensity) return primitives;
 
-    const width = bounds.max.x - bounds.min.x;
-    const depth = bounds.max.z - bounds.min.z; // Глубина это Z
-    
     // Антенны (растут вверх по Y)
-    const antennaCount = Math.floor(width * (decorDensity.antennas || 0));
+    const antennaCount = Math.floor(gridSize * (decorDensity.antennas || 0) * 10);
     for (let i = 0; i < antennaCount; i++) {
+        const gx = Math.floor(rng() * gridSize);
+        const gy = Math.floor(rng() * gridSize);
         primitives.push({
             type: 'cylinder',
-            position: { 
-                x: bounds.min.x + rng() * width, 
-                y: bounds.min.y + 10, // Начинаем от "пола" чанка
-                z: bounds.min.z + rng() * depth 
-            },
+            grid: { gx, gy, level: 0 },
+            offset: { y: 10 },
             rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
             scale: { x: 0.5, y: 10 + rng() * 20, z: 0.5 },
             paletteSlot: 'baseLight',
@@ -248,15 +250,14 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     }
 
     // Сферы (парят в пространстве)
-    const sphereCount = Math.floor(width * (decorDensity.spheres || 0));
+    const sphereCount = Math.floor(gridSize * (decorDensity.spheres || 0) * 10);
     for (let i = 0; i < sphereCount; i++) {
+        const gx = Math.floor(rng() * gridSize);
+        const gy = Math.floor(rng() * gridSize);
         primitives.push({
             type: 'sphere',
-            position: { 
-                x: bounds.min.x + rng() * width, 
-                y: bounds.min.y + rng() * (bounds.max.y - bounds.min.y), 
-                z: bounds.min.z + rng() * depth 
-            },
+            grid: { gx, gy, level: 0 },
+            offset: { y: rng() * (bounds.max.y - bounds.min.y) },
             rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
             scale: { x: 2 + rng() * 3, y: 2 + rng() * 3, z: 2 + rng() * 3 },
             paletteSlot: 'glow',
@@ -271,21 +272,22 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
  */
 function generateMicro(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { microDensity } = config;
+    const { microDensity, gridSize } = config;
     if (!microDensity) return primitives;
 
-    const width = bounds.max.x - bounds.min.x;
-    const depth = bounds.max.z - bounds.min.z;
     const height = bounds.max.y - bounds.min.y;
-
-    const microCount = Math.floor(width * microDensity * 10);
+    const microCount = Math.floor(gridSize * microDensity * 20);
+    
     for (let i = 0; i < microCount; i++) {
+        const gx = Math.floor(rng() * gridSize);
+        const gy = Math.floor(rng() * gridSize);
         primitives.push({
             type: 'box',
-            position: { 
-                x: bounds.min.x + rng() * width, 
-                y: bounds.min.y + rng() * height, 
-                z: bounds.min.z + rng() * depth 
+            grid: { gx, gy, level: 0 },
+            offset: { 
+                x: (rng() - 0.5) * (bounds.max.x - bounds.min.x) / gridSize,
+                y: rng() * height, 
+                z: (rng() - 0.5) * (bounds.max.z - bounds.min.z) / gridSize 
             },
             rotation: { tiltX: rng() * 360, tiltY: rng() * 360, twistZ: rng() * 360 },
             scale: { x: 0.2, y: 0.2, z: 0.2 },
