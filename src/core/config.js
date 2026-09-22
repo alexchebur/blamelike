@@ -10,10 +10,10 @@
  * @property {number} chunkSize - Размер чанка в мировых единицах
  * @property {number} gridSize - Размер логической сетки комнат внутри чанка
  * @property {number} levelHeight - Высота одного яруса (платформы)
- * @property {number} zMin - Минимальная высота мира (нижний ярус)
- * @property {number} zMax - Максимальная высота мира (верхний ярус)
+ * @property {number} yMin - Минимальная высота мира (нижний ярус) [ИЗМЕНЕНО: было zMin]
+ * @property {number} yMax - Максимальная высота мира (верхний ярус) [ИЗМЕНЕНО: было zMax]
  * @property {number} viewChunksXY - Радиус видимых чанков по X/Y
- * @property {number} viewChunksZ - Радиус видимых чанков по Z
+ * @property {number} viewChunksZ - Радиус видимых чанков по Z (глубина)
  * 
  * // Layout параметры
  * @property {number} roomDensity - Плотность комнат [0-1]
@@ -92,8 +92,8 @@ export const defaultConfig = {
     chunkSize: 100,
     gridSize: 10,
     levelHeight: 20,
-    zMin: -100,
-    zMax: 100,
+    yMin: -100,   // ИЗМЕНЕНО: было zMin
+    yMax: 100,    // ИЗМЕНЕНО: было zMax
     viewChunksXY: 3,
     viewChunksZ: 2,
     
