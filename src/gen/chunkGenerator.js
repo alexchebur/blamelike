@@ -80,7 +80,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const endLevel = Math.floor(bounds.max.z / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const zBase = level * levelHeight; 
+        const zBase = level * levelHeight; // Абсолютная высота яруса
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -114,24 +114,28 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 if (stairDir) {
                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
-                    // Используем специальный тип, который рендерер знает как "платформа+лестница"
+                    // КЛЮЧЕВОЙ МОМЕНТ:
+                    // 1. position.z = zBase (нижняя грань уровня), а НЕ центр.
+                    // 2. scale.z = levelHeight (полная высота перехода).
+                    // Геометрия внутри stairFactory сама разобьет это на "плиту" и "ступени".
                     primitives.push({
                         type: 'platform_stair',
-                        variant: stairDir, // Направление: east, west, north, south
-                        position: { x: wx, y: wy, z: zBase },
+                        variant: stairDir,
+                        position: { x: wx, y: wy, z: zBase }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: levelHeight },
-                        paletteSlot: 'accent', // Выделяем цветом
+                        scale: { x: cellSize, y: cellSize, z: levelHeight }, // Z теперь равен высоте яруса!
+                        paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
                         role: 'connector'
                     });
                 } else {
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
+                    // Используем 'base'
                     primitives.push({
                         type: 'box',
                         position: { x: wx, y: wy, z: zBase + platformThickness / 2 },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: platformThickness },
-                        paletteSlot: 'base',
+                        paletteSlot: 'base', // <-- СТАНДАРТНЫЙ ЦВЕТ
                         role: 'frame'
                     });
                 }
