@@ -58,24 +58,18 @@ export function generateChunk(cx, cy, cz, seed, config) {
 }
 
 /**
- * Этап A: Генерация платформ + ЛЕСТНИЦЫ С ТОПОЛОГИЧЕСКОЙ ПРОВЕРКОЙ
- */
-/**
- * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ (Y-up)
- */
-/**
- * Этап A: Генерация платформ + ЛЕСТНИЦЫ С ТОПОЛОГИЧЕСКОЙ ПРОВЕРКОЙ И СЛУЧАЙНЫМ ПОВОРОТОМ
+ * Этап A: Генерация платформ + ЛЕСТНИЦЫ ПО АЛГОРИТМУ "ПУСТОТА МЕЖДУ"
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
     
-    // Диапазон уровней по Y (высота в системе Y-up)
-    const startLevel = Math.ceil(bounds.min.y / levelHeight);
-    const endLevel = Math.floor(bounds.max.y / levelHeight);
+    // Диапазон уровней по Z (высота в текущей системе)
+    const startLevel = Math.ceil(bounds.min.z / levelHeight);
+    const endLevel = Math.floor(bounds.max.z / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const yBase = level * levelHeight; // Абсолютная высота яруса
+        const zBase = level * levelHeight; 
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -83,62 +77,61 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (baseHash >= roomDensity) continue;
 
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
-                const wz = bounds.min.z + (gy + 0.5) * cellSize; 
+                const wy = bounds.min.y + (gy + 0.5) * cellSize; 
                 
-                // === ПОИСК ВСЕХ ВАЛИДНЫХ НАПРАВЛЕНИЙ ДЛЯ ЛЕСТНИЦЫ ===
-                let validStairDirs = [];
+                // === АЛГОРИТМ ПОИСКА ЛЕСТНИЦЫ ===
+                let stairType = null;
                 
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
                     
-                    // Проверяем все 4 ортогональных направления
-                    const neighbors = [
-                        { dx: 1, dy: 0, dir: 'east' }, 
-                        { dx: -1, dy: 0, dir: 'west' },
-                        { dx: 0, dy: 1, dir: 'north' }, 
-                        { dx: 0, dy: -1, dir: 'south' }
+                    // Направления: [dx, dy, тип_лестницы]
+                    const directions = [
+                        { dx: 0, dy: -1, type: 'stair_south' }, // Юг (-Y)
+                        { dx: 0, dy: 1, type: 'stair_north' },  // Север (+Y)
+                        { dx: -1, dy: 0, type: 'stair_west' },  // Запад (-X)
+                        { dx: 1, dy: 0, type: 'stair_east' }    // Восток (+X)
                     ];
                     
-                    for (const n of neighbors) {
-                        const nx = gx + n.dx;
-                        const ny = gy + n.dy;
-                        
-                        // СТРОГАЯ ПРОВЕРКА: сосед должен быть в границах грида И занят на целевом уровне
-                        if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
-                            if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                                validStairDirs.push(n.dir);
+                    for (const dir of directions) {
+                        const midX = gx + dir.dx;   // Промежуточная клетка (должна быть пустой)
+                        const midY = gy + dir.dy;
+                        const targetX = gx + dir.dx * 2; // Целевая клетка (должна быть занятой на L+1)
+                        const targetY = gy + dir.dy * 2;
+
+                        // Проверка границ грида для обеих клеток
+                        if (targetX >= 0 && targetX < gridSize && targetY >= 0 && targetY < gridSize) {
+                            // 1. Промежуток должен быть ПУСТЫМ на ТЕКУЩЕМ уровне
+                            const midEmpty = hash3D(cx * gridSize + midX, cy * gridSize + midY, level, seed) >= roomDensity;
+                            
+                            // 2. Цель должна быть ЗАНЯТА на УРОВНЕ ВЫШЕ
+                            const targetOccupied = hash3D(cx * gridSize + targetX, cy * gridSize + targetY, targetLevel, seed) < roomDensity;
+                            
+                            if (midEmpty && targetOccupied) {
+                                stairType = dir.type;
+                                break; // Нашли первое подходящее направление
                             }
                         }
                     }
                 }
 
-                // === СОЗДАНИЕ ПРИМИТИВА ===
-                if (validStairDirs.length > 0) {
-                    // Случайный выбор направления из всех доступных
-                    // Это решает проблему "лестницы смотрят только в 2 стороны"
-                    const stairDir = validStairDirs[Math.floor(rng() * validStairDirs.length)];
-
+                if (stairType) {
+                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
                     primitives.push({
-                        type: 'platform_stair',
-                        variant: stairDir,
-                        position: { x: wx, y: yBase, z: wz }, 
+                        type: stairType, // stair_north, stair_south, stair_east, stair_west
+                        position: { x: wx, y: wy, z: zBase }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: levelHeight, z: cellSize },
+                        scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'accent',
-                        role: 'connector',
-                        params: { 
-                            platformThickness, 
-                            levelHeight, 
-                            cellSize 
-                        }
+                        role: 'connector'
                     });
                 } else {
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
                     primitives.push({
                         type: 'box',
-                        position: { x: wx, y: yBase + platformThickness / 2, z: wz },
+                        position: { x: wx, y: wy, z: zBase + platformThickness / 2 },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: platformThickness, z: cellSize },
+                        scale: { x: cellSize, y: cellSize, z: platformThickness },
                         paletteSlot: 'base',
                         role: 'frame'
                     });
@@ -148,7 +141,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
 // ... остальные функции (generateRooms, generateConnections и т.д.) остаются без изменений, 
 // но убедись, что они тоже используют bounds.min.y и position.y вместо z ...
 
