@@ -66,6 +66,9 @@ export function generateChunk(cx, cy, cz, seed, config) {
 /**
  * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ
  */
+/**
+ * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ
+ */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
