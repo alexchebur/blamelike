@@ -127,7 +127,8 @@ class ChunkManager {
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-        const geometry = this.createGeometry(type, variant, config);
+
+        const geometry = this.createGeometry(type, variant, config, items[0]);
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
         });
@@ -168,9 +169,10 @@ class ChunkManager {
      * @param {string} type 
      * @param {string} variant - вариант формы (например, направление лестницы: east/west/north/south)
      * @param {Object} config 
+     * @param {Object} [item] - сам примитив (для доступа к params)
      * @returns {THREE.BufferGeometry}
      */
-    createGeometry(type, variant, config) {
+    createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
         switch (type) {
@@ -204,17 +206,20 @@ class ChunkManager {
             // --- Лестницы (интегрированные в платформу) ---
             case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
-                    // Передаем реальные параметры мира для корректной пропорции
-                    // cellSize = ширина/глубина клетки
-                    // levelHeight = высота подъема (расстояние между ярусами)
-                    // platformThickness = толщина плиты основания
-                    const cellSize = config.chunkSize / config.gridSize;
-                    return getPlatformStairGeometry(
-                        variant || 'east', 
-                        cellSize, 
-                        config.levelHeight, 
-                        config.platformThickness
-                    );
+                    // Вычисляем точное соотношение толщины плиты к высоте яруса
+                    // Берем из params примитива (если есть) или из конфига по умолчанию
+                    const pt = (item && item.params && item.params.platformThickness) 
+                        ? item.params.platformThickness 
+                        : config.platformThickness;
+                    
+                    const lh = (item && item.params && item.params.levelHeight) 
+                        ? item.params.levelHeight 
+                        : config.levelHeight;
+
+                    // Защита от деления на ноль и некорректных значений
+                    const thicknessRatio = (lh > 0) ? (pt / lh) : 0.1;
+
+                    return getPlatformStairGeometry(variant || 'east', thicknessRatio);
                 } else {
                     console.warn('getPlatformStairGeometry is not defined');
                     return new THREE.BoxGeometry(1, 1, 1);
