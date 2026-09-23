@@ -7,7 +7,6 @@ const geomCache = {};
 /**
  * Создает нормализованную геометрию "Платформа + Лестница"
  * Вся высота укладывается в диапазон [0, 1].
- * Длина лестницы = 1.0 (ровно одна клетка).
  */
 function createBaseStairPlatform(thicknessRatio) {
     const geometries = [];
@@ -20,9 +19,8 @@ function createBaseStairPlatform(thicknessRatio) {
 
     // 2. ЛЕСТНИЦА
     // Занимает пространство от thicknessRatio до 1.0
-    // Длина = 1.0 (ровно от центра одной клетки до центра следующей)
     const steps = 16; 
-    const stairLength = 1.0; // <-- ИСПРАВЛЕНО: теперь ровно 1.0
+    const stairLength = 1.0; // <-- ИСПРАВЛЕНО: теперь ровно 1.0 (одна клетка)
     const width = 0.4;
     
     const startOffset = 0.5; // Начинаем от центра клетки (край плиты)
