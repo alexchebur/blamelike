@@ -6,7 +6,8 @@ const geomCache = {};
 
 /**
  * Создает нормализованную геометрию "Платформа + Лестница"
- * @param {number} thicknessRatio - отношение толщины плиты к высоте яруса (platformThickness / levelHeight)
+ * Вся высота укладывается в диапазон [0, 1].
+ * Длина лестницы = 1.0 (ровно одна клетка).
  */
 function createBaseStairPlatform(thicknessRatio) {
     const geometries = [];
@@ -14,13 +15,14 @@ function createBaseStairPlatform(thicknessRatio) {
     // 1. ПЛИТА ОСНОВАНИЯ
     // Занимает нижнюю часть [0 .. thicknessRatio]
     const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
-    base.translate(0, thicknessRatio / 2, 0); // Низ на 0, центр на thicknessRatio/2
+    base.translate(0, thicknessRatio / 2, 0); // Низ на 0
     geometries.push(base);
 
     // 2. ЛЕСТНИЦА
     // Занимает пространство от thicknessRatio до 1.0
+    // Длина = 1.0 (ровно от центра одной клетки до центра следующей)
     const steps = 16; 
-    const stairLength = 0.9; // Чуть меньше клетки, чтобы был зазор
+    const stairLength = 1.0; // <-- ИСПРАВЛЕНО: теперь ровно 1.0
     const width = 0.4;
     
     const startOffset = 0.5; // Начинаем от центра клетки (край плиты)
@@ -32,7 +34,7 @@ function createBaseStairPlatform(thicknessRatio) {
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, stepH, width);
         
-        // X: движемся от центра клетки к краю
+        // X: движемся от центра клетки к краю соседней клетки
         const x = startOffset + (i * stepD); 
         
         // Y: поднимаемся от верха плиты
@@ -60,7 +62,7 @@ export function getPlatformStairGeometry(direction, thicknessRatio = 0.1) {
     if (direction === 'west') geo.rotateY(Math.PI);
     else if (direction === 'north') geo.rotateY(-Math.PI / 2);
     else if (direction === 'south') geo.rotateY(Math.PI / 2);
-    // 'east' — базовое направление, поворот 0
+    // 'east' — базовое направление
 
     geomCache[cacheKey] = geo;
     return geo;
