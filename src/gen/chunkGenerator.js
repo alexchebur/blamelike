@@ -79,7 +79,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
-                // Проверяем наличие соседа на уровень выше для лестницы
+                // Проверяем наличие СОСЕДА на уровень выше для лестницы
                 let stairDir = null;
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
@@ -92,10 +92,11 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     for (const n of neighbors) {
                         const nx = gx + n.dx;
                         const ny = gy + n.dy;
+                        // СТРОГАЯ ПРОВЕРКА: сосед должен быть в границах грида И занят на целевом уровне
                         if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
                             if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
                                 stairDir = n.dir;
-                                break; // Нашли первого подходящего соседа
+                                break; // Нашли первого подходящего СОСЕДА
                             }
                         }
                     }
@@ -104,32 +105,32 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (stairDir) {
                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
                     // КЛЮЧЕВОЙ МОМЕНТ:
-                    // 1. position.y = yBase (нижняя грань уровня), а НЕ центр.
+                    // 1. position.y = yBase (нижняя грань уровня).
                     // 2. scale.y = levelHeight (полная высота перехода).
-                    // Геометрия внутри stairFactory сама разобьет это на "плиту" и "ступени".
+                    // 3. Передаем params для корректной сборки геометрии в factory.
                     primitives.push({
                         type: 'platform_stair',
                         variant: stairDir,
                         position: { x: wx, y: yBase, z: wz }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: levelHeight, z: cellSize }, // Y теперь равен высоте яруса!
-                        paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
+                        scale: { x: cellSize, y: levelHeight, z: cellSize },
+                        paletteSlot: 'accent',
                         role: 'connector',
-                        // Передаем параметры для корректного расчета ratio в factory
+                        // Передаем параметры для нормализованной геометрии
                         params: { 
                             platformThickness, 
-                            levelHeight 
+                            levelHeight, 
+                            cellSize 
                         }
                     });
                 } else {
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
-                    // Используем 'base'
                     primitives.push({
                         type: 'box',
                         position: { x: wx, y: yBase + platformThickness / 2, z: wz },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: platformThickness, z: cellSize },
-                        paletteSlot: 'base', // <-- СТАНДАРТНЫЙ ЦВЕТ
+                        paletteSlot: 'base',
                         role: 'frame'
                     });
                 }
