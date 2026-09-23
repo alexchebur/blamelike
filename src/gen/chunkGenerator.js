@@ -33,12 +33,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += connections.length;
     }
 
-    // === ЭТАП D: Вертикальные соединения (лестницы) ===
-    if (instanceCount < maxInstances) {
-        const stairs = generateStairs(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...stairs);
-        instanceCount += stairs.length;
-    }
+
 
     // === ЭТАП E: Монолиты ===
     if (instanceCount < maxInstances) {
