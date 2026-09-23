@@ -83,7 +83,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 let stairDir = null;
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
-                    // Ищем только прямых соседей (dx=±1, dy=0 или dx=0, dy=±1)
+                    // Ищем ТОЛЬКО прямых соседей (dx=±1, dy=0 или dx=0, dy=±1)
                     const neighbors = [
                         { dx: 1, dy: 0, dir: 'east' }, { dx: -1, dy: 0, dir: 'west' },
                         { dx: 0, dy: 1, dir: 'north' }, { dx: 0, dy: -1, dir: 'south' }
@@ -114,7 +114,12 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: levelHeight, z: cellSize }, // Y теперь равен высоте яруса!
                         paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
-                        role: 'connector'
+                        role: 'connector',
+                        // Передаем параметры для корректного расчета ratio в factory
+                        params: { 
+                            platformThickness, 
+                            levelHeight 
+                        }
                     });
                 } else {
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
