@@ -172,6 +172,14 @@ class ChunkManager {
      * @param {Object} [item] - сам примитив (для доступа к params)
      * @returns {THREE.BufferGeometry}
      */
+    /**
+     * Создание геометрии по типу примитива
+     * @param {string} type - тип геометрии (box, cylinder, platform_stair и т.д.)
+     * @param {string} variant - вариант формы (направление лестницы: east/west/north/south)
+     * @param {Object} config - текущая конфигурация мира
+     * @param {Object} [item] - сам примитив (для доступа к params платформы с лестницей)
+     * @returns {THREE.BufferGeometry}
+     */
     createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
@@ -206,18 +214,19 @@ class ChunkManager {
             // --- Лестницы (интегрированные в платформу) ---
             case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
-                    // Вычисляем точное соотношение толщины плиты к высоте яруса
-                    // Берем из params примитива (если есть) или из конфига по умолчанию
-                    const pt = (item && item.params && item.params.platformThickness) 
-                        ? item.params.platformThickness 
-                        : config.platformThickness;
+                    // Безопасное извлечение параметров толщины и высоты яруса
+                    // Приоритет: params примитива > глобальный конфиг > дефолтное значение
+                    const pt = (item?.params?.platformThickness) 
+                        ?? config.platformThickness 
+                        ?? 2;
                     
-                    const lh = (item && item.params && item.params.levelHeight) 
-                        ? item.params.levelHeight 
-                        : config.levelHeight;
+                    const lh = (item?.params?.levelHeight) 
+                        ?? config.levelHeight 
+                        ?? 20;
 
-                    // Защита от деления на ноль и некорректных значений
-                    const thicknessRatio = (lh > 0) ? (pt / lh) : 0.1;
+                    // Вычисляем нормализованное соотношение для геометрии [0..1]
+                    // Защита от деления на ноль и некорректных пропорций
+                    const thicknessRatio = Math.max(0.01, Math.min(0.99, pt / lh));
 
                     return getPlatformStairGeometry(variant || 'east', thicknessRatio);
                 } else {
@@ -226,7 +235,7 @@ class ChunkManager {
                 }
 
             default:
-                console.warn(`Unknown geometry type: ${type}`);
+                console.warn(`Unknown geometry type: "${type}"`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
