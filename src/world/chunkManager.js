@@ -180,6 +180,14 @@ class ChunkManager {
      * @param {Object} [item] - сам примитив (для доступа к params платформы с лестницей)
      * @returns {THREE.BufferGeometry}
      */
+    /**
+     * Создание геометрии по типу примитива
+     * @param {string} type - тип геометрии (box, cylinder, stair_*, platform_stair и т.д.)
+     * @param {string} variant - вариант формы (направление для platform_stair: east/west/north/south)
+     * @param {Object} config - текущая конфигурация мира
+     * @param {Object} [item] - сам примитив (для доступа к params)
+     * @returns {THREE.BufferGeometry}
+     */
     createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
@@ -211,11 +219,21 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // --- Лестницы (интегрированные в платформу) ---
+            // --- Отдельные типы лестниц (stair_north, stair_south, stair_east, stair_west) ---
+            case 'stair_north':
+            case 'stair_south':
+            case 'stair_east':
+            case 'stair_west':
+                if (typeof getStairGeometry !== 'undefined') {
+                    return getStairGeometry(type);
+                }
+                console.warn(`getStairGeometry is not defined for ${type}`);
+                return new THREE.BoxGeometry(1, 1, 1);
+
+            // --- Единая платформа с лестницей (параметрическая) ---
             case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
                     // Безопасное извлечение параметров толщины и высоты яруса
-                    // Приоритет: params примитива > глобальный конфиг > дефолтное значение
                     const pt = (item?.params?.platformThickness) 
                         ?? config.platformThickness 
                         ?? 2;
@@ -225,7 +243,6 @@ class ChunkManager {
                         ?? 20;
 
                     // Вычисляем нормализованное соотношение для геометрии [0..1]
-                    // Защита от деления на ноль и некорректных пропорций
                     const thicknessRatio = Math.max(0.01, Math.min(0.99, pt / lh));
 
                     return getPlatformStairGeometry(variant || 'east', thicknessRatio);
