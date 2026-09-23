@@ -63,6 +63,9 @@ export function generateChunk(cx, cy, cz, seed, config) {
 /**
  * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ (Y-up)
  */
+/**
+ * Этап A: Генерация платформ + ЛЕСТНИЦЫ С ТОПОЛОГИЧЕСКОЙ ПРОВЕРКОЙ И СЛУЧАЙНЫМ ПОВОРОТОМ
+ */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
@@ -82,35 +85,39 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
-                // Проверяем наличие СОСЕДА на уровень выше для лестницы
-                let stairDir = null;
+                // === ПОИСК ВСЕХ ВАЛИДНЫХ НАПРАВЛЕНИЙ ДЛЯ ЛЕСТНИЦЫ ===
+                let validStairDirs = [];
+                
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
-                    // Ищем ТОЛЬКО прямых соседей (dx=±1, dy=0 или dx=0, dy=±1)
+                    
+                    // Проверяем все 4 ортогональных направления
                     const neighbors = [
-                        { dx: 1, dy: 0, dir: 'east' }, { dx: -1, dy: 0, dir: 'west' },
-                        { dx: 0, dy: 1, dir: 'north' }, { dx: 0, dy: -1, dir: 'south' }
+                        { dx: 1, dy: 0, dir: 'east' }, 
+                        { dx: -1, dy: 0, dir: 'west' },
+                        { dx: 0, dy: 1, dir: 'north' }, 
+                        { dx: 0, dy: -1, dir: 'south' }
                     ];
                     
                     for (const n of neighbors) {
                         const nx = gx + n.dx;
                         const ny = gy + n.dy;
+                        
                         // СТРОГАЯ ПРОВЕРКА: сосед должен быть в границах грида И занят на целевом уровне
                         if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
                             if (hash3D(cx * gridSize + nx, cy * gridSize + ny, targetLevel, seed) < roomDensity) {
-                                stairDir = n.dir;
-                                break; // Нашли первого подходящего СОСЕДА
+                                validStairDirs.push(n.dir);
                             }
                         }
                     }
                 }
 
-                if (stairDir) {
-                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
-                    // КЛЮЧЕВОЙ МОМЕНТ:
-                    // 1. position.y = yBase (нижняя грань уровня).
-                    // 2. scale.y = levelHeight (полная высота перехода).
-                    // 3. Передаем params для корректной сборки геометрии в factory.
+                // === СОЗДАНИЕ ПРИМИТИВА ===
+                if (validStairDirs.length > 0) {
+                    // Случайный выбор направления из всех доступных
+                    // Это решает проблему "лестницы смотрят только в 2 стороны"
+                    const stairDir = validStairDirs[Math.floor(rng() * validStairDirs.length)];
+
                     primitives.push({
                         type: 'platform_stair',
                         variant: stairDir,
@@ -119,7 +126,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         scale: { x: cellSize, y: levelHeight, z: cellSize },
                         paletteSlot: 'accent',
                         role: 'connector',
-                        // Передаем параметры для нормализованной геометрии
                         params: { 
                             platformThickness, 
                             levelHeight, 
@@ -128,9 +134,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     });
                 } else {
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
-                    // Используем 'base'
-                    // Для совместимости с лестницами тоже используем scale.y = levelHeight,
-                    // но в createGeometry это будет интерпретировано как "тонкая плита"
                     primitives.push({
                         type: 'box',
                         position: { x: wx, y: yBase + platformThickness / 2, z: wz },
