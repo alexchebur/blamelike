@@ -14,7 +14,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
     let instanceCount = 0;
     const maxInstances = config.maxInstancesPerChunk || 30000;
 
-    // === ЭТАП A: Платформы (Ярусы) ===
+    // === ЭТАП A: Платформы + Встроенные лестницы ===
     const platforms = generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize);
     primitives.push(...platforms);
     instanceCount += platforms.length;
@@ -33,23 +33,21 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += connections.length;
     }
 
-
-
-    // === ЭТАП E: Монолиты ===
+    // === ЭТАП D: Монолиты ===
     if (instanceCount < maxInstances) {
         const mega = generateMegaStructures(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...mega);
         instanceCount += mega.length;
     }
 
-    // === ЭТАП F: Протыкающие фигуры ===
+    // === ЭТАП E: Протыкающие фигуры ===
     if (instanceCount < maxInstances) {
         const pierce = generatePierce(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...pierce);
         instanceCount += pierce.length;
     }
 
-    // === ЭТАП G: Декор ===
+    // === ЭТАП F: Декор ===
     if (instanceCount < maxInstances) {
         const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...decor);
@@ -59,13 +57,6 @@ export function generateChunk(cx, cy, cz, seed, config) {
     return primitives;
 }
 
-// src/gen/chunkGenerator.js (фрагмент функции generatePlatforms)
-
-// В src/gen/chunkGenerator.js
-
-/**
- * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ
- */
 /**
  * Этап A: Генерация платформ + ВСТРОЕННЫЕ ЛЕСТНИЦЫ
  */
@@ -73,12 +64,12 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
     
-    // Диапазон уровней по Z (высота в текущей системе)
-    const startLevel = Math.ceil(bounds.min.z / levelHeight);
-    const endLevel = Math.floor(bounds.max.z / levelHeight);
+    // Диапазон уровней по Y (высота в системе Y-up)
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const zBase = level * levelHeight; // Абсолютная высота яруса
+        const yBase = level * levelHeight; // Абсолютная высота яруса
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -86,7 +77,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (baseHash >= roomDensity) continue;
 
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
-                const wy = bounds.min.y + (gy + 0.5) * cellSize; 
+                const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
                 // Проверяем наличие соседа на уровень выше для лестницы
                 let stairDir = null;
@@ -113,15 +104,15 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (stairDir) {
                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
                     // КЛЮЧЕВОЙ МОМЕНТ:
-                    // 1. position.z = zBase (нижняя грань уровня), а НЕ центр.
-                    // 2. scale.z = levelHeight (полная высота перехода).
+                    // 1. position.y = yBase (нижняя грань уровня), а НЕ центр.
+                    // 2. scale.y = levelHeight (полная высота перехода).
                     // Геометрия внутри stairFactory сама разобьет это на "плиту" и "ступени".
                     primitives.push({
                         type: 'platform_stair',
                         variant: stairDir,
-                        position: { x: wx, y: wy, z: zBase }, 
+                        position: { x: wx, y: yBase, z: wz }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: levelHeight }, // Z теперь равен высоте яруса!
+                        scale: { x: cellSize, y: levelHeight, z: cellSize }, // Y теперь равен высоте яруса!
                         paletteSlot: 'accent', // <-- ЦВЕТОВОЕ ОТЛИЧИЕ
                         role: 'connector'
                     });
@@ -130,9 +121,9 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     // Используем 'base'
                     primitives.push({
                         type: 'box',
-                        position: { x: wx, y: wy, z: zBase + platformThickness / 2 },
+                        position: { x: wx, y: yBase + platformThickness / 2, z: wz },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: platformThickness },
+                        scale: { x: cellSize, y: platformThickness, z: cellSize },
                         paletteSlot: 'base', // <-- СТАНДАРТНЫЙ ЦВЕТ
                         role: 'frame'
                     });
@@ -143,10 +134,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
-// УДАЛИТЕ ИЛИ ЗАКОММЕНТИРУЙТЕ ФУНКЦИЮ generateStairs, она больше не нужна!
-/*
-function generateStairs(...) { ... }
-*/
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
@@ -266,8 +253,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
-
 
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
