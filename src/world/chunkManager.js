@@ -163,28 +163,65 @@ class ChunkManager {
         return mesh;
     }
 
+    /**
+     * Создание геометрии по типу
+     * @param {string} type 
+     * @param {string} variant - вариант формы (например, направление лестницы: east/west/north/south)
+     * @param {Object} config 
+     * @returns {THREE.BufferGeometry}
+     */
     createGeometry(type, variant, config) {
         const segments = config.maxSegments || 16;
+        
         switch (type) {
-            case 'box': return new THREE.BoxGeometry(1, 1, 1);
-            case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            case 'cone': return new THREE.ConeGeometry(0.5, 1, segments);
-            case 'octahedron': return new THREE.OctahedronGeometry(0.5);
-            case 'capsule': return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            case 'torus': return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            case 'sphere': return new THREE.SphereGeometry(0.5, segments, segments);
-            case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
-            case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
+            case 'box':
+                return new THREE.BoxGeometry(1, 1, 1);
             
+            case 'cylinder':
+                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
+            
+            case 'cone':
+                return new THREE.ConeGeometry(0.5, 1, segments);
+            
+            case 'octahedron':
+                return new THREE.OctahedronGeometry(0.5);
+            
+            case 'capsule':
+                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
+            
+            case 'torus':
+                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
+            
+            case 'sphere':
+                return new THREE.SphereGeometry(0.5, segments, segments);
+            
+            case 'obelisk':
+                return new THREE.ConeGeometry(0.4, 1, 4); 
+            
+            case 'spire':
+                return new THREE.ConeGeometry(0.2, 1, 8);
+
+            // --- Лестницы (интегрированные в платформу) ---
             case 'platform_stair':
                 if (typeof getPlatformStairGeometry !== 'undefined') {
-                    return getPlatformStairGeometry(variant || 'east');
+                    // Передаем реальные параметры мира для корректной пропорции
+                    // cellSize = ширина/глубина клетки
+                    // levelHeight = высота подъема (расстояние между ярусами)
+                    // platformThickness = толщина плиты основания
+                    const cellSize = config.chunkSize / config.gridSize;
+                    return getPlatformStairGeometry(
+                        variant || 'east', 
+                        cellSize, 
+                        config.levelHeight, 
+                        config.platformThickness
+                    );
+                } else {
+                    console.warn('getPlatformStairGeometry is not defined');
+                    return new THREE.BoxGeometry(1, 1, 1);
                 }
-                return new THREE.BoxGeometry(1, 1, 1);
-                
+
             default:
-                // Логируем неизвестный тип, но НЕ падаем
-                console.warn(`Unknown geometry type: "${type}"`);
+                console.warn(`Unknown geometry type: ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
