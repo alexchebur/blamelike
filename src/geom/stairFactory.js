@@ -4,40 +4,32 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const geomCache = {};
 
-/**
- * Создает базовую геометрию лестницы (направлена на +X)
- * @param {number} plateThickness - Абсолютная толщина плиты основания
- * @param {number} levelHeight - Абсолютная высота подъема (масштаб Y)
- */
+// src/geom/stairFactory.js
+
 function createEastStairGeometry(plateThickness, levelHeight) {
-    // === ЗАЩИТА ОТ NaN И Infinity ===
-    // Если параметры некорректны, используем безопасные дефолты
-    const safeThickness = (typeof plateThickness === 'number' && plateThickness > 0) ? plateThickness : 2;
-    const safeLevelHeight = (typeof levelHeight === 'number' && levelHeight > 0) ? levelHeight : 20;
-    
-    // Вычисляем нормализованную долю толщины плиты от общей высоты меша
-    // Clamp гарантирует, что ratio всегда в диапазоне [0.01, 0.99]
-    const thicknessRatio = Math.max(0.01, Math.min(0.99, safeThickness / safeLevelHeight));
-    
     const geometries = [];
     
+    // Вычисляем нормализованную долю толщины плиты
+    // Теперь она будет 0.5 / 20 = 0.025 (очень тонкая плита)
+    const thicknessRatio = Math.max(0.01, Math.min(0.99, plateThickness / levelHeight));
+    
     // 1. ПЛИТА ОСНОВАНИЯ
-    // В локальных координатах [0..1] она занимает [0 .. thicknessRatio]
     const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
     base.translate(0, thicknessRatio / 2, 0); 
     geometries.push(base);
 
     // 2. ЛЕСТНИЦА
-    // Поднимается от верха плиты до верха меша (1.0)
-    const steps = 20; 
+    // УВЕЛИЧЕНО КОЛИЧЕСТВО СТУПЕНЕЙ: 20 -> 21
+    // Каждая ступень станет чуть ниже, но их станет на одну больше
+    const steps = 21; 
     const stairLength = 1.0; // Ровно одна клетка
     const width = 0.4;
     
     const startOffset = 0.5; // От центра клетки
     
     const availableHeight = 1.0 - thicknessRatio;
-    const stepH = availableHeight / steps;
-    const stepD = stairLength / steps;
+    const stepH = availableHeight / steps; // Высота одной ступени пересчитается автоматически
+    const stepD = stairLength / steps;     // Глубина одной ступени тоже пересчитается
 
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, stepH, width);
@@ -51,6 +43,8 @@ function createEastStairGeometry(plateThickness, levelHeight) {
 
     return mergeGeometries(geometries);
 }
+
+// ... остальной код файла без изменений ...
 
 /**
  * Возвращает геометрию лестницы нужного направления
