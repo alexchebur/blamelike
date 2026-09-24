@@ -203,12 +203,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 // src/gen/chunkGenerator.js
 
-// src/gen/chunkGenerator.js
-
-// ... (импорты остаются прежними)
-
-// src/gen/chunkGenerator.js
-
 /**
  * Этап C: Горизонтальные мосты (Y-up) с гарантированной магистралью и проверкой занятости
  */
@@ -224,6 +218,9 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
+        // ВАЖНО: Рассчитываем базу высоты здесь, внутри цикла
+        const currentYBase = level * levelHeight;
+
         // 1. Собираем карту платформ на текущем уровне
         const platforms = [];
         const platformSet = new Set();
@@ -240,7 +237,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         if (platforms.length < 2) continue;
 
         // 2. Строим ГАРАНТИРОВАННУЮ МАГИСТРАЛЬ (Main Artery)
-        // Ищем путь от левой границы (gx=0) к правой (gx=gridSize-1)
         const arteryPath = findMainArtery(platforms, platformSet, gridSize, rng, seed, level);
         
         // Создаем яркие мосты для магистрали
@@ -248,17 +244,16 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             const p1 = arteryPath[i];
             const p2 = arteryPath[i+1];
             
-            // Проверяем, есть ли между ними пустая клетка (условие 2)
+            // Проверяем, есть ли между ними пустая клетка
             if (hasEmptySpaceBetween(p1, p2, platformSet)) {
                 createBridgePrimitive(
                     primitives, p1, p2, bounds, cellSize, 
-                    yBase(level), platformThickness, bridgeThickness, bridgeWidth, 'bridge'
+                    currentYBase, platformThickness, bridgeThickness, bridgeWidth, 'bridge'
                 );
             }
         }
 
         // 3. Строим случайные локальные связи (для плотности)
-        // Используем множество уже занятых магистралью платформ как базу связности
         const connected = new Set(arteryPath.map(p => `${p.gx},${p.gy}`));
         
         let safety = 0;
@@ -271,7 +266,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             let nearest = null, minDist = Infinity;
             
-            // Ищем ближайшую несвязанную платформу в радиусе 2 клеток
             for (let dx = -2; dx <= 2; dx++) {
                 for (let dy = -2; dy <= 2; dy++) {
                     if (dx===0 && dy===0) continue;
@@ -290,11 +284,11 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             if (nearest) {
                 connected.add(`${nearest.gx},${nearest.gy}`);
-                // Создаем мост с шансом bridgeChance и только если между ними пусто
+                // Создаем мост с шансом и только если между ними пусто
                 if (rng() < bridgeChance && hasEmptySpaceBetween({gx:sx, gy:sy}, nearest, platformSet)) {
                     createBridgePrimitive(
                         primitives, {gx:sx, gy:sy}, nearest, bounds, cellSize, 
-                        yBase(level), platformThickness, bridgeThickness, bridgeWidth, 'accent'
+                        currentYBase, platformThickness, bridgeThickness, bridgeWidth, 'accent'
                     );
                 }
             }
@@ -334,7 +328,6 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
                     if (platformSet.has(k) && !visited.has(k)) {
                         // Добавляем случайность на основе сида уровня и координат
                         const randomFactor = hash3D(nx, ny, level + seed, 0);
-                        // Score: чем ближе к правому краю и меньше отклонение по Y, тем лучше
                         const score = (targetX - nx) + Math.abs(dy) * 0.5 + (randomFactor * 0.2);
                         candidates.push({ gx: nx, gy: ny, score });
                     }
@@ -344,7 +337,6 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
         
         if (candidates.length === 0) break; 
         
-        // Сортируем и берем лучший вариант
         candidates.sort((a, b) => a.score - b.score);
         
         const next = candidates[0];
@@ -358,22 +350,19 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
 
 /**
  * Проверяет, есть ли между двумя точками пустое пространство (нет платформы)
- * Используется для предотвращения мостов над другими платформами
  */
 function hasEmptySpaceBetween(p1, p2, platformSet) {
     const midGx = (p1.gx + p2.gx) / 2;
     const midGy = (p1.gy + p2.gy) / 2;
     
-    // Если расстояние 1 клетка (соседи), проверяем, нет ли платформы прямо посередине (для диагоналей)
-    // Или просто считаем, что если они соседи, то между ними всегда "пусто" в контексте сетки
+    // Если расстояние маленькое (соседи), считаем что место есть
     const dist = Math.abs(p1.gx - p2.gx) + Math.abs(p1.gy - p2.gy);
     if (dist <= 1.5) return true; 
 
-    // Для более дальних прыжков проверяем центральную точку
+    // Для дальних прыжков проверяем центральную точку
     const checkX = Math.floor(midGx);
     const checkY = Math.floor(midGy);
     
-    // Если в средней точке стоит платформа, мост строить нельзя
     return !platformSet.has(`${checkX},${checkY}`);
 }
 
@@ -398,7 +387,6 @@ function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, plat
     const angleRad = Math.atan2(dz, dx);
     const angleDeg = angleRad * (180 / Math.PI);
     
-    // Длина моста: расстояние минус ширина платформы (с небольшим нахлестом)
     const bridgeLength = Math.max(dist - cellSize * 0.9, 0.5);
     
     primitives.push({
@@ -421,12 +409,6 @@ function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, plat
         paletteSlot: paletteSlot,
         role: 'connector'
     });
-}
-
-// Вспомогательная функция для расчета базы уровня
-function yBase(level) {
-    return level * 20; // Здесь должно быть config.levelHeight, но он недоступен в замыкании этой функции
-                       // Лучше передать levelHeight в аргументы или использовать глобальный конфиг
 }
 
 
