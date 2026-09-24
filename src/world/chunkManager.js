@@ -177,17 +177,22 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // --- Отдельные типы лестниц ---
+
             case 'stair_north':
             case 'stair_south':
             case 'stair_east':
             case 'stair_west':
                 if (typeof getStairGeometry !== 'undefined') {
-                    return getStairGeometry(type);
+                    // Вычисляем ratio из параметров примитива или конфига
+                    const p = item.params || {};
+                    const pt = p.platformThickness || config.platformThickness;
+                    const lh = p.levelHeight || config.levelHeight;
+                    const ratio = (lh > 0) ? (pt / lh) : 0.1;
+        
+                    return getStairGeometry(type, ratio);
                 }
                 console.warn(`getStairGeometry is not defined for ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
-
             // --- Legacy поддержка platform_stair (если вдруг останется) ---
             case 'platform_stair':
                 if (typeof getStairGeometry !== 'undefined') {
