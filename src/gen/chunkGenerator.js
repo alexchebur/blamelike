@@ -64,12 +64,12 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
     
-    // Диапазон уровней по Z (высота в текущей системе)
-    const startLevel = Math.ceil(bounds.min.z / levelHeight);
-    const endLevel = Math.floor(bounds.max.z / levelHeight);
+    // Диапазон уровней по Y (высота в системе Y-up)
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        const zBase = level * levelHeight; 
+        const yBase = level * levelHeight; 
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -77,7 +77,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (baseHash >= roomDensity) continue;
 
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
-                const wy = bounds.min.y + (gy + 0.5) * cellSize; 
+                const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
                 // === АЛГОРИТМ ПОИСКА ЛЕСТНИЦЫ: [Платформа L] -> [Пусто L+1] -> [Платформа L+1] ===
                 let stairType = null;
@@ -129,19 +129,21 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
                     primitives.push({
                         type: stairType, // stair_north, stair_south, stair_east, stair_west
-                        position: { x: wx, y: wy, z: zBase }, 
+                        position: { x: wx, y: yBase, z: wz }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'accent',
                         role: 'connector'
                     });
                 } else {
-                    // === ОБЫЧНАЯ ПЛАТФОРМА ===
+                    // === ОБЫЧНАЯ ПЛАТФОРМА (ИСПРАВЛЕНО ДЛЯ Y-UP) ===
                     primitives.push({
                         type: 'box',
-                        position: { x: wx, y: wy, z: zBase + platformThickness / 2 },
+                        // Центр платформы по Y смещен на половину толщины от базовой высоты яруса
+                        position: { x: wx, y: yBase + platformThickness / 2, z: wz },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: platformThickness },
+                        // ИСПРАВЛЕНИЕ: Y теперь отвечает за толщину (высоту), Z - за глубину клетки
+                        scale: { x: cellSize, y: platformThickness, z: cellSize },
                         paletteSlot: 'base',
                         role: 'frame'
                     });
