@@ -150,6 +150,7 @@ class ChunkManager {
         const segments = config.maxSegments || 16;
         
         switch (type) {
+            // === БАЗОВЫЕ ПРИМИТИВЫ ===
             case 'box':
                 return new THREE.BoxGeometry(1, 1, 1);
             
@@ -177,26 +178,28 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-
+            // === ЛЕСТНИЦЫ И МОСТЫ (через StairFactory) ===
             case 'stair_north':
             case 'stair_south':
             case 'stair_east':
             case 'stair_west':
+            case 'bridge_ns':
+            case 'bridge_ew':
                 if (typeof getStairGeometry !== 'undefined') {
-                    // Вычисляем ratio из параметров примитива или конфига
-                    const p = item.params || {};
+                    // Для лестниц важны параметры толщины и высоты яруса
+                    // Для мостов эти параметры игнорируются внутри factory, но передаем для единообразия
+                    const p = item?.params || {};
                     const pt = p.platformThickness || config.platformThickness;
                     const lh = p.levelHeight || config.levelHeight;
-                    const ratio = (lh > 0) ? (pt / lh) : 0.1;
-        
-                    return getStairGeometry(type, ratio);
+                    
+                    return getStairGeometry(type, pt, lh);
                 }
                 console.warn(`getStairGeometry is not defined for ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
-            // --- Legacy поддержка platform_stair (если вдруг останется) ---
+
+            // === LEGACY ПОДДЕРЖКА ===
             case 'platform_stair':
                 if (typeof getStairGeometry !== 'undefined') {
-                    // Для legacy типа нужно передать направление как variant
                     return getStairGeometry(`stair_${variant || 'east'}`);
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
