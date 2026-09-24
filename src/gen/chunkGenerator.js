@@ -207,19 +207,22 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 // ... (импорты остаются прежними)
 
+// src/gen/chunkGenerator.js
+
 /**
  * Этап C: Горизонтальные мосты (Y-up) с гарантированной магистралью
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { gridSize, levelHeight, roomDensity, bridgeChance, bridgeWidth, bridgeThickness } = config;
+    // Убедимся, что параметры существуют, иначе берем дефолтные
+    const bridgeWidth = config.bridgeWidth || 0.15;
+    const bridgeThickness = config.bridgeThickness || 0.2;
+    const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
     
-    // Определяем диапазон уровней
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
-        // Пропускаем уровень, если он слишком пустой
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
 
         const yBase = level * levelHeight;
@@ -239,51 +242,55 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
         if (platforms.length < 2) continue;
 
-        // 2. Строим ГАРАНТИРОВАННУЮ МАГИСТРАЛЬ (Main Artery)
-        // Ищем путь от левой границы (gx=0) к правой (gx=gridSize-1) или снизу вверх
+        // 2. Строим ГАРАНТИРОВАННУЮ МАГИСТРАЛЬ
         const arteryPath = findMainArtery(platforms, platformSet, gridSize, rng);
         
-        // Создаем мосты для магистрали
+        // Создаем яркие мосты для магистрали
         for (let i = 0; i < arteryPath.length - 1; i++) {
             const p1 = arteryPath[i];
             const p2 = arteryPath[i+1];
-            
-            createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, bridgeThickness, bridgeWidth, 'bridge', true);
+            // Используем слот 'bridge' для яркого цвета
+            createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, bridgeThickness, bridgeWidth, 'bridge');
         }
 
         // 3. Строим случайные локальные связи (для плотности)
-        // Используем упрощенный Prim's для оставшихся изолированных кластеров
         const connected = new Set(arteryPath.map(p => `${p.gx},${p.gy}`));
-        const localEdges = [];
         
-        // Если есть несвязанные платформы, пробуем их соединить
-        if (connected.size < platforms.length) {
-             let safety = 0;
-             while (connected.size < platforms.length && safety++ < 100) {
-                 const keys = Array.from(connected);
-                 const srcKey = keys[Math.floor(rng() * keys.length)];
-                 const [sx, sy] = srcKey.split(',').map(Number);
-                 
-                 let nearest = null, minDist = Infinity;
-                 for (let dx = -1; dx <= 1; dx++) {
-                     for (let dy = -1; dy <= 1; dy++) {
-                         if (dx===0 && dy===0) continue;
-                         const nx = sx+dx, ny = sy+dy;
-                         const k = `${nx},${ny}`;
-                         if (platformSet.has(k) && !connected.has(k)) {
-                             const d = Math.abs(dx)+Math.abs(dy);
-                             if (d < minDist) { minDist = d; nearest = {gx:nx, gy:ny}; }
-                         }
-                     }
-                 }
-                 
-                 if (nearest && rng() < bridgeChance) {
-                     connected.add(`${nearest.gx},${nearest.gy}`);
-                     createBridgePrimitive(primitives, {gx:sx, gy:sy}, nearest, bounds, cellSize, yBase, bridgeThickness, bridgeWidth, 'accent', false);
-                 } else if (nearest) {
-                     connected.add(`${nearest.gx},${nearest.gy}`); // Просто добавляем в связность, даже без моста иногда
-                 }
-             }
+        // Пытаемся связать оставшиеся острова
+        let safety = 0;
+        while (connected.size < platforms.length && safety++ < 200) {
+            const keys = Array.from(connected);
+            if (keys.length === 0) break;
+            
+            const srcKey = keys[Math.floor(rng() * keys.length)];
+            const [sx, sy] = srcKey.split(',').map(Number);
+            
+            let nearest = null, minDist = Infinity;
+            
+            // Ищем соседей в радиусе 2 клеток
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    if (dx===0 && dy===0) continue;
+                    const nx = sx+dx, ny = sy+dy;
+                    const k = `${nx},${ny}`;
+                    
+                    if (platformSet.has(k) && !connected.has(k)) {
+                        const d = Math.abs(dx)+Math.abs(dy);
+                        if (d < minDist) { 
+                            minDist = d; 
+                            nearest = {gx:nx, gy:ny}; 
+                        }
+                    }
+                }
+            }
+            
+            if (nearest) {
+                connected.add(`${nearest.gx},${nearest.gy}`);
+                // Локальные мосты создаем с шансом bridgeChance и красим в 'accent'
+                if (rng() < bridgeChance) {
+                    createBridgePrimitive(primitives, {gx:sx, gy:sy}, nearest, bounds, cellSize, yBase, bridgeThickness, bridgeWidth, 'accent');
+                }
+            }
         }
     }
     
@@ -291,57 +298,48 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Поиск главного пути через чанк (Greedy Best-First)
+ * Поиск главного пути через чанк (Улучшенный Greedy с возможностью "прыжка")
  */
 function findMainArtery(platforms, platformSet, gridSize, rng) {
-    // Находим стартовую точку (ближайшую к левому краю)
-    let startNode = null;
-    let minX = gridSize;
-    for (const p of platforms) {
-        if (p.gx < minX) {
-            minX = p.gx;
-            startNode = p;
-        }
-    }
+    // Находим стартовую точку (самую левую, если их много - случайную из левых)
+    let startNodes = platforms.filter(p => p.gx === 0);
+    if (startNodes.length === 0) startNodes = platforms; // Фоллбек, если слева пусто
     
+    let startNode = startNodes[Math.floor(rng() * startNodes.length)];
     if (!startNode) return [];
 
     const path = [startNode];
     const visited = new Set([`${startNode.gx},${startNode.gy}`]);
     let current = startNode;
     
-    // Целевая сторона (правый край)
     const targetX = gridSize - 1;
-    
     let safety = 0;
-    while (current.gx < targetX && safety++ < 50) {
-        const neighbors = [
-            { gx: current.gx + 1, gy: current.gy },     // Вправо
-            { gx: current.gx, gy: current.gy + 1 },     // Вверх
-            { gx: current.gx, gy: current.gy - 1 },     // Вниз
-            { gx: current.gx + 1, gy: current.gy + 1 }, // Диагональ
-            { gx: current.gx + 1, gy: current.gy - 1 }  // Диагональ
-        ];
+    
+    // Пока не дошли до правого края
+    while (current.gx < targetX && safety++ < 100) {
+        // Генерируем кандидатов: соседи + соседи соседей (для прыжков через дыры)
+        const candidates = [];
+        for (let dx = 1; dx <= 2; dx++) { // Смотрим только вперед (вправо)
+            for (let dy = -1; dy <= 1; dy++) {
+                const nx = current.gx + dx;
+                const ny = current.gy + dy;
+                if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
+                    const k = `${nx},${ny}`;
+                    if (platformSet.has(k) && !visited.has(k)) {
+                        // Приоритет: чем ближе к правому краю и чем меньше отклонение по Y
+                        const score = (targetX - nx) + Math.abs(dy) * 0.5 + (rng() * 0.2);
+                        candidates.push({ gx: nx, gy: ny, score });
+                    }
+                }
+            }
+        }
         
-        // Фильтруем существующие платформы и непосещенные
-        const validNeighbors = neighbors.filter(n => 
-            n.gx >= 0 && n.gx < gridSize && 
-            n.gy >= 0 && n.gy < gridSize &&
-            platformSet.has(`${n.gx},${n.gy}`) &&
-            !visited.has(`${n.gx},${n.gy}`)
-        );
+        if (candidates.length === 0) break; // Тупик
         
-        if (validNeighbors.length === 0) break; // Тупик
+        // Сортируем по лучшему счету (меньше = лучше)
+        candidates.sort((a, b) => a.score - b.score);
         
-        // Выбираем соседа, который ближе всего к правому краю (targetX)
-        // Добавляем немного случайности, чтобы путь не был всегда прямым
-        validNeighbors.sort((a, b) => {
-            const distA = Math.abs(targetX - a.gx) + (rng() * 0.5);
-            const distB = Math.abs(targetX - b.gx) + (rng() * 0.5);
-            return distA - distB;
-        });
-        
-        const next = validNeighbors[0];
+        const next = candidates[0];
         path.push(next);
         visited.add(`${next.gx},${next.gy}`);
         current = next;
@@ -353,39 +351,35 @@ function findMainArtery(platforms, platformSet, gridSize, rng) {
 /**
  * Создает примитив моста между двумя платформами
  */
-function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, thickness, widthRatio, paletteSlot, isMainArtery) {
+function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, thickness, widthRatio, paletteSlot) {
     const x1 = bounds.min.x + (p1.gx + 0.5) * cellSize;
     const z1 = bounds.min.z + (p1.gy + 0.5) * cellSize;
     const x2 = bounds.min.x + (p2.gx + 0.5) * cellSize;
     const z2 = bounds.min.z + (p2.gy + 0.5) * cellSize;
     
-    // Вектор направления
     const dx = x2 - x1;
     const dz = z2 - z1;
     const dist = Math.sqrt(dx*dx + dz*dz);
     
-    if (dist < 0.1) return; // Защита от деления на ноль
+    if (dist < 0.1) return;
     
-    // Центр моста
     const midX = (x1 + x2) / 2;
     const midZ = (z1 + z2) / 2;
     
-    // Угол поворота
     const angleRad = Math.atan2(dz, dx);
     const angleDeg = angleRad * (180 / Math.PI);
     
-    // Корректировка длины: мост должен начинаться от края платформы
-    // Платформа имеет размер cellSize, значит от центра до края cellSize/2
-    // Мост должен быть короче расстояния между центрами на сумму половин размеров платформ
-    // Но мы хотим, чтобы он упирался в ребра. 
-    // Для простоты: длина = dist - cellSize * 0.8 (небольшой нахлест для красоты)
-    const bridgeLength = Math.max(dist - cellSize * 0.8, 0.5);
+    // Длина моста: расстояние минус половина ширины каждой платформы, чтобы он касался краев
+    // cellSize * 0.9 дает небольшой нахлест для надежности визуального соединения
+    const bridgeLength = Math.max(dist - cellSize * 0.9, 0.5);
     
     primitives.push({
         type: 'box',
         position: { 
             x: midX, 
-            y: yBase + 1.5, // Чуть выше платформы, чтобы не проваливался
+            // Высота: база уровня + толщина платформы + половина толщины моста
+            // Так центр бокса будет ровно на поверхности платформы
+            y: yBase + (config.platformThickness || 0.5) + (thickness / 2), 
             z: midZ 
         },
         rotation: { 
@@ -394,16 +388,15 @@ function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, thic
             twistZ: 0 
         },
         scale: { 
-            x: bridgeLength,      // Длина вдоль оси X (после поворота)
-            y: thickness,         // Толщина
-            z: cellSize * widthRatio // Ширина
+            x: bridgeLength,
+            y: thickness,
+            z: cellSize * widthRatio
         },
-        paletteSlot: paletteSlot, // 'bridge' для ярких, 'accent' для обычных
+        paletteSlot: paletteSlot,
         role: 'connector'
     });
 }
 
-// ... остальной код файла (generateMegaStructures и т.д.) остается без изменений
 
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
