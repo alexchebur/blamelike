@@ -10,10 +10,16 @@ const geomCache = {};
  * @param {number} levelHeight - Абсолютная высота подъема (масштаб Y)
  */
 function createEastStairGeometry(plateThickness, levelHeight) {
-    const geometries = [];
+    // === ЗАЩИТА ОТ NaN И Infinity ===
+    // Если параметры некорректны, используем безопасные дефолты
+    const safeThickness = (typeof plateThickness === 'number' && plateThickness > 0) ? plateThickness : 2;
+    const safeLevelHeight = (typeof levelHeight === 'number' && levelHeight > 0) ? levelHeight : 20;
     
     // Вычисляем нормализованную долю толщины плиты от общей высоты меша
-    const thicknessRatio = Math.max(0.01, Math.min(0.99, plateThickness / levelHeight));
+    // Clamp гарантирует, что ratio всегда в диапазоне [0.01, 0.99]
+    const thicknessRatio = Math.max(0.01, Math.min(0.99, safeThickness / safeLevelHeight));
+    
+    const geometries = [];
     
     // 1. ПЛИТА ОСНОВАНИЯ
     // В локальных координатах [0..1] она занимает [0 .. thicknessRatio]
@@ -23,7 +29,6 @@ function createEastStairGeometry(plateThickness, levelHeight) {
 
     // 2. ЛЕСТНИЦА
     // Поднимается от верха плиты до верха меша (1.0)
-    // УВЕЛИЧЕНО КОЛИЧЕСТВО СТУПЕНЕЙ: 16 -> 20 для лучшей стыковки
     const steps = 20; 
     const stairLength = 1.0; // Ровно одна клетка
     const width = 0.4;
@@ -55,10 +60,14 @@ function createEastStairGeometry(plateThickness, levelHeight) {
  */
 export function getStairGeometry(type, plateThickness, levelHeight) {
     // Ключ кэша включает размеры, чтобы геометрия пересоздавалась при смене параметров
-    const cacheKey = `${type}_${plateThickness}_${levelHeight}`;
+    // Добавляем защиту от undefined в ключе кэша
+    const safePT = plateThickness ?? 2;
+    const safeLH = levelHeight ?? 20;
+    const cacheKey = `${type}_${safePT}_${safeLH}`;
+    
     if (geomCache[cacheKey]) return geomCache[cacheKey];
 
-    let geo = createEastStairGeometry(plateThickness, levelHeight);
+    let geo = createEastStairGeometry(safePT, safeLH);
 
     // Поворот вокруг вертикальной оси Y (Y-up система)
     if (type === 'stair_west') geo.rotateY(Math.PI);
