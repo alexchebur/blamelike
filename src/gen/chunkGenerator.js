@@ -207,11 +207,16 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 // ... (импорты и начало файла остаются без изменений)
 
+// src/gen/chunkGenerator.js
+
 /**
- * Этап C: Горизонтальные мосты (Y-up) на основе заполнения пустых клеток
+ * Этап C: Горизонтальные мосты (Y-up) с повышенной плотностью
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
+    const bridgeWidth = config.bridgeWidth || 0.15;
+    const bridgeThickness = config.bridgeThickness || 0.2;
+    const platformThickness = config.platformThickness || 0.5;
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
     
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
@@ -219,113 +224,87 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
     for (let level = startLevel; level <= endLevel; level++) {
         const currentYBase = level * levelHeight;
-        
-        // 1. Строим карту занятости уровня
-        const gridMap = new Map(); // ключ "gx,gy" -> true/false
+
+        // 1. Собираем карту платформ на текущем уровне
+        const platforms = [];
+        const platformSet = new Set();
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                const isOccupied = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity;
-                gridMap.set(`${gx},${gy}`, isOccupied);
+                if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
+                    platforms.push({ gx, gy });
+                    platformSet.add(`${gx},${gy}`);
+                }
             }
         }
 
-        // 2. Создаем ГАРАНТИРОВАННУЮ МАГИСТРАЛЬ (Wave Algorithm)
-        // Мы просто "пробиваем" путь через пустые клетки, помечая их как требующие моста
-        const requiredBridges = new Set(); // хранит "gx,gy|type"
+        if (platforms.length < 2) continue;
+
+        // 2. Строим НЕСКОЛЬКО ГАРАНТИРОВАННЫХ МАГИСТРАЛЕЙ
+        // Создаем пути от разных краев к центру или друг к другу
+        const arteryPaths = [];
         
-        // Находим стартовую точку на левой границе
-        let startX = 0;
-        let startY = Math.floor(rng() * gridSize);
-        while (!gridMap.get(`${startX},${startY}`) && startX < gridSize) startX++; // Ищем платформу или край
+        // Магистраль 1: Слева направо
+        arteryPaths.push(findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, cy, 'horizontal'));
+        // Магистраль 2: Сверху вниз
+        arteryPaths.push(findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, cy, 'vertical'));
         
-        // Простой жадный путь к правой границе
-        let currX = startX;
-        let currY = startY;
-        let pathLength = 0;
-        
-        while (currX < gridSize - 1 && pathLength < 50) {
-            // Пытаемся идти вправо
-            let nextX = currX + 1;
-            let nextY = currY;
-            
-            // Если справа занято платформой, пытаемся обойти (случайно вверх или вниз)
-            if (gridMap.get(`${nextX},${nextY}`)) {
-                const dir = rng() > 0.5 ? 1 : -1;
-                if (currY + dir >= 0 && currY + dir < gridSize && !gridMap.get(`${currX},${currY + dir}`)) {
-                    nextX = currX;
-                    nextY = currY + dir;
-                } else if (currY - dir >= 0 && currY - dir < gridSize && !gridMap.get(`${currX},${currY - dir}`)) {
-                    nextX = currX;
-                    nextY = currY - dir;
-                } else {
-                    break; // Тупик
+        // Объединяем все точки магистралей в один набор "связанных"
+        const connected = new Set();
+        for (const path of arteryPaths) {
+            for (const p of path) {
+                connected.add(`${p.gx},${p.gy}`);
+            }
+            // Создаем мосты для каждой магистрали
+            for (let i = 0; i < path.length - 1; i++) {
+                const p1 = path[i];
+                const p2 = path[i+1];
+                if (hasEmptySpaceBetween(p1, p2, platformSet)) {
+                    createBridgePrimitive(
+                        primitives, p1, p2, bounds, cellSize, 
+                        currentYBase, platformThickness, bridgeThickness, bridgeWidth, 'bridge'
+                    );
                 }
             }
-            
-            // Если следующая клетка пуста, она становится мостом магистрали
-            if (!gridMap.get(`${nextX},${nextY}`)) {
-                // Определяем тип моста: если мы двигались по X, то мост должен быть EW
-                // Но мы ставим мост В текущую пустую клетку.
-                // Если мы пришли из (currX, currY) и идем в (nextX, nextY):
-                // Если изменился X, значит нам нужен мост EW в следующей клетке? 
-                // Нет, мост ставится в пустую клетку, соединяя соседей.
-                
-                // Просто помечаем эту клетку как "требующую моста". Тип определим позже по соседям.
-                requiredBridges.add(`${nextX},${nextY}`);
-            }
-            
-            currX = nextX;
-            currY = nextY;
-            pathLength++;
         }
 
-        // 3. Заполняем остальные пустые клетки по правилам
-        for (let gx = 0; gx < gridSize; gx++) {
-            for (let gy = 0; gy < gridSize; gy++) {
-                const key = `${gx},${gy}`;
-                if (gridMap.get(key)) continue; // Пропускаем занятые платформы
-
-                const hasWest = gridMap.get(`${gx-1},${gy}`);
-                const hasEast = gridMap.get(`${gx+1},${gy}`);
-                const hasSouth = gridMap.get(`${gx},${gy-1}`);
-                const hasNorth = gridMap.get(`${gx},${gy+1}`);
-
-                let bridgeType = null;
-
-                // Приоритет: если клетка в магистрали, стараемся её использовать
-                const isRequired = requiredBridges.has(key);
-
-                // Проверяем возможность соединения Восток-Запад
-                if (hasWest && hasEast) {
-                    bridgeType = 'bridge_ew';
-                } 
-                // Проверяем возможность соединения Север-Юг
-                else if (hasNorth && hasSouth) {
-                    bridgeType = 'bridge_ns';
-                }
-                // Случайные перпендикулярные связи (Т-образные), если есть шанс
-                else if (!isRequired && rng() < bridgeChance) {
-                    if (hasWest || hasEast) bridgeType = 'bridge_ew';
-                    else if (hasNorth || hasSouth) bridgeType = 'bridge_ns';
-                }
-
-                if (bridgeType) {
-                    const wx = bounds.min.x + (gx + 0.5) * cellSize;
-                    const wz = bounds.min.z + (gy + 0.5) * cellSize;
+        // 3. Плотное заполнение локальными связями
+        let safety = 0;
+        // Увеличиваем лимит попыток для большей плотности
+        while (connected.size < platforms.length && safety++ < 500) {
+            const keys = Array.from(connected);
+            if (keys.length === 0) break;
+            
+            const srcKey = keys[Math.floor(rng() * keys.length)];
+            const [sx, sy] = srcKey.split(',').map(Number);
+            
+            let nearest = null, minDist = Infinity;
+            
+            // Ищем соседей в радиусе 3 клеток для более длинных мостов
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dy = -3; dy <= 3; dy++) {
+                    if (dx===0 && dy===0) continue;
+                    const nx = sx+dx, ny = sy+dy;
+                    const k = `${nx},${ny}`;
                     
-                    primitives.push({
-                        type: bridgeType,
-                        position: { x: wx, y: currentYBase + 0.6, z: wz }, // Чуть выше пола
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: 1, y: 1, z: 1 }, // Масштаб 1, т.к. геометрия уже подогнана под cellSize=1 в factory? Нет, в factory мы сделали размер 1.
-                        // ВАЖНО: В chunkManager масштаб умножается на cellSize? 
-                        // В текущем коде chunkManager использует scale напрямую. 
-                        // Наша геометрия имеет размер 1. Нам нужно растянуть её на cellSize.
-                        scale: { x: cellSize, y: 1, z: cellSize },
-                        paletteSlot: isRequired ? 'bridge' : 'accent',
-                        role: 'connector'
-                    });
+                    if (platformSet.has(k) && !connected.has(k)) {
+                        const d = Math.abs(dx)+Math.abs(dy);
+                        if (d < minDist) { 
+                            minDist = d; 
+                            nearest = {gx:nx, gy:ny}; 
+                        }
+                    }
+                }
+            }
+            
+            if (nearest) {
+                connected.add(`${nearest.gx},${nearest.gy}`);
+                // Повышаем шанс создания моста до 0.7 (было bridgeChance ~0.4)
+                if (rng() < 0.7 && hasEmptySpaceBetween({gx:sx, gy:sy}, nearest, platformSet)) {
+                    createBridgePrimitive(
+                        primitives, {gx:sx, gy:sy}, nearest, bounds, cellSize, 
+                        currentYBase, platformThickness, bridgeThickness, bridgeWidth, 'accent'
+                    );
                 }
             }
         }
@@ -334,27 +313,27 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
-// ... (остальной код файла)
 /**
- * Поиск главного пути через чанк (Greedy Best-First с рандомизацией по сиду)
+ * Поиск главного пути через чанк (поддерживает horizontal и vertical направления)
  */
-function findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, cy) {
-    // Определяем стороны: 0=Left, 1=Right, 2=Top, 3=Bottom
-    // Используем hash3D с cx и cy для детерминированного выбора сторон
-    const sideHash = hash3D(seed, level, 999, cx + cy * 1000);
-    const startSide = Math.floor(sideHash * 4); 
-    const endSide = (startSide + 1 + Math.floor(hash3D(seed, level, 888, cx + cy * 1000) * 3)) % 4; 
+function findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, cy, direction) {
+    let startCandidates = [];
+    let targetCandidates = [];
 
-    let startCandidates = platforms.filter(p => isOnSide(p, gridSize, startSide));
-    let endCandidates = platforms.filter(p => isOnSide(p, gridSize, endSide));
+    if (direction === 'horizontal') {
+        // Слева направо
+        startCandidates = platforms.filter(p => p.gx < 2);
+        targetCandidates = platforms.filter(p => p.gx >= gridSize - 2);
+    } else {
+        // Сверху вниз (по Z)
+        startCandidates = platforms.filter(p => p.gy < 2);
+        targetCandidates = platforms.filter(p => p.gy >= gridSize - 2);
+    }
 
-    if (startCandidates.length === 0) startCandidates = platforms;
-    if (endCandidates.length === 0) endCandidates = platforms;
+    if (startCandidates.length === 0 || targetCandidates.length === 0) return [];
 
     const startNode = startCandidates[Math.floor(rng() * startCandidates.length)];
-    const targetNode = endCandidates[Math.floor(rng() * endCandidates.length)];
-
-    if (!startNode || !targetNode) return [];
+    const targetNode = targetCandidates[Math.floor(rng() * targetCandidates.length)];
 
     const path = [startNode];
     const visited = new Set([`${startNode.gx},${startNode.gy}`]);
@@ -364,7 +343,6 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, 
     while ((current.gx !== targetNode.gx || current.gy !== targetNode.gy) && safety++ < 150) {
         const candidates = [];
         
-        // Расширенный поиск соседей (радиус 2)
         for (let dx = -2; dx <= 2; dx++) {
             for (let dy = -2; dy <= 2; dy++) {
                 if (dx===0 && dy===0) continue;
@@ -377,10 +355,7 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, 
                     if (platformSet.has(k) && !visited.has(k)) {
                         // Манхэттенское расстояние до цели
                         const distToTarget = Math.abs(targetNode.gx - nx) + Math.abs(targetNode.gy - ny);
-                        
-                        // УСИЛЕННАЯ СЛУЧАЙНОСТЬ: используем cx и cy в хеше
                         const randomFactor = hash3D(nx + seed, ny + level, cx, cy) * 1.5;
-                        
                         candidates.push({ gx: nx, gy: ny, score: distToTarget + randomFactor });
                     }
                 }
@@ -389,13 +364,11 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, 
         
         if (candidates.length === 0) break; 
         
-        // Сортируем по score (меньше = лучше)
         candidates.sort((a, b) => a.score - b.score);
         
-        // БЕРЕМ СЛУЧАЙНОГО ИЗ ЛУЧШИХ ТРЕХ! Это ломает линейность
+        // Берем случайного из топ-3 для разнообразия
         const topN = Math.min(3, candidates.length);
-        const randomIndex = Math.floor(rng() * topN);
-        const next = candidates[randomIndex];
+        const next = candidates[Math.floor(rng() * topN)];
         
         path.push(next);
         visited.add(`${next.gx},${next.gy}`);
@@ -405,6 +378,7 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level, cx, 
     return path;
 }
 
+// ... (остальные функции hasEmptySpaceBetween и createBridgePrimitive остаются без изменений)
 /**
  * Проверяет, находится ли платформа на указанной стороне грида
  */
