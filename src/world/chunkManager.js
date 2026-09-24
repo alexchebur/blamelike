@@ -5,7 +5,7 @@ import { createChunkKey, worldToChunk } from '../core/chunkKey.js';
 import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
-import { getPlatformStairGeometry } from '../geom/stairFactory.js';
+import { getStairGeometry } from '../geom/stairFactory.js';
 
 class ChunkManager {
     constructor(sceneManager) {
@@ -232,7 +232,7 @@ class ChunkManager {
 
             // --- Единая платформа с лестницей (параметрическая) ---
             case 'platform_stair':
-                if (typeof getPlatformStairGeometry !== 'undefined') {
+                if (typeof getStairGeometry !== 'undefined') {
                     // Безопасное извлечение параметров толщины и высоты яруса
                     const pt = (item?.params?.platformThickness) 
                         ?? config.platformThickness 
@@ -245,9 +245,9 @@ class ChunkManager {
                     // Вычисляем нормализованное соотношение для геометрии [0..1]
                     const thicknessRatio = Math.max(0.01, Math.min(0.99, pt / lh));
 
-                    return getPlatformStairGeometry(variant || 'east', thicknessRatio);
+                    return getStairGeometry(variant || 'east', thicknessRatio);
                 } else {
-                    console.warn('getPlatformStairGeometry is not defined');
+                    console.warn('getStairGeometry is not defined');
                     return new THREE.BoxGeometry(1, 1, 1);
                 }
 
