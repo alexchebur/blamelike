@@ -201,19 +201,22 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
+// src/gen/chunkGenerator.js
+
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
-    
+    const { gridSize, levelHeight, roomDensity, bridgeChance, platformThickness } = config; // Добавил platformThickness
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
-
+    
     for (let level = startLevel; level <= endLevel; level++) {
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
+        
         const yBase = level * levelHeight;
-
         const platforms = [];
         const platformSet = new Set();
+        
+        // Собираем все платформы на этом уровне
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
@@ -222,55 +225,89 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 }
             }
         }
+        
         if (platforms.length < 2) continue;
-
+        
+        // Алгоритм Prim's для связности
         const connected = new Set([`${platforms[0].gx},${platforms[0].gy}`]);
         const edgesToAdd = [];
         let safety = 0;
+        
         while (connected.size < platforms.length && safety++ < 500) {
             const keys = Array.from(connected);
             const srcKey = keys[Math.floor(rng() * keys.length)];
             const [sx, sy] = srcKey.split(',').map(Number);
             
             let nearest = null, minDist = Infinity;
+            
+            // Ищем ближайшую несвязанную платформу
             for (let dx = -2; dx <= 2; dx++) {
                 for (let dy = -2; dy <= 2; dy++) {
-                    if (dx===0 && dy===0) continue;
-                    const nx = sx+dx, ny = sy+dy;
+                    if (dx === 0 && dy === 0) continue;
+                    
+                    const nx = sx + dx, ny = sy + dy;
                     const k = `${nx},${ny}`;
+                    
                     if (platformSet.has(k) && !connected.has(k)) {
-                        const d = Math.abs(dx)+Math.abs(dy);
-                        if (d < minDist) { minDist = d; nearest = {gx:nx, gy:ny}; }
+                        const d = Math.abs(dx) + Math.abs(dy);
+                        if (d < minDist) { 
+                            minDist = d; 
+                            nearest = { gx: nx, gy: ny }; 
+                        }
                     }
                 }
             }
+            
             if (nearest) {
                 connected.add(`${nearest.gx},${nearest.gy}`);
-                edgesToAdd.push({sx, sy, tx:nearest.gx, ty:nearest.gy});
+                edgesToAdd.push({ sx, sy, tx: nearest.gx, ty: nearest.gy });
             }
         }
-
+        
+        // Создаем мосты для каждого ребра
         for (const e of edgesToAdd) {
             const x1 = bounds.min.x + (e.sx + 0.5) * cellSize;
             const z1 = bounds.min.z + (e.sy + 0.5) * cellSize;
             const x2 = bounds.min.x + (e.tx + 0.5) * cellSize;
             const z2 = bounds.min.z + (e.ty + 0.5) * cellSize;
             
-            const midX = (x1+x2)/2, midZ = (z1+z2)/2;
-            const dist = Math.sqrt((x2-x1)**2 + (z2-z1)**2);
-            const angle = Math.atan2(z2-z1, x2-x1) * (180/Math.PI);
-
-            // ИСПРАВЛЕНИЕ МОСТОВ: Масштаб теперь корректен для Y-up
+            // Центр моста
+            const midX = (x1 + x2) / 2;
+            const midZ = (z1 + z2) / 2;
+            
+            // Длина моста
+            const dist = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+            
+            // Угол поворота в плоскости XZ (вокруг оси Y!)
+            const angleRad = Math.atan2(z2 - z1, x2 - x1);
+            const angleDeg = angleRad * (180 / Math.PI);
+            
+            // Добавляем небольшой отступ от краев платформ для эстетики
+            const bridgeLength = Math.max(dist - cellSize * 0.3, 1);
+            
             primitives.push({
                 type: 'box',
-                position: { x: midX, y: yBase + 1, z: midZ }, // yBase + 1 = чуть выше пола
-                rotation: { tiltX: 0, tiltY: 0, twistZ: angle },
-                scale: { x: dist, y: 0.5, z: cellSize * 0.2 }, // y=толщина, z=ширина
+                position: { 
+                    x: midX, 
+                    y: yBase + platformThickness + 0.5, // Чуть выше поверхности платформы
+                    z: midZ 
+                },
+                rotation: { 
+                    tiltX: 0, 
+                    tiltY: angleDeg,  // <-- ИСПРАВЛЕНО: поворот вокруг Y для горизонтали
+                    twistZ: 0 
+                },
+                scale: { 
+                    x: bridgeLength,  // Длина вдоль локальной X
+                    y: 0.5,           // Толщина
+                    z: cellSize * 0.3 // Ширина моста
+                },
                 paletteSlot: 'accent',
                 role: 'connector'
             });
         }
     }
+    
     return primitives;
 }
 
