@@ -5,25 +5,30 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const geomCache = {};
 
 /**
- * Создает базовую геометрию лестницы, направленной на ВОСТОК (+X)
- * @param {number} thicknessRatio - отношение толщины плиты к высоте яруса
+ * Создает базовую геометрию лестницы (направлена на +X)
+ * @param {number} plateThickness - Абсолютная толщина плиты основания
+ * @param {number} levelHeight - Абсолютная высота подъема (масштаб Y)
  */
-function createEastStairGeometry(thicknessRatio) {
+function createEastStairGeometry(plateThickness, levelHeight) {
     const geometries = [];
     
+    // Вычисляем нормализованную долю толщины плиты от общей высоты меша
+    const thicknessRatio = Math.max(0.01, Math.min(0.99, plateThickness / levelHeight));
+    
     // 1. ПЛИТА ОСНОВАНИЯ
-    // Занимает нижнюю часть [0 .. thicknessRatio]
+    // В локальных координатах [0..1] она занимает [0 .. thicknessRatio]
     const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
     base.translate(0, thicknessRatio / 2, 0); 
     geometries.push(base);
 
     // 2. ЛЕСТНИЦА
-    // Занимает пространство от thicknessRatio до 1.0
-    const steps = 16; 
-    const stairLength = 0.9; // Чуть меньше клетки для зазора
+    // Поднимается от верха плиты до верха меша (1.0)
+    // УВЕЛИЧЕНО КОЛИЧЕСТВО СТУПЕНЕЙ: 16 -> 20 для лучшей стыковки
+    const steps = 20; 
+    const stairLength = 1.0; // Ровно одна клетка
     const width = 0.4;
     
-    const startOffset = 0.5; // Начинаем от центра клетки
+    const startOffset = 0.5; // От центра клетки
     
     const availableHeight = 1.0 - thicknessRatio;
     const stepH = availableHeight / steps;
@@ -32,10 +37,7 @@ function createEastStairGeometry(thicknessRatio) {
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, stepH, width);
         
-        // X: движемся от центра к краю (на восток)
         const x = startOffset + (i * stepD); 
-        
-        // Y: поднимаемся от верха плиты
         const y = thicknessRatio + (i * stepH) + (stepH / 2);
         
         step.translate(x, y, 0);
@@ -48,23 +50,20 @@ function createEastStairGeometry(thicknessRatio) {
 /**
  * Возвращает геометрию лестницы нужного направления
  * @param {'stair_north'|'stair_south'|'stair_east'|'stair_west'} type 
- * @param {number} thicknessRatio - отношение толщины плиты к высоте яруса
+ * @param {number} plateThickness - Толщина плиты (из конфига/примитива)
+ * @param {number} levelHeight - Высота яруса (из конфига/примитива)
  */
-export function getStairGeometry(type, thicknessRatio = 0.1) {
-    const cacheKey = `${type}_${thicknessRatio}`;
+export function getStairGeometry(type, plateThickness, levelHeight) {
+    // Ключ кэша включает размеры, чтобы геометрия пересоздавалась при смене параметров
+    const cacheKey = `${type}_${plateThickness}_${levelHeight}`;
     if (geomCache[cacheKey]) return geomCache[cacheKey];
 
-    let geo = createEastStairGeometry(thicknessRatio);
+    let geo = createEastStairGeometry(plateThickness, levelHeight);
 
-    // Поворачиваем базовую (восточную) геометрию вокруг вертикальной оси Y (Y-up система)
-    if (type === 'stair_west') {
-        geo.rotateY(Math.PI);
-    } else if (type === 'stair_north') {
-        geo.rotateY(-Math.PI / 2);
-    } else if (type === 'stair_south') {
-        geo.rotateY(Math.PI / 2);
-    }
-    // 'stair_east' — базовое направление, поворот не нужен
+    // Поворот вокруг вертикальной оси Y (Y-up система)
+    if (type === 'stair_west') geo.rotateY(Math.PI);
+    else if (type === 'stair_north') geo.rotateY(-Math.PI / 2);
+    else if (type === 'stair_south') geo.rotateY(Math.PI / 2);
 
     geomCache[cacheKey] = geo;
     return geo;
