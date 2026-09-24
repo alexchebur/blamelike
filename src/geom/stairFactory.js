@@ -21,7 +21,7 @@ function createEastStairGeometry(plateThickness, levelHeight) {
     // 2. ЛЕСТНИЦА
     // УВЕЛИЧЕНО КОЛИЧЕСТВО СТУПЕНЕЙ: 20 -> 21
     // Каждая ступень станет чуть ниже, но их станет на одну больше
-    const steps = 21; 
+    const steps = 25; 
     const stairLength = 1.0; // Ровно одна клетка
     const width = 0.4;
     
