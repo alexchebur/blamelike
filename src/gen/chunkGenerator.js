@@ -58,7 +58,7 @@ export function generateChunk(cx, cy, cz, seed, config) {
 }
 
 /**
- * Этап A: Генерация платформ + ЛЕСТНИЦЫ ПО АЛГОРИТМУ "ПУСТОТА МЕЖДУ"
+ * Этап A: Генерация платформ + ЛЕСТНИЦЫ ПО АЛГОРИТМУ "ПУСТОТА МЕЖДУ" (Y-up)
  */
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
@@ -87,8 +87,8 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     
                     // Направления: [dx, dy, тип_лестницы]
                     const directions = [
-                        { dx: 0, dy: -1, type: 'stair_south' }, // Юг (-Y)
-                        { dx: 0, dy: 1, type: 'stair_north' },  // Север (+Y)
+                        { dx: 0, dy: -1, type: 'stair_south' }, // Юг (-Z)
+                        { dx: 0, dy: 1, type: 'stair_north' },  // Север (+Z)
                         { dx: -1, dy: 0, type: 'stair_west' },  // Запад (-X)
                         { dx: 1, dy: 0, type: 'stair_east' }    // Восток (+X)
                     ];
@@ -127,22 +127,22 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 if (stairType) {
                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
+                    // КЛЮЧЕВОЙ МОМЕНТ: Передаем params для корректной сборки геометрии
                     primitives.push({
-                        type: stairType, // stair_north, stair_south, stair_east, stair_west
+                        type: stairType,
                         position: { x: wx, y: yBase, z: wz }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: cellSize, z: levelHeight },
+                        scale: { x: cellSize, y: levelHeight, z: cellSize },
                         paletteSlot: 'accent',
-                        role: 'connector'
+                        role: 'connector',
+                        params: { platformThickness, levelHeight } // <-- Для фабрики
                     });
                 } else {
-                    // === ОБЫЧНАЯ ПЛАТФОРМА (ИСПРАВЛЕНО ДЛЯ Y-UP) ===
+                    // === ОБЫЧНАЯ ПЛАТФОРМА ===
                     primitives.push({
                         type: 'box',
-                        // Центр платформы по Y смещен на половину толщины от базовой высоты яруса
                         position: { x: wx, y: yBase + platformThickness / 2, z: wz },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        // ИСПРАВЛЕНИЕ: Y теперь отвечает за толщину (высоту), Z - за глубину клетки
                         scale: { x: cellSize, y: platformThickness, z: cellSize },
                         paletteSlot: 'base',
                         role: 'frame'
@@ -153,8 +153,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-// ... остальные функции (generateRooms, generateConnections и т.д.) остаются без изменений, 
-// но убедись, что они тоже используют bounds.min.y и position.y вместо z ...
 
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
