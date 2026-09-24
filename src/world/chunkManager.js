@@ -78,15 +78,13 @@ class ChunkManager {
         const grouped = this.groupPrimitives(primitives);
 
         for (const [typeSlot, items] of Object.entries(grouped)) {
-            // typeSlot имеет формат "type|slot" или "type_variant|slot"
-            // Мы используем ТОЛЬКО последний '|' как разделитель слота
             const lastPipeIndex = typeSlot.lastIndexOf('|');
-            if (lastPipeIndex === -1) continue; // Пропускаем некорректные ключи
+            if (lastPipeIndex === -1) continue;
             
             const slot = typeSlot.substring(lastPipeIndex + 1);
-            const fullTypeWithVariant = typeSlot.substring(0, lastPipeIndex);
+            const fullType = typeSlot.substring(0, lastPipeIndex);
             
-            const mesh = this.createInstancedMesh(fullTypeWithVariant, slot, items, config);
+            const mesh = this.createInstancedMesh(fullType, slot, items, config);
             if (mesh) group.add(mesh);
         }
 
@@ -96,12 +94,11 @@ class ChunkManager {
     groupPrimitives(primitives) {
         const grouped = {};
         for (const prim of primitives) {
-            // Фильтруем примитивы без позиции или типа (защита от мусора)
             if (!prim.type || !prim.position) continue;
             
-            // Формируем ключ: "type[_variant]|paletteSlot"
-            const variantSuffix = prim.variant ? `_${prim.variant}` : '';
-            const key = `${prim.type}${variantSuffix}|${prim.paletteSlot || 'base'}`;
+            // Для новых лестниц тип уже содержит направление (stair_north), 
+            // поэтому variantSuffix не нужен
+            const key = `${prim.type}|${prim.paletteSlot || 'base'}`;
             
             if (!grouped[key]) grouped[key] = [];
             grouped[key].push(prim);
@@ -109,26 +106,15 @@ class ChunkManager {
         return grouped;
     }
 
-    createInstancedMesh(fullTypeWithVariant, slot, items, config) {
+    createInstancedMesh(type, slot, items, config) {
         if (!items || items.length === 0) return null;
-
-        // Парсим тип и вариант. Вариант всегда идет ПОСЛЕ последнего '_' в первой части ключа
-        let type = fullTypeWithVariant;
-        let variant = null;
-        
-        const lastUnderscore = fullTypeWithVariant.lastIndexOf('_');
-        // Проверяем, что после '_' идет известный вариант, а не часть имени типа
-        const possibleVariant = fullTypeWithVariant.substring(lastUnderscore + 1);
-        if (['east', 'west', 'north', 'south'].includes(possibleVariant)) {
-            variant = possibleVariant;
-            type = fullTypeWithVariant.substring(0, lastUnderscore);
-        }
 
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-
-        const geometry = this.createGeometry(type, variant, config, items[0]);
+        // Передаем type напрямую, без парсинга variant
+        const geometry = this.createGeometry(type, null, config, items[0]);
+        
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
         });
@@ -140,20 +126,16 @@ class ChunkManager {
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             
-            // === ЗАЩИТНАЯ ПРОВЕРКА ===
-            // Если у примитива нет position, ставим его в (0,0,0) вместо краша
             const px = item.position?.x ?? 0;
             const py = item.position?.y ?? 0;
             const pz = item.position?.z ?? 0;
             dummy.position.set(px, py, pz);
 
+            // УБРАНО: Ручной поворот через dummy.rotation.y
+            // Геометрия из getStairGeometry уже повернута правильно
+            
             let twistZ = item.rotation?.twistZ || 0;
             dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(twistZ));
-            
-            // Применяем поворот варианта для лестниц
-            if (variant === 'west') dummy.rotation.y = Math.PI;
-            else if (variant === 'north') dummy.rotation.y = -Math.PI / 2;
-            else if (variant === 'south') dummy.rotation.y = Math.PI / 2;
 
             dummy.scale.set(item.scale?.x ?? 1, item.scale?.y ?? 1, item.scale?.z ?? 1);
             dummy.updateMatrix();
@@ -164,30 +146,6 @@ class ChunkManager {
         return mesh;
     }
 
-    /**
-     * Создание геометрии по типу
-     * @param {string} type 
-     * @param {string} variant - вариант формы (например, направление лестницы: east/west/north/south)
-     * @param {Object} config 
-     * @param {Object} [item] - сам примитив (для доступа к params)
-     * @returns {THREE.BufferGeometry}
-     */
-    /**
-     * Создание геометрии по типу примитива
-     * @param {string} type - тип геометрии (box, cylinder, platform_stair и т.д.)
-     * @param {string} variant - вариант формы (направление лестницы: east/west/north/south)
-     * @param {Object} config - текущая конфигурация мира
-     * @param {Object} [item] - сам примитив (для доступа к params платформы с лестницей)
-     * @returns {THREE.BufferGeometry}
-     */
-    /**
-     * Создание геометрии по типу примитива
-     * @param {string} type - тип геометрии (box, cylinder, stair_*, platform_stair и т.д.)
-     * @param {string} variant - вариант формы (направление для platform_stair: east/west/north/south)
-     * @param {Object} config - текущая конфигурация мира
-     * @param {Object} [item] - сам примитив (для доступа к params)
-     * @returns {THREE.BufferGeometry}
-     */
     createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
@@ -219,7 +177,7 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // --- Отдельные типы лестниц (stair_north, stair_south, stair_east, stair_west) ---
+            // --- Отдельные типы лестниц ---
             case 'stair_north':
             case 'stair_south':
             case 'stair_east':
@@ -230,26 +188,13 @@ class ChunkManager {
                 console.warn(`getStairGeometry is not defined for ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
 
-            // --- Единая платформа с лестницей (параметрическая) ---
+            // --- Legacy поддержка platform_stair (если вдруг останется) ---
             case 'platform_stair':
                 if (typeof getStairGeometry !== 'undefined') {
-                    // Безопасное извлечение параметров толщины и высоты яруса
-                    const pt = (item?.params?.platformThickness) 
-                        ?? config.platformThickness 
-                        ?? 2;
-                    
-                    const lh = (item?.params?.levelHeight) 
-                        ?? config.levelHeight 
-                        ?? 20;
-
-                    // Вычисляем нормализованное соотношение для геометрии [0..1]
-                    const thicknessRatio = Math.max(0.01, Math.min(0.99, pt / lh));
-
-                    return getStairGeometry(variant || 'east', thicknessRatio);
-                } else {
-                    console.warn('getStairGeometry is not defined');
-                    return new THREE.BoxGeometry(1, 1, 1);
+                    // Для legacy типа нужно передать направление как variant
+                    return getStairGeometry(`stair_${variant || 'east'}`);
                 }
+                return new THREE.BoxGeometry(1, 1, 1);
 
             default:
                 console.warn(`Unknown geometry type: "${type}"`);
