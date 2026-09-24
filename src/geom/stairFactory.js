@@ -6,25 +6,26 @@ const geomCache = {};
 
 /**
  * Создает базовую геометрию лестницы, направленной на ВОСТОК (+X)
- * Вся высота укладывается в диапазон [0, 1].
+ * @param {number} thicknessRatio - отношение толщины плиты к высоте яруса
  */
-function createEastStairGeometry() {
+function createEastStairGeometry(thicknessRatio) {
     const geometries = [];
     
-    // 1. ПЛИТА ОСНОВАНИЯ (нижние 10% высоты)
-    const plateRatio = 0.1; 
-    const base = new THREE.BoxGeometry(1, plateRatio, 1);
-    base.translate(0, plateRatio / 2, 0); 
+    // 1. ПЛИТА ОСНОВАНИЯ
+    // Занимает нижнюю часть [0 .. thicknessRatio]
+    const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
+    base.translate(0, thicknessRatio / 2, 0); 
     geometries.push(base);
 
-    // 2. ЛЕСТНИЦА (поднимается от plateRatio до 1.0 вдоль +X)
+    // 2. ЛЕСТНИЦА
+    // Занимает пространство от thicknessRatio до 1.0
     const steps = 16; 
     const stairLength = 0.9; // Чуть меньше клетки для зазора
     const width = 0.4;
     
     const startOffset = 0.5; // Начинаем от центра клетки
     
-    const availableHeight = 1.0 - plateRatio;
+    const availableHeight = 1.0 - thicknessRatio;
     const stepH = availableHeight / steps;
     const stepD = stairLength / steps;
 
@@ -35,7 +36,7 @@ function createEastStairGeometry() {
         const x = startOffset + (i * stepD); 
         
         // Y: поднимаемся от верха плиты
-        const y = plateRatio + (i * stepH) + (stepH / 2);
+        const y = thicknessRatio + (i * stepH) + (stepH / 2);
         
         step.translate(x, y, 0);
         geometries.push(step);
@@ -47,11 +48,13 @@ function createEastStairGeometry() {
 /**
  * Возвращает геометрию лестницы нужного направления
  * @param {'stair_north'|'stair_south'|'stair_east'|'stair_west'} type 
+ * @param {number} thicknessRatio - отношение толщины плиты к высоте яруса
  */
-export function getStairGeometry(type) {
-    if (geomCache[type]) return geomCache[type];
+export function getStairGeometry(type, thicknessRatio = 0.1) {
+    const cacheKey = `${type}_${thicknessRatio}`;
+    if (geomCache[cacheKey]) return geomCache[cacheKey];
 
-    let geo = createEastStairGeometry();
+    let geo = createEastStairGeometry(thicknessRatio);
 
     // Поворачиваем базовую (восточную) геометрию вокруг вертикальной оси Y (Y-up система)
     if (type === 'stair_west') {
@@ -63,6 +66,6 @@ export function getStairGeometry(type) {
     }
     // 'stair_east' — базовое направление, поворот не нужен
 
-    geomCache[type] = geo;
+    geomCache[cacheKey] = geo;
     return geo;
 }
