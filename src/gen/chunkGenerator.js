@@ -214,9 +214,9 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
  */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    // Убедимся, что параметры существуют, иначе берем дефолтные
     const bridgeWidth = config.bridgeWidth || 0.15;
     const bridgeThickness = config.bridgeThickness || 0.2;
+    const platformThickness = config.platformThickness || 0.5; // <-- Выносим сюда
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
     
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
@@ -249,14 +249,15 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         for (let i = 0; i < arteryPath.length - 1; i++) {
             const p1 = arteryPath[i];
             const p2 = arteryPath[i+1];
-            // Используем слот 'bridge' для яркого цвета
-            createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, bridgeThickness, bridgeWidth, 'bridge');
+            createBridgePrimitive(
+                primitives, p1, p2, bounds, cellSize, 
+                yBase, platformThickness, bridgeThickness, bridgeWidth, 'bridge'
+            );
         }
 
-        // 3. Строим случайные локальные связи (для плотности)
+        // 3. Строим случайные локальные связи
         const connected = new Set(arteryPath.map(p => `${p.gx},${p.gy}`));
         
-        // Пытаемся связать оставшиеся острова
         let safety = 0;
         while (connected.size < platforms.length && safety++ < 200) {
             const keys = Array.from(connected);
@@ -267,7 +268,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             let nearest = null, minDist = Infinity;
             
-            // Ищем соседей в радиусе 2 клеток
             for (let dx = -2; dx <= 2; dx++) {
                 for (let dy = -2; dy <= 2; dy++) {
                     if (dx===0 && dy===0) continue;
@@ -286,9 +286,11 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             
             if (nearest) {
                 connected.add(`${nearest.gx},${nearest.gy}`);
-                // Локальные мосты создаем с шансом bridgeChance и красим в 'accent'
                 if (rng() < bridgeChance) {
-                    createBridgePrimitive(primitives, {gx:sx, gy:sy}, nearest, bounds, cellSize, yBase, bridgeThickness, bridgeWidth, 'accent');
+                    createBridgePrimitive(
+                        primitives, {gx:sx, gy:sy}, nearest, bounds, cellSize, 
+                        yBase, platformThickness, bridgeThickness, bridgeWidth, 'accent'
+                    );
                 }
             }
         }
@@ -298,12 +300,12 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 }
 
 /**
- * Поиск главного пути через чанк (Улучшенный Greedy с возможностью "прыжка")
+ * Поиск главного пути через чанк (Greedy Best-First с прыжками)
  */
 function findMainArtery(platforms, platformSet, gridSize, rng) {
-    // Находим стартовую точку (самую левую, если их много - случайную из левых)
+    // Находим стартовую точку (самую левую)
     let startNodes = platforms.filter(p => p.gx === 0);
-    if (startNodes.length === 0) startNodes = platforms; // Фоллбек, если слева пусто
+    if (startNodes.length === 0) startNodes = platforms; 
     
     let startNode = startNodes[Math.floor(rng() * startNodes.length)];
     if (!startNode) return [];
@@ -315,18 +317,17 @@ function findMainArtery(platforms, platformSet, gridSize, rng) {
     const targetX = gridSize - 1;
     let safety = 0;
     
-    // Пока не дошли до правого края
     while (current.gx < targetX && safety++ < 100) {
-        // Генерируем кандидатов: соседи + соседи соседей (для прыжков через дыры)
         const candidates = [];
-        for (let dx = 1; dx <= 2; dx++) { // Смотрим только вперед (вправо)
+        // Смотрим вперед на 1-2 клетки
+        for (let dx = 1; dx <= 2; dx++) {
             for (let dy = -1; dy <= 1; dy++) {
                 const nx = current.gx + dx;
                 const ny = current.gy + dy;
                 if (nx >= 0 && nx < gridSize && ny >= 0 && ny < gridSize) {
                     const k = `${nx},${ny}`;
                     if (platformSet.has(k) && !visited.has(k)) {
-                        // Приоритет: чем ближе к правому краю и чем меньше отклонение по Y
+                        // Чем меньше score, тем лучше кандидат
                         const score = (targetX - nx) + Math.abs(dy) * 0.5 + (rng() * 0.2);
                         candidates.push({ gx: nx, gy: ny, score });
                     }
@@ -334,9 +335,8 @@ function findMainArtery(platforms, platformSet, gridSize, rng) {
             }
         }
         
-        if (candidates.length === 0) break; // Тупик
+        if (candidates.length === 0) break; 
         
-        // Сортируем по лучшему счету (меньше = лучше)
         candidates.sort((a, b) => a.score - b.score);
         
         const next = candidates[0];
@@ -350,8 +350,9 @@ function findMainArtery(platforms, platformSet, gridSize, rng) {
 
 /**
  * Создает примитив моста между двумя платформами
+ * @param {number} platThick - Толщина платформы (передается явно, чтобы избежать ReferenceError)
  */
-function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, thickness, widthRatio, paletteSlot) {
+function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, platThick, thickness, widthRatio, paletteSlot) {
     const x1 = bounds.min.x + (p1.gx + 0.5) * cellSize;
     const z1 = bounds.min.z + (p1.gy + 0.5) * cellSize;
     const x2 = bounds.min.x + (p2.gx + 0.5) * cellSize;
@@ -369,17 +370,15 @@ function createBridgePrimitive(primitives, p1, p2, bounds, cellSize, yBase, thic
     const angleRad = Math.atan2(dz, dx);
     const angleDeg = angleRad * (180 / Math.PI);
     
-    // Длина моста: расстояние минус половина ширины каждой платформы, чтобы он касался краев
-    // cellSize * 0.9 дает небольшой нахлест для надежности визуального соединения
+    // Длина моста: расстояние минус ширина платформы (с небольшим нахлестом)
     const bridgeLength = Math.max(dist - cellSize * 0.9, 0.5);
     
     primitives.push({
         type: 'box',
         position: { 
             x: midX, 
-            // Высота: база уровня + толщина платформы + половина толщины моста
-            // Так центр бокса будет ровно на поверхности платформы
-            y: yBase + (config.platformThickness || 0.5) + (thickness / 2), 
+            // ИСПРАВЛЕНО: используем аргумент platThick вместо несуществующей переменной config
+            y: yBase + platThick + (thickness / 2), 
             z: midZ 
         },
         rotation: { 
