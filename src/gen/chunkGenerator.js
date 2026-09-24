@@ -79,7 +79,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wy = bounds.min.y + (gy + 0.5) * cellSize; 
                 
-                // === АЛГОРИТМ ПОИСКА ЛЕСТНИЦЫ ===
+                // === АЛГОРИТМ ПОИСКА ЛЕСТНИЦЫ: [Платформа L] -> [Пусто L+1] -> [Платформа L+1] ===
                 let stairType = null;
                 
                 if (level < endLevel && rng() < stairsChance) {
@@ -94,22 +94,32 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     ];
                     
                     for (const dir of directions) {
-                        const midX = gx + dir.dx;   // Промежуточная клетка (должна быть пустой)
+                        const midX = gx + dir.dx;   // Промежуточная клетка (должна быть пустой на L+1)
                         const midY = gy + dir.dy;
                         const targetX = gx + dir.dx * 2; // Целевая клетка (должна быть занятой на L+1)
                         const targetY = gy + dir.dy * 2;
 
                         // Проверка границ грида для обеих клеток
                         if (targetX >= 0 && targetX < gridSize && targetY >= 0 && targetY < gridSize) {
-                            // 1. Промежуток должен быть ПУСТЫМ на ТЕКУЩЕМ уровне
-                            const midEmpty = hash3D(cx * gridSize + midX, cy * gridSize + midY, level, seed) >= roomDensity;
+                            // 1. Промежуток должен быть ПУСТЫМ на УРОВНЕ ВЫШЕ (L+1)
+                            const midEmpty = hash3D(
+                                cx * gridSize + midX, 
+                                cy * gridSize + midY, 
+                                targetLevel, 
+                                seed
+                            ) >= roomDensity;
                             
-                            // 2. Цель должна быть ЗАНЯТА на УРОВНЕ ВЫШЕ
-                            const targetOccupied = hash3D(cx * gridSize + targetX, cy * gridSize + targetY, targetLevel, seed) < roomDensity;
+                            // 2. Цель должна быть ЗАНЯТА на УРОВНЕ ВЫШЕ (L+1)
+                            const targetOccupied = hash3D(
+                                cx * gridSize + targetX, 
+                                cy * gridSize + targetY, 
+                                targetLevel, 
+                                seed
+                            ) < roomDensity;
                             
                             if (midEmpty && targetOccupied) {
                                 stairType = dir.type;
-                                break; // Нашли первое подходящее направление
+                                break; // Нашли первое подходящее направление по паттерну
                             }
                         }
                     }
