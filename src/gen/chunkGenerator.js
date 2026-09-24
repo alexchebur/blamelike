@@ -299,31 +299,25 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
+// src/gen/chunkGenerator.js
+
+// ... (импорты и начало файла остаются без изменений)
+
 /**
- * Поиск главного пути через чанк (Greedy Best-First с рандомизацией по сиду)
- * Теперь выбирает случайные стартовую и конечную стороны
+ * Поиск главного пути через чанк (Greedy Best-First с усиленной рандомизацией)
  */
 function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
     // Определяем стороны: 0=Left, 1=Right, 2=Top, 3=Bottom
-    // Используем hash3D для детерминированного выбора сторон для этого уровня
     const sideHash = hash3D(seed, level, 999, 0);
     const startSide = Math.floor(sideHash * 4); 
-    const endSide = (startSide + 1 + Math.floor(hash3D(seed, level, 888, 0) * 3)) % 4; // Гарантируем, что endSide != startSide
+    // Гарантируем, что конечная сторона отличается от стартовой
+    const endSide = (startSide + 1 + Math.floor(hash3D(seed, level, 888, 0) * 3)) % 4; 
 
-    // Фильтруем платформы для старта и конца
-    let startCandidates = [];
-    let endCandidates = [];
+    let startCandidates = platforms.filter(p => isOnSide(p, gridSize, startSide));
+    let endCandidates = platforms.filter(p => isOnSide(p, gridSize, endSide));
 
-    for (const p of platforms) {
-        if (isOnSide(p, gridSize, startSide)) startCandidates.push(p);
-        if (isOnSide(p, gridSize, endSide)) endCandidates.push(p);
-    }
-
-    if (startCandidates.length === 0 || endCandidates.length === 0) {
-        // Фоллбек: если на выбранных сторонах нет платформ, берем любые
-        if (startCandidates.length === 0) startCandidates = platforms;
-        if (endCandidates.length === 0) endCandidates = platforms;
-    }
+    if (startCandidates.length === 0) startCandidates = platforms;
+    if (endCandidates.length === 0) endCandidates = platforms;
 
     const startNode = startCandidates[Math.floor(rng() * startCandidates.length)];
     const targetNode = endCandidates[Math.floor(rng() * endCandidates.length)];
@@ -335,12 +329,14 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
     let current = startNode;
     
     let safety = 0;
-    while ((current.gx !== targetNode.gx || current.gy !== targetNode.gy) && safety++ < 100) {
+    while ((current.gx !== targetNode.gx || current.gy !== targetNode.gy) && safety++ < 150) {
         const candidates = [];
-        // Смотрим соседей в радиусе 1-2 клеток
+        
+        // Расширенный поиск соседей (радиус 2)
         for (let dx = -2; dx <= 2; dx++) {
             for (let dy = -2; dy <= 2; dy++) {
                 if (dx===0 && dy===0) continue;
+                
                 const nx = current.gx + dx;
                 const ny = current.gy + dy;
                 
@@ -349,8 +345,15 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
                     if (platformSet.has(k) && !visited.has(k)) {
                         // Манхэттенское расстояние до цели
                         const distToTarget = Math.abs(targetNode.gx - nx) + Math.abs(targetNode.gy - ny);
-                        // Добавляем случайность на основе сида
-                        const randomFactor = hash3D(nx, ny, level + seed, 0) * 0.5;
+                        
+                        // УСИЛЕННАЯ СЛУЧАЙНОСТЬ: 
+                        // Используем hash3D от координат кандидата, чтобы получить детерминированный, но хаотичный фактор
+                        // Умножаем на 1.5, чтобы случайность могла пересилить расстояние
+                        const randomFactor = hash3D(nx + seed, ny + level, cx, cy) * 1.5;
+                        
+                        // Штраф за резкие повороты (опционально, можно убрать для полного хаоса)
+                        // const turnPenalty = (dx !== 0 && dy !== 0) ? 0.2 : 0; 
+                        
                         candidates.push({ gx: nx, gy: ny, score: distToTarget + randomFactor });
                     }
                 }
@@ -359,9 +362,15 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
         
         if (candidates.length === 0) break; 
         
+        // Сортируем по score (меньше = лучше)
         candidates.sort((a, b) => a.score - b.score);
         
-        const next = candidates[0];
+        // БЕРЕМ НЕ ПЕРВОГО, А СЛУЧАЙНОГО ИЗ ЛУЧШИХ ТРЕХ!
+        // Это ключевой момент для разнообразия направлений
+        const topN = Math.min(3, candidates.length);
+        const randomIndex = Math.floor(rng() * topN);
+        const next = candidates[randomIndex];
+        
         path.push(next);
         visited.add(`${next.gx},${next.gy}`);
         current = next;
@@ -374,15 +383,17 @@ function findMainArtery(platforms, platformSet, gridSize, rng, seed, level) {
  * Проверяет, находится ли платформа на указанной стороне грида
  */
 function isOnSide(p, gridSize, side) {
-    const margin = 1; // Допуск в 1 клетку от края
+    const margin = 1; 
     switch (side) {
-        case 0: return p.gx < margin; // Left
-        case 1: return p.gx >= gridSize - margin; // Right
-        case 2: return p.gy < margin; // Top (в нашей системе координат это может быть низ или верх, зависит от ориентации камеры)
-        case 3: return p.gy >= gridSize - margin; // Bottom
+        case 0: return p.gx < margin; // Left (-X)
+        case 1: return p.gx >= gridSize - margin; // Right (+X)
+        case 2: return p.gy < margin; // Top/Back (-Z)
+        case 3: return p.gy >= gridSize - margin; // Bottom/Front (+Z)
         default: return false;
     }
 }
+
+// ... (остальные функции generateConnections, hasEmptySpaceBetween и createBridgePrimitive остаются такими же, как в прошлом ответе)
 
 /**
  * Проверяет, есть ли между двумя точками пустое пространство (нет платформы)
