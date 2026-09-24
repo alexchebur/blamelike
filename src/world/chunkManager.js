@@ -146,39 +146,32 @@ class ChunkManager {
         return mesh;
     }
 
+// ... внутри класса ChunkManager, метод createGeometry
+
     createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
         switch (type) {
-            // === БАЗОВЫЕ ПРИМИТИВЫ ===
             case 'box':
                 return new THREE.BoxGeometry(1, 1, 1);
-            
             case 'cylinder':
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            
             case 'cone':
                 return new THREE.ConeGeometry(0.5, 1, segments);
-            
             case 'octahedron':
                 return new THREE.OctahedronGeometry(0.5);
-            
             case 'capsule':
                 return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
-            
             case 'torus':
                 return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            
             case 'sphere':
                 return new THREE.SphereGeometry(0.5, segments, segments);
-            
             case 'obelisk':
                 return new THREE.ConeGeometry(0.4, 1, 4); 
-            
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // === ЛЕСТНИЦЫ И МОСТЫ (через StairFactory) ===
+            // === ДОБАВЛЕННАЯ ПОДДЕРЖКА МОСТОВ И ЛЕСТНИЦ ===
             case 'stair_north':
             case 'stair_south':
             case 'stair_east':
@@ -186,18 +179,14 @@ class ChunkManager {
             case 'bridge_ns':
             case 'bridge_ew':
                 if (typeof getStairGeometry !== 'undefined') {
-                    // Для лестниц важны параметры толщины и высоты яруса
-                    // Для мостов эти параметры игнорируются внутри factory, но передаем для единообразия
                     const p = item?.params || {};
                     const pt = p.platformThickness || config.platformThickness;
                     const lh = p.levelHeight || config.levelHeight;
-                    
                     return getStairGeometry(type, pt, lh);
                 }
                 console.warn(`getStairGeometry is not defined for ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
-
-            // === LEGACY ПОДДЕРЖКА ===
+            
             case 'platform_stair':
                 if (typeof getStairGeometry !== 'undefined') {
                     return getStairGeometry(`stair_${variant || 'east'}`);
@@ -209,6 +198,7 @@ class ChunkManager {
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
+// ...
 
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
