@@ -4,32 +4,36 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const geomCache = {};
 
-// src/geom/stairFactory.js
-
+/**
+ * Создает базовую геометрию лестницы (направлена на +X)
+ * @param {number} plateThickness - Абсолютная толщина плиты основания
+ * @param {number} levelHeight - Абсолютная высота подъема (масштаб Y)
+ */
 function createEastStairGeometry(plateThickness, levelHeight) {
     const geometries = [];
     
-    // Вычисляем нормализованную долю толщины плиты
-    // Теперь она будет 0.5 / 20 = 0.025 (очень тонкая плита)
+    // Вычисляем нормализованную долю толщины плиты от общей высоты меша
     const thicknessRatio = Math.max(0.01, Math.min(0.99, plateThickness / levelHeight));
     
     // 1. ПЛИТА ОСНОВАНИЯ
+    // В локальных координатах [0..1] она занимает [0 .. thicknessRatio]
     const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
     base.translate(0, thicknessRatio / 2, 0); 
     geometries.push(base);
 
     // 2. ЛЕСТНИЦА
-    // УВЕЛИЧЕНО КОЛИЧЕСТВО СТУПЕНЕЙ: 20 -> 21
-    // Каждая ступень станет чуть ниже, но их станет на одну больше
-    const steps = 25; 
-    const stairLength = 1.0; // Ровно одна клетка
+    // Поднимается от верха плиты до верха меша (1.0)
+    const steps = 21; 
+    // УВЕЛИЧЕН МНОЖИТЕЛЬ ДЛИНЫ: 1.0 -> 1.05
+    // Это создает гарантированный нахлест с целевой платформой, устраняя микро-щели
+    const stairLength = 1.05; 
     const width = 0.4;
     
     const startOffset = 0.5; // От центра клетки
     
     const availableHeight = 1.0 - thicknessRatio;
-    const stepH = availableHeight / steps; // Высота одной ступени пересчитается автоматически
-    const stepD = stairLength / steps;     // Глубина одной ступени тоже пересчитается
+    const stepH = availableHeight / steps;
+    const stepD = stairLength / steps;
 
     for (let i = 0; i < steps; i++) {
         const step = new THREE.BoxGeometry(stepD, stepH, width);
@@ -44,8 +48,6 @@ function createEastStairGeometry(plateThickness, levelHeight) {
     return mergeGeometries(geometries);
 }
 
-// ... остальной код файла без изменений ...
-
 /**
  * Возвращает геометрию лестницы нужного направления
  * @param {'stair_north'|'stair_south'|'stair_east'|'stair_west'} type 
@@ -54,14 +56,10 @@ function createEastStairGeometry(plateThickness, levelHeight) {
  */
 export function getStairGeometry(type, plateThickness, levelHeight) {
     // Ключ кэша включает размеры, чтобы геометрия пересоздавалась при смене параметров
-    // Добавляем защиту от undefined в ключе кэша
-    const safePT = plateThickness ?? 2;
-    const safeLH = levelHeight ?? 20;
-    const cacheKey = `${type}_${safePT}_${safeLH}`;
-    
+    const cacheKey = `${type}_${plateThickness}_${levelHeight}`;
     if (geomCache[cacheKey]) return geomCache[cacheKey];
 
-    let geo = createEastStairGeometry(safePT, safeLH);
+    let geo = createEastStairGeometry(plateThickness, levelHeight);
 
     // Поворот вокруг вертикальной оси Y (Y-up система)
     if (type === 'stair_west') geo.rotateY(Math.PI);
