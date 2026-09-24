@@ -86,14 +86,22 @@
  * Конфигурация по умолчанию
  * @type {Config}
  */
+// src/core/config.js
+
+// ... (предыдущий код с импортами и JSDoc остается без изменений)
+
+/**
+ * Конфигурация по умолчанию
+ * @type {Config}
+ */
 export const defaultConfig = {
     // Seed & World
     seed: 12345,
     chunkSize: 100,
     gridSize: 10,
     levelHeight: 20,
-    yMin: -100,   // ИЗМЕНЕНО: было zMin
-    yMax: 100,    // ИЗМЕНЕНО: было zMax
+    yMin: -100,
+    yMax: 100,
     viewChunksXY: 3,
     viewChunksZ: 2,
     
@@ -114,6 +122,10 @@ export const defaultConfig = {
         suspended: 0.2,
         tube: 0.1
     },
+    // === НОВЫЕ ПАРАМЕТРЫ ДЛЯ МОСТОВ ===
+    bridgeWidth: 0.15,      // Ширина моста относительно cellSize (было 0.2 в коде, стало настраиваемым)
+    bridgeThickness: 0.2,   // Толщина моста (было 0.5 в scale.y, стало тоньше)
+    mainArteryChance: 1.0,  // Шанс создания гарантированной магистрали через чанк
     
     stairsChance: 0.5,
     stairWidthRatio: 0.1,
@@ -210,18 +222,18 @@ export const defaultConfig = {
     maxSegments: 16,
 
     // === DEBUG / TUNING (для ручной настройки лестниц) ===
-    stairTwistOffset: 0,   // Смещение поворота вокруг вертикальной оси (градусы)
-    stairTiltOffset: 0,    // Смещение угла наклона (градусы)
+    stairTwistOffset: 0,
+    stairTiltOffset: 0,
     
-    // === STAIR DEBUG VISUALS (Маркеры для диагностики совпадения с линиями) ===
-    showStairStarts: false,      // Зеленые сферы в точках старта
-    showStairEnds: false,        // Синие сферы в точках финиша
-    showStairCenters: false,     // Желтые сферы в расчетных центрах мешей
+    // === STAIR DEBUG VISUALS ===
+    showStairStarts: false,
+    showStairEnds: false,
+    showStairCenters: false,
     
-    // === STAIR GEOMETRY CORRECTIONS (Коррекция геометрии без изменения углов) ===
-    stairPivotOffsetX: 0,        // Смещение центра лестницы вдоль её оси (единицы мира)
-    stairPivotOffsetY: 0,        // Смещение центра лестницы перпендикулярно оси (единицы мира)
-    stairLengthScale: 1.0        // Масштабирование длины лестницы (1.0 = оригинал)
+    // === STAIR GEOMETRY CORRECTIONS ===
+    stairPivotOffsetX: 0,
+    stairPivotOffsetY: 0,
+    stairLengthScale: 1.0
 };
 
 /**
@@ -234,7 +246,8 @@ export const palettes = {
         baseDark: '#1a1a1a',
         accent: '#4a4a4a',
         glow: '#ff6600',
-        shadow: '#0a0a0a'
+        shadow: '#0a0a0a',
+        bridge: '#ffaa00' // Яркий оранжевый для магистралей
     },
     rusted: {
         base: '#4a3728',
@@ -242,7 +255,8 @@ export const palettes = {
         baseDark: '#3a2a1f',
         accent: '#8b4513',
         glow: '#ff4500',
-        shadow: '#1a0f0a'
+        shadow: '#1a0f0a',
+        bridge: '#ff4500' // Оранжево-красный
     },
     coldSpace: {
         base: '#1a2a3a',
@@ -250,7 +264,8 @@ export const palettes = {
         baseDark: '#0a1a2a',
         accent: '#4a6a8a',
         glow: '#00ffff',
-        shadow: '#050a0f'
+        shadow: '#050a0f',
+        bridge: '#00ffff' // Циан
     },
     sandCity: {
         base: '#8b7355',
@@ -258,7 +273,8 @@ export const palettes = {
         baseDark: '#6b5344',
         accent: '#d4a574',
         glow: '#ffd700',
-        shadow: '#3a2a1a'
+        shadow: '#3a2a1a',
+        bridge: '#ffd700' // Золотой
     },
     neonCyber: {
         base: '#1a1a2e',
@@ -266,7 +282,8 @@ export const palettes = {
         baseDark: '#0a0a1e',
         accent: '#ff00ff',
         glow: '#00ff00',
-        shadow: '#050510'
+        shadow: '#050510',
+        bridge: '#ff00ff' // Маджента
     },
     concrete: {
         base: '#5a5a5a',
@@ -274,7 +291,8 @@ export const palettes = {
         baseDark: '#4a4a4a',
         accent: '#7a7a7a',
         glow: '#ffffff',
-        shadow: '#2a2a2a'
+        shadow: '#2a2a2a',
+        bridge: '#ffffff' // Белый
     },
     oxidized: {
         base: '#2a4a3a',
@@ -282,7 +300,8 @@ export const palettes = {
         baseDark: '#1a3a2a',
         accent: '#4a8a6a',
         glow: '#00ff88',
-        shadow: '#0a1a10'
+        shadow: '#0a1a10',
+        bridge: '#00ff88' // Ярко-зеленый
     },
     bloodMetal: {
         base: '#3a1a1a',
@@ -290,9 +309,12 @@ export const palettes = {
         baseDark: '#2a0a0a',
         accent: '#8a2a2a',
         glow: '#ff0000',
-        shadow: '#1a0505'
+        shadow: '#1a0505',
+        bridge: '#ff0000' // Кроваво-красный
     }
 };
+
+// ... (остальной код файла: функции getPalette и т.д.)
 
 /**
  * Получить активную палитру по имени
