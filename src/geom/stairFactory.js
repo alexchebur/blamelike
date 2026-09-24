@@ -53,13 +53,13 @@ export function getStairGeometry(type) {
 
     let geo = createEastStairGeometry();
 
-    // Поворачиваем базовую (восточную) геометрию вокруг вертикальной оси Z
+    // Поворачиваем базовую (восточную) геометрию вокруг вертикальной оси Y (Y-up система)
     if (type === 'stair_west') {
-        geo.rotateZ(Math.PI);
+        geo.rotateY(Math.PI);
     } else if (type === 'stair_north') {
-        geo.rotateZ(Math.PI / 2);
+        geo.rotateY(-Math.PI / 2);
     } else if (type === 'stair_south') {
-        geo.rotateZ(-Math.PI / 2);
+        geo.rotateY(Math.PI / 2);
     }
     // 'stair_east' — базовое направление, поворот не нужен
 
