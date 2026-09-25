@@ -106,9 +106,9 @@ export const defaultConfig = {
     viewChunksZ: 2,
     
     // Layout
-    roomDensity: 0.3,
-    wallDensity: 0.2,
-    pillarDensity: 0.1,
+    roomDensity: 0.55,
+    wallDensity: 0.4,
+    pillarDensity: 0.5,
     minRoomSize: 2,
     maxRoomSize: 5,
     minConnectionsPerRoom: 1,
