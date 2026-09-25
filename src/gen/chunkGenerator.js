@@ -203,33 +203,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 // src/gen/chunkGenerator.js
 
-// src/gen/chunkGenerator.js
-
-// ... (импорты и начало файла остаются без изменений)
-
-// src/gen/chunkGenerator.js
-
-/**
- * Этап C: Горизонтальные мосты (Y-up) с повышенной плотностью
- */
-// src/gen/chunkGenerator.js
-
-// ... (начало файла и импорты остаются прежними)
-
-/**
- * Этап C: Горизонтальные мосты (Y-up) на основе заполнения пустых клеток
- */
-// src/gen/chunkGenerator.js
-
-// ... (начало файла и импорты остаются прежними)
-
-/**
- * Этап C: Горизонтальные мосты (Y-up) на основе заполнения пустых клеток
- */
-// src/gen/chunkGenerator.js
-
-// src/gen/chunkGenerator.js
-
 /**
  * Этап C: Горизонтальные мосты (Y-up) с проверкой непосредственного соседства
  */
