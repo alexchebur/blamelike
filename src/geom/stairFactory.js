@@ -39,7 +39,6 @@ function createEastStairGeometry(plateThickness, levelHeight) {
 
 /**
  * Создает геометрию моста Север-Юг (вдоль оси Z)
- * Размер: 1x1 клетка. Мост узкий по X, длинный по Z.
  */
 function createBridgeNSGeometry() {
     // Ширина 0.2, Высота 0.1, Длина 1.0
@@ -49,7 +48,6 @@ function createBridgeNSGeometry() {
 
 /**
  * Создает геометрию моста Восток-Запад (вдоль оси X)
- * Размер: 1x1 клетка. Мост длинный по X, узкий по Z.
  */
 function createBridgeEWGeometry() {
     // Длина 1.0, Высота 0.1, Ширина 0.2
