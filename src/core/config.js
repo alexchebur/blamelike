@@ -115,7 +115,7 @@ export const defaultConfig = {
     platformThickness: 0.5,
     
     // Connections
-    bridgeChance: 0.4,
+    bridgeChance: 0.8,
     bridgeWeights: {
         straight: 0.4,
         arched: 0.3,
