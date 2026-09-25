@@ -263,7 +263,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     
                     primitives.push({
                         type: bridgeType,
-                        position: { x: wx, y: currentYBase + 0.6, z: wz }, 
+                        position: { x: wx, y: currentYBase + (config.platformThickness || 0.5) + 0.05, z: wz }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: 1, z: cellSize }, 
                         paletteSlot: 'accent',
