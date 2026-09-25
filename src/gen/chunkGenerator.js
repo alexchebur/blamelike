@@ -226,6 +226,11 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 /**
  * Этап C: Горизонтальные мосты (Y-up) на основе заполнения пустых клеток
  */
+// src/gen/chunkGenerator.js
+
+/**
+ * Этап C: Горизонтальные мосты (Y-up) с проверкой непосредственного соседства
+ */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
@@ -237,7 +242,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         const currentYBase = level * levelHeight;
         
         // 1. Строим карту занятости уровня
-        const gridMap = new Map(); // ключ "gx,gy" -> true/false
+        const gridMap = new Map(); 
         
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
@@ -246,14 +251,15 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
             }
         }
 
-        // 2. Заполняем пустые клетки мостами, если они соединяют платформы
+        // 2. Заполняем пустые клетки мостами ТОЛЬКО если они между непосредственными соседями
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const key = `${gx},${gy}`;
                 
-                // Пропускаем занятые клетки (там уже есть платформы)
+                // Пропускаем занятые клетки
                 if (gridMap.get(key)) continue;
 
+                // Проверяем НЕПОСРЕДСТВЕННЫХ соседей (dx=1, dy=0 и т.д.)
                 const hasWest = gridMap.get(`${gx-1},${gy}`);
                 const hasEast = gridMap.get(`${gx+1},${gy}`);
                 const hasSouth = gridMap.get(`${gx},${gy-1}`);
@@ -261,16 +267,17 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
                 let bridgeType = null;
 
-                // Проверяем возможность соединения Восток-Запад
+                // Соединение Восток-Запад: только если слева И справа есть платформы
+                // И они являются непосредственными соседями (что гарантировано проверкой gx-1 и gx+1)
                 if (hasWest && hasEast) {
                     bridgeType = 'bridge_ew';
                 } 
-                // Проверяем возможность соединения Север-Юг
+                // Соединение Север-Юг: только если сверху И снизу есть платформы
                 else if (hasNorth && hasSouth) {
                     bridgeType = 'bridge_ns';
                 }
-                // Случайные перпендикулярные связи (Т-образные), если есть шанс
-                else if (rng() < bridgeChance) {
+                // Случайные Т-образные ответвления (опционально, можно убрать если нужно только сквозное соединение)
+                else if (rng() < bridgeChance * 0.5) { // Уменьшил шанс для Т-образных, чтобы не захламлять
                     if (hasWest || hasEast) bridgeType = 'bridge_ew';
                     else if (hasNorth || hasSouth) bridgeType = 'bridge_ns';
                 }
@@ -281,9 +288,9 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     
                     primitives.push({
                         type: bridgeType,
-                        position: { x: wx, y: currentYBase + 0.6, z: wz }, // Чуть выше пола (0.5 толщина платформы + 0.1 высота моста)
+                        position: { x: wx, y: currentYBase + 0.6, z: wz }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: 1, z: cellSize }, // Масштаб подгоняется под размер клетки
+                        scale: { x: cellSize, y: 1, z: cellSize }, 
                         paletteSlot: 'accent',
                         role: 'connector'
                     });
@@ -294,7 +301,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     
     return primitives;
 }
-
 
 
 
