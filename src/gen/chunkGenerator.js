@@ -219,6 +219,13 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 /**
  * Этап C: Горизонтальные мосты (Y-up) на основе заполнения пустых клеток
  */
+// src/gen/chunkGenerator.js
+
+// ... (начало файла и импорты остаются прежними)
+
+/**
+ * Этап C: Горизонтальные мосты (Y-up) на основе заполнения пустых клеток
+ */
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
