@@ -148,6 +148,8 @@ class ChunkManager {
 
 // ... внутри класса ChunkManager, метод createGeometry
 
+// ... внутри класса ChunkManager, метод createGeometry
+
     createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
