@@ -228,6 +228,8 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
  */
 // src/gen/chunkGenerator.js
 
+// src/gen/chunkGenerator.js
+
 /**
  * Этап C: Горизонтальные мосты (Y-up) с проверкой непосредственного соседства
  */
