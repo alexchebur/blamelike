@@ -6,6 +6,7 @@ import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
 import { getStairGeometry } from '../geom/stairFactory.js';
+import { getCachedArchWallGeometry } from '../gen/archWallBuilder.js';
 
 class ChunkManager {
     constructor(sceneManager) {
@@ -146,10 +147,6 @@ class ChunkManager {
         return mesh;
     }
 
-// ... внутри класса ChunkManager, метод createGeometry
-
-// ... внутри класса ChunkManager, метод createGeometry
-
     createGeometry(type, variant, config, item = null) {
         const segments = config.maxSegments || 16;
         
@@ -195,12 +192,30 @@ class ChunkManager {
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
 
+            // === НОВЫЙ ТИП: АРОЧНЫЕ СТЕНЫ ===
+            case 'arch_wall':
+                if (typeof getCachedArchWallGeometry !== 'undefined') {
+                    const p = item?.params || {};
+                    const width = item?.scale?.x || 1;
+                    const height = item?.scale?.y || 20;
+                    const depth = item?.scale?.z || 0.9;
+                    
+                    return getCachedArchWallGeometry({
+                        width,
+                        height,
+                        depth,
+                        archWidthRatio: p.archWidthRatio || 0.6,
+                        archHeightRatio: p.archHeightRatio || 0.4
+                    });
+                }
+                console.warn('getCachedArchWallGeometry is not defined');
+                return new THREE.BoxGeometry(1, 1, 1);
+
             default:
                 console.warn(`Unknown geometry type: "${type}"`);
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
-// ...
 
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
