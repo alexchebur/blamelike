@@ -91,8 +91,21 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                             const wallX = posX + (n.dx * cellSize / 2);
                             const wallZ = posZ + (n.dy * cellSize / 2);
                             
+                            // Определяем размеры стены
+                            const wallWidth = n.dx !== 0 ? 1 : cellSize * 0.9;
+                            const wallDepth = n.dy !== 0 ? 1 : cellSize * 0.9;
+                            const wallHeight = levelHeight;
+                            
+                            // Генерируем параметры арки на основе позиции
+                            const archParams = generateArchParams(
+                                config.seed,
+                                Math.floor(wallX),
+                                Math.floor(yBase + levelHeight / 2),
+                                Math.floor(wallZ)
+                            );
+                            
                             primitives.push({
-                                type: 'box',
+                                type: 'arch_wall',
                                 position: { 
                                     x: wallX, 
                                     y: yBase + levelHeight / 2, 
@@ -100,17 +113,20 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                                 },
                                 rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                                 scale: { 
-                                    x: n.dx !== 0 ? 1 : cellSize * 0.9, 
-                                    y: levelHeight, 
-                                    z: n.dy !== 0 ? 1 : cellSize * 0.9 
+                                    x: wallWidth, 
+                                    y: wallHeight, 
+                                    z: wallDepth 
                                 },
                                 paletteSlot: 'baseDark',
-                                role: 'frame'
+                                role: 'frame',
+                                params: {
+                                    archWidthRatio: archParams.archWidthRatio,
+                                    archHeightRatio: archParams.archHeightRatio
+                                }
                             });
                         }
                     }
                 }
-
                 // --- 3. КОЛОННЫ ---
                 const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, config.seed);
                 if (pillarHash < pillarDensity) {
