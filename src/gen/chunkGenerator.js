@@ -156,12 +156,14 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
+    // wallDensity больше не используется здесь для создания стен
+    const { pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
     
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
+        // Проверка плотности комнат остается
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const yBase = level * levelHeight;
@@ -172,36 +174,11 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wz = bounds.min.z + (gy + 0.5) * cellSize;
                 
-                const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
-                if (wallHash < wallDensity) {
-                    // === ЗАМЕНЕНО: Арочная стена вместо box ===
-                    const wallWidth = cellSize * 0.9;
-                    const wallDepth = cellSize * 0.1;
-                    const wallHeight = levelHeight;
-                    
-                    // Генерируем параметры арки детерминированно
-                    const archHash = hash3D(cx * gridSize + gx + 100, cy * gridSize + gy + 100, level, seed);
-                    const archWidthRatio = 0.5 + (archHash % 100) / 100 * 0.3; // 0.5-0.8
-                    const archHeightRatio = 0.3 + ((archHash >> 8) % 100) / 100 * 0.3; // 0.3-0.6
-                    
-                    primitives.push({
-                        type: 'arch_wall',  // <-- Новый тип!
-                        position: { x: wx, y: yWallCenter, z: wz },
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { 
-                            x: wallWidth, 
-                            y: wallHeight, 
-                            z: wallDepth 
-                        },
-                        paletteSlot: 'baseDark',
-                        role: 'frame',
-                        params: {
-                            archWidthRatio: archWidthRatio,
-                            archHeightRatio: archHeightRatio
-                        }
-                    });
-                }
+                // === УДАЛЕНО: Блок создания стен (arch_wall) ===
+                // Стены теперь создаются ТОЛЬКО в structureBuilder.js 
+                // на основе анализа соседних клеток.
                 
+                // Колонны остаются — они нужны как опоры внутри комнат
                 const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed);
                 if (pillarHash < pillarDensity) {
                     primitives.push({
