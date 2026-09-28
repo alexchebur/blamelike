@@ -1,6 +1,7 @@
 // src/gen/structureBuilder.js
 // @ts-check
 import { hash3D } from '../core/rng.js';
+import { generateArchParams } from './archWallBuilder.js'; // <-- Добавляем этот импорт
 
 /**
  * @param {number} cx 
