@@ -26,10 +26,14 @@ class ChunkManager {
             config.chunkSize
         );
 
+        // Обновляем чанки при смене текущего чанка камеры ИЛИ при изменении maxRenderDistance
+        const distChanged = this.config?.maxRenderDistance !== config.maxRenderDistance;
+        
         if (!this.lastCameraChunk || 
             currentChunk.cx !== this.lastCameraChunk.cx ||
             currentChunk.cy !== this.lastCameraChunk.cy ||
-            currentChunk.cz !== this.lastCameraChunk.cz) {
+            currentChunk.cz !== this.lastCameraChunk.cz ||
+            distChanged) {
             
             this.lastCameraChunk = currentChunk;
             this.updateVisibleChunks(currentChunk, config, cameraPos);
@@ -37,8 +41,11 @@ class ChunkManager {
     }
 
     updateVisibleChunks(centerChunk, config, cameraPos) {
-        const { viewChunksXY, viewChunksZ } = config;
+        const { viewChunksXY, viewChunksZ, chunkSize, maxRenderDistance = 300 } = config;
         const desiredChunks = new Set();
+        
+        // Максимальное расстояние в квадрате (избегаем Math.sqrt для производительности)
+        const maxDistSq = maxRenderDistance * maxRenderDistance;
 
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
             for (let dy = -viewChunksXY; dy <= viewChunksXY; dy++) {
@@ -46,8 +53,23 @@ class ChunkManager {
                     const cx = centerChunk.cx + dx;
                     const cy = centerChunk.cy + dy;
                     const cz = centerChunk.cz + dz;
-                    const key = createChunkKey(cx, cy, cz);
                     
+                    // === ПРОВЕРКА ДИСТАНЦИИ ===
+                    // Вычисляем центр чанка в мировых координатах
+                    const chunkCenterX = (cx + 0.5) * chunkSize;
+                    const chunkCenterY = (cy + 0.5) * chunkSize;
+                    const chunkCenterZ = (cz + 0.5) * chunkSize;
+                    
+                    const distSq = 
+                        Math.pow(chunkCenterX - cameraPos.x, 2) +
+                        Math.pow(chunkCenterY - cameraPos.y, 2) +
+                        Math.pow(chunkCenterZ - cameraPos.z, 2);
+                    
+                    // Пропускаем чанки за пределами радиуса рендеринга
+                    if (distSq > maxDistSq) continue;
+                    // ==========================
+
+                    const key = createChunkKey(cx, cy, cz);
                     desiredChunks.add(key);
 
                     if (!this.activeChunks.has(key)) {
@@ -97,8 +119,6 @@ class ChunkManager {
         for (const prim of primitives) {
             if (!prim.type || !prim.position) continue;
             
-            // Для новых лестниц тип уже содержит направление (stair_north), 
-            // поэтому variantSuffix не нужен
             const key = `${prim.type}|${prim.paletteSlot || 'base'}`;
             
             if (!grouped[key]) grouped[key] = [];
@@ -113,7 +133,6 @@ class ChunkManager {
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         
-        // Передаем type напрямую, без парсинга variant
         const geometry = this.createGeometry(type, null, config, items[0]);
         
         const material = new THREE.MeshLambertMaterial({
@@ -131,9 +150,6 @@ class ChunkManager {
             const py = item.position?.y ?? 0;
             const pz = item.position?.z ?? 0;
             dummy.position.set(px, py, pz);
-
-            // УБРАНО: Ручной поворот через dummy.rotation.y
-            // Геометрия из getStairGeometry уже повернута правильно
             
             let twistZ = item.rotation?.twistZ || 0;
             dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(twistZ));
@@ -170,7 +186,6 @@ class ChunkManager {
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
 
-            // === ДОБАВЛЕННАЯ ПОДДЕРЖКА МОСТОВ И ЛЕСТНИЦ ===
             case 'stair_north':
             case 'stair_south':
             case 'stair_east':
@@ -192,7 +207,6 @@ class ChunkManager {
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
 
-            // === НОВЫЙ ТИП: АРОЧНЫЕ СТЕНЫ ===
             case 'arch_wall':
                 if (typeof getCachedArchWallGeometry !== 'undefined') {
                     const p = item?.params || {};
