@@ -92,23 +92,31 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                             const wallX = posX + (n.dx * cellSize / 2);
                             const wallZ = posZ + (n.dy * cellSize / 2);
                             
-                            // Определяем размеры стены
-                            const wallWidth = n.dx !== 0 ? 1 : cellSize * 0.9;
-                            const wallDepth = n.dy !== 0 ? 1 : cellSize * 0.9;
+                            // === ИСПРАВЛЕНИЕ РАЗМЕРОВ ===
+                            // Стена должна быть тонкой по оси, перпендикулярной её грани, 
+                            // и широкой по параллельной оси.
+                            // n.dx !== 0 означает стену Восток/Запад (вдоль оси Z)
+                            // n.dy !== 0 означает стену Север/Юг (вдоль оси X)
+                            
+                            const isVerticalWall = n.dx !== 0; // Стена вдоль оси Z
+                            const wallWidth = isVerticalWall ? cellSize * 0.9 : 1; // Ширина вдоль грани
+                            const wallDepth = isVerticalWall ? 1 : cellSize * 0.9; // Толщина стены
                             const wallHeight = levelHeight;
                             
-                            // Генерируем параметры арки на основе позиции
+                            // Генерируем параметры арки детерминированно
                             const archHash = hash3D(
                                 cx * gridSize + gx + 200 + n.dx, 
                                 cy * gridSize + gy + 200 + n.dy, 
                                 level, 
                                 config.seed
                             );
-                            const archWidthRatio = 0.5 + (archHash % 100) / 100 * 0.3;
-                            const archHeightRatio = 0.3 + ((archHash >> 8) % 100) / 100 * 0.3;
+                            
+                            // Арка занимает 50-70% ширины и 30-50% высоты
+                            const archWidthRatio = 0.5 + (archHash % 100) / 100 * 0.2; 
+                            const archHeightRatio = 0.3 + ((archHash >> 8) % 100) / 100 * 0.2;
                             
                             primitives.push({
-                                type: 'arch_wall',  // <-- Новый тип!
+                                type: 'arch_wall',
                                 position: { 
                                     x: wallX, 
                                     y: yBase + levelHeight / 2, 
@@ -128,8 +136,8 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                                 }
                             });
                         }
-                    }
-                }
+    }
+}
                 // --- 3. КОЛОННЫ ---
                 const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, config.seed);
                 if (pillarHash < pillarDensity) {
