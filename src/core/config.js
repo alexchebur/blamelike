@@ -221,7 +221,7 @@ export const defaultConfig = {
     lodFar: 3,
     maxSegments: 16,
     // В defaultConfig, рядом с Performance или Look
-    maxRenderDistance: 500, // Расстояние отрисовки в мировых единицах
+    maxRenderDistance: 400, // Расстояние отрисовки в мировых единицах
 
     // === DEBUG / TUNING (для ручной настройки лестниц) ===
     stairTwistOffset: 0,
