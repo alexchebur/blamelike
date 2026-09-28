@@ -98,15 +98,17 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                             const wallHeight = levelHeight;
                             
                             // Генерируем параметры арки на основе позиции
-                            const archParams = generateArchParams(
-                                config.seed,
-                                Math.floor(wallX),
-                                Math.floor(yBase + levelHeight / 2),
-                                Math.floor(wallZ)
+                            const archHash = hash3D(
+                                cx * gridSize + gx + 200 + n.dx, 
+                                cy * gridSize + gy + 200 + n.dy, 
+                                level, 
+                                config.seed
                             );
+                            const archWidthRatio = 0.5 + (archHash % 100) / 100 * 0.3;
+                            const archHeightRatio = 0.3 + ((archHash >> 8) % 100) / 100 * 0.3;
                             
                             primitives.push({
-                                type: 'arch_wall',
+                                type: 'arch_wall',  // <-- Новый тип!
                                 position: { 
                                     x: wallX, 
                                     y: yBase + levelHeight / 2, 
@@ -121,8 +123,8 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                                 paletteSlot: 'baseDark',
                                 role: 'frame',
                                 params: {
-                                    archWidthRatio: archParams.archWidthRatio,
-                                    archHeightRatio: archParams.archHeightRatio
+                                    archWidthRatio: archWidthRatio,
+                                    archHeightRatio: archHeightRatio
                                 }
                             });
                         }
