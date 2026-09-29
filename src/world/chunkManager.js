@@ -94,6 +94,35 @@ class ChunkManager {
         const group = this.createChunkMesh(chunkData, config);
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
+
+        // === РЕГИСТРАЦИЯ ЭКРАНОВ В SCREENMANAGER ===
+        if (this.sceneManager.screenManager) {
+            this.registerScreens(chunkData, key, config);
+        }
+        // ===========================================
+    }
+
+    /**
+     * Регистрирует экраны из чанка в ScreenManager
+     */
+    registerScreens(primitives, chunkKey, config) {
+        const screenManager = this.sceneManager.screenManager;
+        
+        for (let i = 0; i < primitives.length; i++) {
+            const prim = primitives[i];
+            if (prim.type === 'screen') {
+                const screenKey = `${chunkKey}_screen_${i}`;
+                const screenType = prim.screenType || 'monitor';
+                
+                screenManager.addScreen(
+                    screenKey,
+                    prim.position,
+                    prim.rotation,
+                    prim.scale,
+                    screenType
+                );
+            }
+        }
     }
 
     createChunkMesh(primitives, config) {
@@ -106,6 +135,9 @@ class ChunkManager {
             
             const slot = typeSlot.substring(lastPipeIndex + 1);
             const fullType = typeSlot.substring(0, lastPipeIndex);
+            
+            // Пропускаем экраны - они обрабатываются отдельно через ScreenManager
+            if (fullType === 'screen') continue;
             
             const mesh = this.createInstancedMesh(fullType, slot, items, config);
             if (mesh) group.add(mesh);
@@ -185,9 +217,6 @@ class ChunkManager {
                 return new THREE.ConeGeometry(0.4, 1, 4); 
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
-            case 'screen':
-            // Для экранов используем простую плоскость
-                return new THREE.PlaneGeometry(1, 1);
 
             case 'stair_north':
             case 'stair_south':
@@ -243,7 +272,28 @@ class ChunkManager {
             if (!desiredKeys.has(key)) {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
+                
+                // === УДАЛЕНИЕ ЭКРАНОВ ЧАНКА ===
+                if (this.sceneManager.screenManager) {
+                    this.unregisterScreens(key);
+                }
+                // ==============================
+                
                 this.activeChunks.delete(key);
+            }
+        }
+    }
+
+    /**
+     * Удаляет все экраны, принадлежащие чанку
+     */
+    unregisterScreens(chunkKey) {
+        const screenManager = this.sceneManager.screenManager;
+        
+        // Удаляем все экраны, ключ которых начинается с chunkKey
+        for (const [screenKey] of screenManager.activeScreens) {
+            if (screenKey.startsWith(chunkKey)) {
+                screenManager.removeScreen(screenKey);
             }
         }
     }
@@ -265,6 +315,13 @@ class ChunkManager {
         this.activeChunks.clear();
         this.cache.clear();
         this.lastCameraChunk = null;
+        
+        // === ОЧИСТКА ВСЕХ ЭКРАНОВ ===
+        if (this.sceneManager.screenManager) {
+            this.sceneManager.screenManager.clearAll();
+        }
+        // ============================
+        
         console.log('🧹 All chunks cleared');
     }
 }
