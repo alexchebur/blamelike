@@ -51,9 +51,9 @@ function createArchGeometry() {
     const geometries = [];
     
     // Параметры относительно единицы размера
-    const width = 1.0;      // Ширина пролета
-    const height = 1.0;     // Высота арки
-    const thickness = 0.15; // Толщина балок
+    const width = 0.5;      // Ширина пролета
+    const height = 0.5;     // Высота арки
+    const thickness = 0.10; // Толщина балок
     
     // Левая стойка
     const leftLeg = new THREE.BoxGeometry(thickness, height, thickness);
