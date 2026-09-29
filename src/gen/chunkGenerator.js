@@ -156,14 +156,13 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
-    // wallDensity больше не используется здесь для создания стен
-    const { pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
+    const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
     
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
-        // Проверка плотности комнат остается
+        // Пропускаем уровень целиком, если он не активен
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const yBase = level * levelHeight;
@@ -174,13 +173,26 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wz = bounds.min.z + (gy + 0.5) * cellSize;
                 
-                // === УДАЛЕНО: Блок создания стен (arch_wall) ===
-                // Стены теперь создаются ТОЛЬКО в structureBuilder.js 
-                // на основе анализа соседних клеток.
+                // Проверяем, занята ли эта ячейка комнатой
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                const isRoom = baseHash < roomDensity;
                 
-                // Колонны остаются — они нужны как опоры внутри комнат
+                // === ИСПРАВЛЕНИЕ: Стены только внутри комнат ===
+                const wallHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed);
+                if (isRoom && wallHash < wallDensity) {
+                    primitives.push({
+                        type: 'box',
+                        position: { x: wx, y: yWallCenter, z: wz },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize * 0.9, y: levelHeight, z: cellSize * 0.1 },
+                        paletteSlot: 'baseDark',
+                        role: 'frame'
+                    });
+                }
+                
+                // === ИСПРАВЛЕНИЕ: Колонны только внутри комнат ===
                 const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed);
-                if (pillarHash < pillarDensity) {
+                if (isRoom && pillarHash < pillarDensity) {
                     primitives.push({
                         type: 'cylinder',
                         position: { x: wx, y: yWallCenter, z: wz },
