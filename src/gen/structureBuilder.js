@@ -51,7 +51,7 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                     primitives.push({
                         type: 'platform_stair',
                         variant: stairVariant,
-                        position: { x: posX, y: yBase, z: posZ }, // Явная позиция вместо grid
+                        position: { x: posX, y: yBase, z: posZ },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: cellSize, z: levelHeight },
                         paletteSlot: 'base',
@@ -95,10 +95,7 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                             // === ИСПРАВЛЕНИЕ РАЗМЕРОВ ===
                             // Стена должна быть тонкой по оси, перпендикулярной её грани, 
                             // и широкой по параллельной оси.
-                            // n.dx !== 0 означает стену Восток/Запад (вдоль оси Z)
-                            // n.dy !== 0 означает стену Север/Юг (вдоль оси X)
-                            
-                            const isVerticalWall = n.dx !== 0; // Стена вдоль оси Z
+                            const isVerticalWall = n.dx !== 0; // Стена вдоль оси Z (East/West)
                             const wallWidth = isVerticalWall ? cellSize * 0.9 : 1; // Ширина вдоль грани
                             const wallDepth = isVerticalWall ? 1 : cellSize * 0.9; // Толщина стены
                             const wallHeight = levelHeight;
@@ -136,23 +133,27 @@ export function buildStructure(cx, cy, cz, config, bounds, cellSize, levelMaps) 
                                 }
                             });
                         }
-    }
-}
+                    }
+                }
+
                 // --- 3. КОЛОННЫ ---
-                const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, config.seed);
-                if (pillarHash < pillarDensity) {
-                    primitives.push({
-                        type: 'cylinder',
-                        position: { 
-                            x: offsetX + gx * cellSize, 
-                            y: yBase + levelHeight / 2, 
-                            z: offsetZ + gy * cellSize 
-                        },
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize * 0.15, y: levelHeight, z: cellSize * 0.15 },
-                        paletteSlot: 'accent',
-                        role: 'frame'
-                    });
+                // Генерируем колонну ТОЛЬКО если это обычная платформа (без лестницы)
+                if (!stairVariant) {
+                    const pillarHash = hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, config.seed);
+                    if (pillarHash < pillarDensity) {
+                        primitives.push({
+                            type: 'cylinder',
+                            position: { 
+                                x: offsetX + gx * cellSize, 
+                                y: yBase + levelHeight / 2, 
+                                z: offsetZ + gy * cellSize 
+                            },
+                            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                            scale: { x: cellSize * 0.15, y: levelHeight, z: cellSize * 0.15 },
+                            paletteSlot: 'accent',
+                            role: 'frame'
+                        });
+                    }
                 }
             }
         }
