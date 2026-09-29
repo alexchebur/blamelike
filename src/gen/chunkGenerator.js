@@ -393,32 +393,112 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
+// src/gen/chunkGenerator.js
+/**
+ * Этап F: Декор (Y-up)
+ */
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { decorDensity } = config;
+    const { decorDensity, cableWeights } = config;
     if (!decorDensity) return primitives;
 
-    const w = bounds.max.x-bounds.min.x;
-    const d = bounds.max.z-bounds.min.z;
+    const w = bounds.max.x - bounds.min.x;
+    const d = bounds.max.z - bounds.min.z;
+    const h = bounds.max.y - bounds.min.y;
 
-    for (let i=0; i<Math.floor(w*(decorDensity.antennas||0)); i++) {
+    // 1. Антенны (вертикальные столбы)
+    for (let i = 0; i < Math.floor(w * (decorDensity.antennas || 0)); i++) {
         primitives.push({
             type: 'cylinder',
-            position: { x: bounds.min.x+rng()*w, y: bounds.min.y+10, z: bounds.min.z+rng()*d },
-            rotation: { tiltX:0, tiltY:0, twistZ:0 },
-            scale: { x:0.5, y:10+rng()*20, z:0.5 },
+            position: { x: bounds.min.x + rng() * w, y: bounds.min.y + 10, z: bounds.min.z + rng() * d },
+            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+            scale: { x: 0.5, y: 10 + rng() * 20, z: 0.5 },
             paletteSlot: 'baseLight', role: 'decor'
         });
     }
-    for (let i=0; i<Math.floor(w*(decorDensity.spheres||0)); i++) {
+
+    // 2. Сферы-резервуары (светящиеся элементы)
+    for (let i = 0; i < Math.floor(w * (decorDensity.spheres || 0)); i++) {
         primitives.push({
             type: 'sphere',
-            position: { x: bounds.min.x+rng()*w, y: bounds.min.y+rng()*(bounds.max.y-bounds.min.y), z: bounds.min.z+rng()*d },
-            rotation: { tiltX:0, tiltY:0, twistZ:0 },
-            scale: { x:2+rng()*3, y:2+rng()*3, z:2+rng()*3 },
+            position: { x: bounds.min.x + rng() * w, y: bounds.min.y + rng() * h, z: bounds.min.z + rng() * d },
+            rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+            scale: { x: 2 + rng() * 3, y: 2 + rng() * 3, z: 2 + rng() * 3 },
             paletteSlot: 'glow', role: 'decor'
         });
     }
+
+    // 3. Пучки кабелей (свисают с нижней части платформ/уровней)
+    // Используем capsule для имитации проводов разной толщины
+    const cableCount = Math.floor(w * (decorDensity.cables || 0));
+    for (let i = 0; i < cableCount; i++) {
+        // Определяем тип кабеля на основе весов из конфига
+        let r = rng() * (
+            (cableWeights?.thick || 0.3) + 
+            (cableWeights?.medium || 0.5) + 
+            (cableWeights?.thin || 0.2)
+        );
+        
+        let radius = 0.1;
+        let length = 5 + rng() * 15;
+        let slot = 'shadow'; // По умолчанию темные кабели
+
+        if (r < (cableWeights?.thick || 0.3)) {
+            radius = 0.4; // Толстый силовой кабель
+            length = 10 + rng() * 20;
+            slot = 'baseDark';
+        } else if (r < (cableWeights?.thick || 0.3) + (cableWeights?.medium || 0.5)) {
+            radius = 0.2; // Средний провод
+            length = 7 + rng() * 15;
+            slot = 'accent';
+        }
+
+        // Размещаем их под случайным уровнем в чанке, чтобы они висели "под потолком" яруса
+        // Находим ближайший уровень сверху или просто вешаем в верхней трети чанка
+        const hangY = bounds.max.y - rng() * (h * 0.3); 
+
+        primitives.push({
+            type: 'capsule',
+            position: { 
+                x: bounds.min.x + rng() * w, 
+                y: hangY - length / 2, // Центр капсулы смещен вниз на половину длины
+                z: bounds.min.z + rng() * d 
+            },
+            // Небольшой случайный наклон для естественности провисания
+            rotation: { 
+                tiltX: (rng() - 0.5) * 15, 
+                tiltY: (rng() - 0.5) * 15, 
+                twistZ: 0 
+            }, 
+            scale: { x: radius, y: length, z: radius },
+            paletteSlot: slot,
+            flags: {},
+            role: 'decor'
+        });
+    }
+
+    // 4. Торусы (кольца/трубы)
+    for (let i = 0; i < Math.floor(w * (decorDensity.torus || 0)); i++) {
+        primitives.push({
+            type: 'torus',
+            position: { x: bounds.min.x + rng() * w, y: bounds.min.y + rng() * h, z: bounds.min.z + rng() * d },
+            rotation: { tiltX: rng() * 360, tiltY: rng() * 360, twistZ: 0 },
+            scale: { x: 3 + rng() * 5, y: 3 + rng() * 5, z: 3 + rng() * 5 },
+            paletteSlot: 'accent', role: 'decor'
+        });
+    }
+
+    // 5. Панели (плоские боксы на стенах/полу)
+    for (let i = 0; i < Math.floor(w * (decorDensity.panels || 0)); i++) {
+        primitives.push({
+            type: 'box',
+            position: { x: bounds.min.x + rng() * w, y: bounds.min.y + rng() * h, z: bounds.min.z + rng() * d },
+            rotation: { tiltX: rng() > 0.5 ? 90 : 0, tiltY: rng() * 360, twistZ: 0 },
+            scale: { x: 2 + rng() * 3, y: 0.2, z: 2 + rng() * 3 },
+            paletteSlot: 'baseLight', role: 'decor'
+        });
+    }
+
     return primitives;
 }
 
