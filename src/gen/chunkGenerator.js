@@ -5,6 +5,66 @@ import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 import screenGenerator from './screenGenerator.js';
 
+// src/gen/chunkGenerator.js
+// ... (предыдущий код остается без изменений)
+
+/**
+ * Этап G: Светящиеся экраны и панели
+ */
+function generateScreens(cx, cy, cz, seed, config, rng, bounds) {
+    const primitives = [];
+    const { decorDensity } = config;
+    
+    // Используем плотность 'panels' из конфига, или задаем свою
+    const screenDensity = decorDensity?.panels || 0.04;
+    
+    // Рассчитываем количество экранов на основе площади чанка
+    const area = (bounds.max.x - bounds.min.x) * (bounds.max.z - bounds.min.z);
+    const count = Math.floor(area * screenDensity / 500); // Делим на 500 для разумного количества
+    
+    const types = ['monitor', 'panel', 'display'];
+    
+    for (let i = 0; i < count; i++) {
+        // Детерминированное решение о размещении каждого экрана
+        const hash = hash3D(cx, cy, cz + i * 0.7, seed);
+        
+        if (hash < screenDensity) {
+            const type = types[Math.floor(hash * types.length)];
+            
+            // Случайная позиция внутри чанка
+            const wx = bounds.min.x + rng() * (bounds.max.x - bounds.min.x);
+            const wy = bounds.min.y + rng() * (bounds.max.y - bounds.min.y);
+            const wz = bounds.min.z + rng() * (bounds.max.z - bounds.min.z);
+            
+            // Случайные размеры экрана
+            const screenWidth = 0.8 + rng() * 1.2;
+            const screenHeight = 0.4 + rng() * 0.6;
+            
+            primitives.push({
+                type: 'screen',
+                screenType: type, // Важно! Передаем тип экрана
+                position: { x: wx, y: wy, z: wz },
+                rotation: { 
+                    tiltX: (rng() - 0.5) * 30, // Небольшой случайный наклон
+                    tiltY: rng() * 360,         // Случайный поворот вокруг Y
+                    twistZ: 0 
+                },
+                scale: { 
+                    x: screenWidth, 
+                    y: screenHeight, 
+                    z: 0.05 // Тонкая панель
+                },
+                paletteSlot: 'glow',
+                role: 'decor',
+                flags: { emissive: true }
+            });
+        }
+    }
+    
+    return primitives;
+}
+
+
 
 function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
