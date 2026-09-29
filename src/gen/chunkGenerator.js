@@ -16,7 +16,7 @@ function generateScreens(cx, cy, cz, seed, config, rng, bounds) {
     const { decorDensity } = config;
     
     // Используем плотность 'panels' из конфига, или задаем свою
-    const screenDensity = decorDensity?.panels || 0.04;
+    const screenDensity = 0.5; // Временно высокое значение для теста, было const screenDensity = decorDensity?.panels || 0.04;
     
     // Рассчитываем количество экранов на основе площади чанка
     const area = (bounds.max.x - bounds.min.x) * (bounds.max.z - bounds.min.z);
