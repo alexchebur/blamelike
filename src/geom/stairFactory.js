@@ -52,7 +52,7 @@ function createArchGeometry() {
     
     // Параметры относительно единицы размера
     const width = 1.0;      // Ширина пролета
-    const height = 1.5;     // Высота арки
+    const height = 1.0;     // Высота арки
     const thickness = 0.15; // Толщина балок
     
     // Левая стойка
