@@ -5,15 +5,19 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const geomCache = {};
 
 /**
- * Создает базовую геометрию лестницы (направлена на +X)
- * @param {number} plateThickness - Толщина плиты основания
- * @param {number} levelHeight - Высота подъема (расстояние между ярусами)
+ * Создает базовую геометрию лестницы, направленной на Восток (+X)
+ * Вся геометрия нормализована: платформа занимает [0..1] по X и Z, 
+ * а высота укладывается в [0..1] по Y с учетом толщины плиты.
+ * 
+ * @param {number} plateThickness - Абсолютная толщина плиты основания
+ * @param {number} levelHeight - Абсолютная высота подъема (масштаб Y)
  */
 function createEastStairGeometry(plateThickness, levelHeight) {
+    // === ЗАЩИТА ОТ НЕКОРРЕКТНЫХ ЗНАЧЕНИЙ ===
     const safeThickness = (typeof plateThickness === 'number' && plateThickness > 0) ? plateThickness : 0.5;
     const safeLevelHeight = (typeof levelHeight === 'number' && levelHeight > 0) ? levelHeight : 20;
     
-    // Отношение толщины к высоте для нормализации геометрии в диапазон [0, 1] по Y
+    // Нормализованное отношение толщины плиты к высоте яруса
     const thicknessRatio = Math.max(0.01, Math.min(0.99, safeThickness / safeLevelHeight));
     
     const geometries = [];
@@ -26,28 +30,34 @@ function createEastStairGeometry(plateThickness, levelHeight) {
 
     // 2. ЛЕСТНИЦА
     const steps = 21; 
-    const stairLength = 1.05; // Длина лестницы чуть больше клетки для перехлеста
-    const width = 0.4;        // Ширина лестницы
+    const stairLength = 1.05; // Длина чуть больше клетки для перехлеста с целью
+    const width = 0.4;        // Ширина самой лестницы
     
-    // === СДВИГ ЛЕСТНИЦЫ ВДОЛЬ РЕБРА ===
-    // Базовое смещение от центра клетки (0.5) к краю. 
-    // Добавляем 0.25, чтобы попасть в центр половины ребра (смещение на 1/4 клетки от центра)
-    const startOffset = 0.5 + 0.25; 
+    // === СДВИГ ВДОЛЬ РЕБРА (Ось Z для направления East) ===
+    // 0.25 смещает центр лестницы к центру правой половины грани платформы.
+    const zOffset = 0.25; 
+    
+    // Начало лестницы от края платформы (по оси X)
+    const startOffset = 0.5; 
     
     const availableHeight = 1.0 - thicknessRatio;
     const stepH = availableHeight / steps;
     const stepD = stairLength / steps;
 
     for (let i = 0; i < steps; i++) {
+        // Ступень: глубина по X, высота по Y, ширина по Z
         const step = new THREE.BoxGeometry(stepD, stepH, width);
         
-        // X: начинаем от startOffset и идем вперед
+        // X: начинаем от края платформы и идем вперед
         const x = startOffset + (i * stepD); 
         
-        // Y: поднимаемся от верха плиты (thicknessRatio) до верха яруса (1.0)
+        // Y: поднимаемся от верха плиты до верха яруса
         const y = thicknessRatio + (i * stepH) + (stepH / 2);
         
-        step.translate(x, y, 0);
+        // Z: смещение вдоль ребра платформы
+        const z = zOffset;
+        
+        step.translate(x, y, z);
         geometries.push(step);
     }
 
@@ -55,7 +65,7 @@ function createEastStairGeometry(plateThickness, levelHeight) {
 }
 
 /**
- * Создает геометрию моста Север-Юг (вдоль оси Z)
+ * Создает простую геометрию моста Север-Юг (вдоль оси Z)
  */
 function createBridgeNSGeometry() {
     const geo = new THREE.BoxGeometry(0.2, 0.1, 1.0);
@@ -63,7 +73,7 @@ function createBridgeNSGeometry() {
 }
 
 /**
- * Создает геометрию моста Восток-Запад (вдоль оси X)
+ * Создает простую геометрию моста Восток-Запад (вдоль оси X)
  */
 function createBridgeEWGeometry() {
     const geo = new THREE.BoxGeometry(1.0, 0.1, 0.2);
@@ -72,6 +82,9 @@ function createBridgeEWGeometry() {
 
 /**
  * Возвращает геометрию нужного типа (лестница или мост)
+ * @param {'stair_north'|'stair_south'|'stair_east'|'stair_west'|'bridge_ns'|'bridge_ew'} type 
+ * @param {number} plateThickness - Толщина плиты (из конфига/примитива)
+ * @param {number} levelHeight - Высота яруса (из конфига/примитива)
  */
 export function getStairGeometry(type, plateThickness, levelHeight) {
     const safePT = plateThickness ?? 0.5;
