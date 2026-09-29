@@ -4,6 +4,45 @@ import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 
+
+function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
+    const primitives = [];
+    const { gridSize, levelHeight, roomDensity, wallDensity } = config;
+    
+    // Плотность арок берем из декораций или создадим новый параметр archChance
+    const archChance = config.decorDensity?.antennas ? config.decorDensity.antennas * 2 : 0.1; 
+
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
+
+    for (let level = startLevel; level <= endLevel; level++) {
+        const yBase = level * levelHeight;
+        
+        for (let gx = 0; gx < gridSize - 1; gx++) {
+            for (let gy = 0; gy < gridSize - 1; gy++) {
+                // Проверяем наличие "комнаты" или свободного пространства
+                const currentHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                
+                if (currentHash < roomDensity && rng() < archChance) {
+                    const wx = bounds.min.x + (gx + 0.5) * cellSize;
+                    const wz = bounds.min.z + (gy + 0.5) * cellSize;
+                    
+                    // Арка ставится на уровень платформы
+                    primitives.push({
+                        type: 'arch',
+                        position: { x: wx, y: yBase + (config.platformThickness || 0.5), z: wz },
+                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                        scale: { x: cellSize * 0.8, y: levelHeight * 0.6, z: cellSize * 0.8 },
+                        paletteSlot: 'glow', // <-- ЯРКИЙ ЦВЕТ ДЛЯ ОТЛАДКИ
+                        role: 'decor'
+                    });
+                }
+            }
+        }
+    }
+    return primitives;
+}
+
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
     const chunkSeed = hash3D(cx, cy, cz, seed);
@@ -46,7 +85,13 @@ export function generateChunk(cx, cy, cz, seed, config) {
         primitives.push(...pierce);
         instanceCount += pierce.length;
     }
-
+    // === ЭТАП F.5: Арки (для отладки) ===
+    if (instanceCount < maxInstances) {
+        const arches = generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize);
+        primitives.push(...arches);
+        instanceCount += arches.length;
+    }
+    
     // === ЭТАП F: Декор (Y-up) ===
     if (instanceCount < maxInstances) {
         const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
