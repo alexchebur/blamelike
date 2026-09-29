@@ -176,7 +176,7 @@ class ChunkManager {
             case 'octahedron':
                 return new THREE.OctahedronGeometry(0.5);
             case 'capsule':
-                return new THREE.CapsuleGeometry(0.5, 1, 4, segments);
+                return new THREE.CapsuleGeometry(0.5, 1, 4, 8, segments);
             case 'torus':
                 return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
             case 'sphere':
