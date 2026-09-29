@@ -3,6 +3,7 @@
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
+import screenGenerator from './screenGenerator.js';
 
 
 function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
@@ -98,7 +99,13 @@ export function generateChunk(cx, cy, cz, seed, config) {
         primitives.push(...decor);
         instanceCount += decor.length;
     }
-
+    // В функции generateChunk, после этапа F (Decor) добавьте:
+    // === ЭТАП G: Экраны и панели ===
+    if (instanceCount < maxInstances) {
+        const screens = screenGenerator.generateScreensForChunk(cx, cy, cz, seed, config, rng, bounds);
+        primitives.push(...screens);
+        instanceCount += screens.length;
+    }
     return primitives;
 }
 
