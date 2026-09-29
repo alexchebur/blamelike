@@ -397,14 +397,17 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
 /**
  * Этап F: Декор (Y-up)
  */
+// src/gen/chunkGenerator.js
+
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { decorDensity, cableWeights } = config;
+    const { decorDensity, cableWeights, levelHeight, gridSize, roomDensity } = config;
     if (!decorDensity) return primitives;
 
     const w = bounds.max.x - bounds.min.x;
     const d = bounds.max.z - bounds.min.z;
     const h = bounds.max.y - bounds.min.y;
+    const cellSize = config.chunkSize / gridSize;
 
     // 1. Антенны (вертикальные столбы)
     for (let i = 0; i < Math.floor(w * (decorDensity.antennas || 0)); i++) {
@@ -417,7 +420,7 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         });
     }
 
-    // 2. Сферы-резервуары (светящиеся элементы)
+    // 2. Сферы-резервуары
     for (let i = 0; i < Math.floor(w * (decorDensity.spheres || 0)); i++) {
         primitives.push({
             type: 'sphere',
@@ -428,56 +431,66 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         });
     }
 
-    // 3. Пучки кабелей (свисают с нижней части платформ/уровней)
-    // Используем capsule для имитации проводов разной толщины
-    const cableCount = Math.floor(w * (decorDensity.cables || 0));
-    for (let i = 0; i < cableCount; i++) {
-        // Определяем тип кабеля на основе весов из конфига
-        let r = rng() * (
-            (cableWeights?.thick || 0.3) + 
-            (cableWeights?.medium || 0.5) + 
-            (cableWeights?.thin || 0.2)
-        );
+    // 3. ПУЧКИ КАБЕЛЕЙ (Исправленная логика)
+    // Генерируем их только там, где есть платформы, чтобы они висели "под потолком" яруса
+    const startLevel = Math.ceil(bounds.min.y / levelHeight);
+    const endLevel = Math.floor(bounds.max.y / levelHeight);
+
+    for (let level = startLevel; level <= endLevel; level++) {
+        const yBase = level * levelHeight;
         
-        let radius = 0.1;
-        let length = 5 + rng() * 15;
-        let slot = 'shadow'; // По умолчанию темные кабели
+        for (let gx = 0; gx < gridSize; gx++) {
+            for (let gy = 0; gy < gridSize; gy++) {
+                // Проверяем, есть ли здесь платформа
+                const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
+                if (baseHash >= roomDensity) continue;
 
-        if (r < (cableWeights?.thick || 0.3)) {
-            radius = 0.4; // Толстый силовой кабель
-            length = 10 + rng() * 20;
-            slot = 'baseDark';
-        } else if (r < (cableWeights?.thick || 0.3) + (cableWeights?.medium || 0.5)) {
-            radius = 0.2; // Средний провод
-            length = 7 + rng() * 15;
-            slot = 'accent';
+                // Если платформа есть, решаем, будет ли здесь пучок кабелей
+                if (rng() < (decorDensity.cables || 0)) {
+                    // Количество кабелей в пучке: от 3 до 7
+                    const bundleSize = 3 + Math.floor(rng() * 5); 
+                    
+                    for (let b = 0; b < bundleSize; b++) {
+                        // Определяем тип кабеля внутри пучка
+                        let r = rng() * ((cableWeights?.thick || 0.3) + (cableWeights?.medium || 0.5) + (cableWeights?.thin || 0.2));
+                        let radius = 0.1;
+                        let length = 5 + rng() * 10;
+                        let slot = 'shadow';
+
+                        if (r < (cableWeights?.thick || 0.3)) {
+                            radius = 0.4; length = 12 + rng() * 15; slot = 'baseDark';
+                        } else if (r < (cableWeights?.thick || 0.3) + (cableWeights?.medium || 0.5)) {
+                            radius = 0.2; length = 8 + rng() * 10; slot = 'accent';
+                        }
+
+                        // Смещение внутри клетки платформы, чтобы кабели не сливались в одну линию
+                        const offsetX = (rng() - 0.5) * cellSize * 0.6;
+                        const offsetZ = (rng() - 0.5) * cellSize * 0.6;
+
+                        primitives.push({
+                            type: 'capsule',
+                            position: { 
+                                x: bounds.min.x + (gx + 0.5) * cellSize + offsetX, 
+                                y: yBase - length / 2, // Висят вниз от уровня платформы
+                                z: bounds.min.z + (gy + 0.5) * cellSize + offsetZ 
+                            },
+                            rotation: { 
+                                tiltX: (rng() - 0.5) * 12, 
+                                tiltY: (rng() - 0.5) * 12, 
+                                twistZ: 0 
+                            }, 
+                            scale: { x: radius, y: length, z: radius },
+                            paletteSlot: slot,
+                            flags: {},
+                            role: 'decor'
+                        });
+                    }
+                }
+            }
         }
-
-        // Размещаем их под случайным уровнем в чанке, чтобы они висели "под потолком" яруса
-        // Находим ближайший уровень сверху или просто вешаем в верхней трети чанка
-        const hangY = bounds.max.y - rng() * (h * 0.3); 
-
-        primitives.push({
-            type: 'capsule',
-            position: { 
-                x: bounds.min.x + rng() * w, 
-                y: hangY - length / 2, // Центр капсулы смещен вниз на половину длины
-                z: bounds.min.z + rng() * d 
-            },
-            // Небольшой случайный наклон для естественности провисания
-            rotation: { 
-                tiltX: (rng() - 0.5) * 15, 
-                tiltY: (rng() - 0.5) * 15, 
-                twistZ: 0 
-            }, 
-            scale: { x: radius, y: length, z: radius },
-            paletteSlot: slot,
-            flags: {},
-            role: 'decor'
-        });
     }
 
-    // 4. Торусы (кольца/трубы)
+    // 4. Торусы
     for (let i = 0; i < Math.floor(w * (decorDensity.torus || 0)); i++) {
         primitives.push({
             type: 'torus',
@@ -488,7 +501,7 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         });
     }
 
-    // 5. Панели (плоские боксы на стенах/полу)
+    // 5. Панели
     for (let i = 0; i < Math.floor(w * (decorDensity.panels || 0)); i++) {
         primitives.push({
             type: 'box',
