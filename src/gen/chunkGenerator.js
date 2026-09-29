@@ -125,19 +125,46 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     }
                 }
 
-                if (stairType) {
-                    // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
-                    // КЛЮЧЕВОЙ МОМЕНТ: Передаем params для корректной сборки геометрии
-                    primitives.push({
-                        type: stairType,
-                        position: { x: wx, y: yBase, z: wz }, 
-                        rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
-                        scale: { x: cellSize, y: levelHeight, z: cellSize },
-                        paletteSlot: 'accent',
-                        role: 'connector',
-                        params: { platformThickness, levelHeight } // <-- Для фабрики
-                    });
-                } else {
+// src/gen/chunkGenerator.js
+// ... (предыдущий код)
+
+                 if (stairType) {
+                     // === ПЛАТФОРМА С ЛЕСТНИЦЕЙ ===
+                     
+                     // Рассчитываем базовые координаты центра ячейки
+                     let wx = bounds.min.x + (gx + 0.5) * cellSize;
+                     let wz = bounds.min.z + (gy + 0.5) * cellSize;
+
+                     // === СДВИГ К ЦЕНТРУ ПОЛОВИНЫ РЕБРА ===
+                     const offset = cellSize * 0.25; // Смещение на четверть клетки от центра (чтобы попасть в центр половины ребра)
+                     
+                     switch (stairType) {
+                         case 'stair_north': // Север (+Z) -> сдвигаем по Z вперед
+                             wz += offset;
+                             break;
+                         case 'stair_south': // Юг (-Z) -> сдвигаем по Z назад
+                             wz -= offset;
+                             break;
+                         case 'stair_east':  // Восток (+X) -> сдвигаем по X вперед
+                             wx += offset;
+                             break;
+                         case 'stair_west':  // Запад (-X) -> сдвигаем по X назад
+                             wx -= offset;
+                             break;
+                     }
+
+                     // КЛЮЧЕВОЙ МОМЕНТ: Передаем params для корректной сборки геометрии
+                     primitives.push({
+                         type: stairType,
+                         position: { x: wx, y: yBase, z: wz }, 
+                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
+                         scale: { x: cellSize, y: levelHeight, z: cellSize },
+                         paletteSlot: 'accent',
+                         role: 'connector',
+                         params: { platformThickness, levelHeight } // <-- Для фабрики
+                     });
+                 } else {
+
                     // === ОБЫЧНАЯ ПЛАТФОРМА ===
                     primitives.push({
                         type: 'box',
