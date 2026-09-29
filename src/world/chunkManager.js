@@ -206,7 +206,11 @@ class ChunkManager {
                     return getStairGeometry(`stair_${variant || 'east'}`);
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
-
+            case 'arch':
+                if (typeof getStairGeometry !== 'undefined') {
+                    return getStairGeometry('arch');
+                }
+                return new THREE.BoxGeometry(1, 1, 1);
             case 'arch_wall':
                 if (typeof getCachedArchWallGeometry !== 'undefined') {
                     const p = item?.params || {};
