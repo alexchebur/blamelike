@@ -182,7 +182,13 @@ export const defaultConfig = {
         brackets: 0.04,
         vents: 0.03,
         mushrooms: 0.02,
-        crates: 0.05
+        crates: 0.05,
+        cables: 0.08      // Плотность пучков кабелей на платформах (свисают вниз)
+    },
+    cableWeights: {
+        thick: 0.3,       // Толстые силовые кабели (радиус ~0.4)
+        medium: 0.5,      // Средние провода (радиус ~0.2)
+        thin: 0.2         // Тонкие сигнальные линии (радиус ~0.1)
     },
     glowChance: 0.1,
     microDensity: 0.1,
