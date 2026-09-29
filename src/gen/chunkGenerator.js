@@ -3,7 +3,7 @@
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
-import screenGenerator from './screenGenerator.js';
+//import screenGenerator from './screenGenerator.js';
 
 // src/gen/chunkGenerator.js
 // ... (предыдущий код остается без изменений)
@@ -159,10 +159,10 @@ export function generateChunk(cx, cy, cz, seed, config) {
         primitives.push(...decor);
         instanceCount += decor.length;
     }
-    // В функции generateChunk, после этапа F (Decor) добавьте:
-    // === ЭТАП G: Экраны и панели ===
+    // === ЭТАП G: Экраны и панели (ИСПРАВЛЕННЫЙ ВЫЗОВ) ===
     if (instanceCount < maxInstances) {
-        const screens = screenGenerator.generateScreensForChunk(cx, cy, cz, seed, config, rng, bounds);
+        // Вызываем ЛОКАЛЬНУЮ функцию, а не метод из screenGenerator
+        const screens = generateScreens(cx, cy, cz, seed, config, rng, bounds);
         primitives.push(...screens);
         instanceCount += screens.length;
     }
