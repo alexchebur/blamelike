@@ -185,6 +185,9 @@ class ChunkManager {
                 return new THREE.ConeGeometry(0.4, 1, 4); 
             case 'spire':
                 return new THREE.ConeGeometry(0.2, 1, 8);
+            case 'screen':
+            // Для экранов используем простую плоскость
+                return new THREE.PlaneGeometry(1, 1);
 
             case 'stair_north':
             case 'stair_south':
