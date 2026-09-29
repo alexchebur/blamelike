@@ -60,7 +60,7 @@ function generateScreens(cx, cy, cz, seed, config, rng, bounds) {
             });
         }
     }
-    
+    console.log(`[ScreenGen] Chunk ${cx},${cy},${cz}: generated ${primitives.length} screens`);
     return primitives;
 }
 
