@@ -662,6 +662,74 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             }
         }
     }
+
+    // 3. ПРЯМЫЕ КАБЕЛИ (оставляем как есть)
+    // ... [ваш существующий код прямых кабелей] ...
+
+    // 3.5. ИЗОГНУТЫЕ L-КАБЕЛИ (новый тип)
+    const lCableCount = Math.floor(w * (decorDensity.lCables || 0));
+    for (let i = 0; i < lCableCount; i++) {
+        let placed = false;
+        let attempts = 0;
+        
+        while (!placed && attempts < 15) {
+            const gx = Math.floor(rng() * gridSize);
+            const gy = Math.floor(rng() * gridSize);
+            const level = startLevel + Math.floor(rng() * (endLevel - startLevel + 1));
+            
+            // Проверяем наличие платформы
+            if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
+                const yBase = level * levelHeight;
+                const attachY = yBase - (config.platformThickness || 0.5);
+                
+                // Вариативность длины уголка
+                const r = rng() * ((lCableWeights?.short || 0.4) + (lCableWeights?.medium || 0.4) + (lCableWeights?.long || 0.2));
+                let lengthRatio = 0.5;
+                if (r < (lCableWeights?.short || 0.4)) lengthRatio = 0.4 + rng() * 0.3;      // Короткий
+                else if (r < (lCableWeights?.short || 0.4) + (lCableWeights?.medium || 0.4)) lengthRatio = 0.7 + rng() * 0.4; // Средний
+                else lengthRatio = 1.1 + rng() * 0.6;                                         // Длинный
+                
+                const thickness = 0.08 + rng() * 0.12;
+                const bendAngle = 20 + rng() * 50;     // Угол изгиба 20°-70°
+                const azimuthDeg = rng() * 360;         // Направление свисания
+                
+                const offsetX = (rng() - 0.5) * cellSize * 0.6;
+                const offsetZ = (rng() - 0.5) * cellSize * 0.6;
+                
+                primitives.push({
+                    type: 'l_cable',
+                    position: { 
+                        x: bounds.min.x + (gx + 0.5) * cellSize + offsetX, 
+                        y: attachY, // Pivot точно на нижней грани
+                        z: bounds.min.z + (gy + 0.5) * cellSize + offsetZ 
+                    },
+                    rotation: { 
+                        tiltX: 0, 
+                        tiltY: azimuthDeg,      
+                        twistZ: bendAngle       
+                    }, 
+                    scale: { 
+                        x: lengthRatio,         
+                        y: thickness / 0.1,     
+                        z: thickness / 0.1 
+                    },
+                    paletteSlot: rng() > 0.6 ? 'accent' : 'shadow',
+                    flags: {},
+                    role: 'decor'
+                });
+                placed = true;
+            }
+            attempts++;
+        }
+    }
+
+    // 4. Торусы (остается без изменений)
+    // ... [ваш существующий код торусов] ...
+
+
+
+
+    
     // 4. Торусы
     for (let i = 0; i < Math.floor(w * (decorDensity.torus || 0)); i++) {
         primitives.push({
