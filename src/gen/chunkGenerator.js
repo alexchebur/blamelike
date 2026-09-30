@@ -5,6 +5,78 @@ import { chunkToBounds } from '../core/chunkKey.js';
 import edgeAgreement from './edgeAgreement.js';
 //import screenGenerator from './screenGenerator.js';
 
+
+
+/**
+ * Генерирует экраны, прикрепленные к нижней стороне платформ
+ */
+function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng, bounds) {
+    const primitives = [];
+    const { platformThickness } = config;
+    
+    // Плотность экранов (шанс появления экрана под платформой)
+    const screenChance = config.decorDensity?.panels || 0.1; 
+    const types = ['monitor', 'panel', 'display'];
+
+    for (const platform of platforms) {
+        // Нас интересуют только обычные платформы (type: 'box'), не лестницы
+        if (platform.type !== 'box') continue;
+        
+        // Детерминированный шанс появления экрана
+        const hash = hash3D(
+            Math.floor(platform.position.x), 
+            Math.floor(platform.position.y), 
+            Math.floor(platform.position.z), 
+            seed
+        );
+        
+        if (hash < screenChance) {
+            const type = types[Math.floor(hash * types.length)];
+            
+            // Позиция экрана: под платформой
+            // Платформа имеет высоту platformThickness, центр в platform.position.y
+            // Нижняя грань платформы: platform.position.y - platformThickness / 2
+            // Экран вешаем чуть ниже нижней грани
+            const screenOffset = 0.2; // Отступ от платформы
+            const yPos = platform.position.y - (platformThickness / 2) - screenOffset;
+            
+            // Размеры экрана (чуть меньше платформы)
+            const screenWidth = platform.scale.x * 0.8;
+            const screenHeight = platform.scale.z * 0.8; // Используем Z как высоту текстуры
+            
+            primitives.push({
+                type: 'screen',
+                screenType: type,
+                position: { 
+                    x: platform.position.x, 
+                    y: yPos, 
+                    z: platform.position.z 
+                },
+                rotation: { 
+                    tiltX: 90, // Поворачиваем на 90 градусов, чтобы смотреть вниз
+                    tiltY: 0, 
+                    twistZ: 0 
+                },
+                scale: { 
+                    x: screenWidth, 
+                    y: screenHeight, 
+                    z: 1 
+                },
+                paletteSlot: 'glow',
+                role: 'decor',
+                flags: { emissive: true }
+            });
+        }
+    }
+    
+    return primitives;
+}
+
+// ... (остальные функции generatePlatforms, generateRooms и т.д. без изменений) ...
+
+
+
+
 // src/gen/chunkGenerator.js
 // ... (предыдущий код остается без изменений)
 
@@ -166,6 +238,14 @@ export function generateChunk(cx, cy, cz, seed, config) {
         primitives.push(...screens);
         instanceCount += screens.length;
     }
+    // === ЭТАП G: Экраны под платформами ===
+    if (instanceCount < maxInstances) {
+        // Передаем список платформ в генератор экранов
+        const screens = generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng, bounds);
+        primitives.push(...screens);
+        instanceCount += screens.length;
+    }
+    
     return primitives;
 }
 
