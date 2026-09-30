@@ -1,6 +1,7 @@
 // @ts-check
 import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
+import ScreenManager from './screenManager.js'; // <--- ИМПОРТ МЕНЕДЖЕРА ЭКРАНОВ
 
 class SceneManager {
     constructor(container) {
@@ -30,6 +31,10 @@ class SceneManager {
         this.hemisphereLight = null;
         this.fog = null;
         this.axisHelper = null;
+
+        // === SCREEN MANAGER STATE ===
+        this.screenManager = null;
+        // ============================
 
         this.init();
         this._bindEvents();
@@ -151,6 +156,10 @@ class SceneManager {
 
         this.setupLighting();
 
+        // === ИНИЦИАЛИЗАЦИЯ SCREEN MANAGER ===
+        this.screenManager = new ScreenManager(this.scene);
+        // ====================================
+
         window.addEventListener('resize', () => this.onWindowResize());
     }
 
@@ -194,6 +203,12 @@ class SceneManager {
             const axisPos = new THREE.Vector3().copy(this.camera.position).add(direction.multiplyScalar(60)); 
             this.axisHelper.position.copy(axisPos);
         }
+
+        // === ОБНОВЛЕНИЕ АНИМАЦИИ ЭКРАНОВ ===
+        if (this.screenManager) {
+            this.screenManager.update();
+        }
+        // ===================================
 
         this.renderer.render(this.scene, this.camera);
     }
