@@ -471,6 +471,7 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     for (let i = 0; i < lCableCount; i++) {
         let placed = false;
         let attempts = 0;
+        
         while (!placed && attempts < 15) {
             const gx = Math.floor(rng() * gridSize);
             const gy = Math.floor(rng() * gridSize);
@@ -480,24 +481,45 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
                 const yBase = level * levelHeight;
                 const attachY = yBase - (config.platformThickness || 0.5);
                 
+                // === ЯВНОЕ ОПРЕДЕЛЕНИЕ ПАРАМЕТРОВ ===
+                
+                // 1. Длина уголка (масштаб по X)
                 const r = rng() * ((lCableWeights?.short || 0.4) + (lCableWeights?.medium || 0.4) + (lCableWeights?.long || 0.2));
                 let lengthRatio = 0.5;
                 if (r < (lCableWeights?.short || 0.4)) lengthRatio = 0.4 + rng() * 0.3;
                 else if (r < (lCableWeights?.short || 0.4) + (lCableWeights?.medium || 0.4)) lengthRatio = 0.7 + rng() * 0.4;
                 else lengthRatio = 1.1 + rng() * 0.6;
                 
+                // 2. Толщина кабеля (нормализованная к базовой толщине геометрии 0.1)
+                const thickness = 0.08 + rng() * 0.12;
+                const thicknessScale = thickness / 0.1;
+                
+                // 3. Направление свисания (азимут вокруг вертикальной оси Y)
+                const azimuthDeg = rng() * 360;
+                
+                // 4. Угол изгиба нижнего сегмента относительно вертикали (twistZ)
+                const bendAngle = 20 + rng() * 50; 
+                
+                // 5. Случайное смещение точки крепления внутри клетки
+                const offsetX = (rng() - 0.5) * cellSize * 0.6;
+                const offsetZ = (rng() - 0.5) * cellSize * 0.6;
+
                 primitives.push({
                     type: 'l_cable',
                     position: { 
-                        x: bounds.min.x + (gx + 0.5) * cellSize + (rng() - 0.5) * cellSize * 0.6, 
+                        x: bounds.min.x + (gx + 0.5) * cellSize + offsetX, 
                         y: attachY, 
-                        z: bounds.min.z + (gy + 0.5) * cellSize + (rng() - 0.5) * cellSize * 0.6 
+                        z: bounds.min.z + (gy + 0.5) * cellSize + offsetZ 
                     },
-                    rotation: { tiltX: 0, tiltY: rng() * 360, twistZ: 20 + rng() * 50 }, 
+                    rotation: { 
+                        tiltX: 0,           // Без наклона вперед/назад
+                        tiltY: azimuthDeg,  // Направление свисания
+                        twistZ: bendAngle   // Угол изгиба "уголка"
+                    }, 
                     scale: { 
-                        x: lengthRatio,         
-                        y: (0.08 + rng() * 0.12) / 0.1,     
-                        z: (0.08 + rng() * 0.12) / 0.1 
+                        x: lengthRatio,     // Масштабирует длину нижнего сегмента
+                        y: thicknessScale,  // Толщина по Y
+                        z: thicknessScale   // Толщина по Z
                     },
                     paletteSlot: rng() > 0.6 ? 'accent' : 'shadow',
                     role: 'decor'
