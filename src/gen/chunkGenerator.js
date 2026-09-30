@@ -556,7 +556,8 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
 
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
-    const { decorDensity, cableWeights, levelHeight, gridSize, roomDensity } = config;
+    //const { decorDensity, cableWeights, levelHeight, gridSize, roomDensity } = config;
+    const { decorDensity, cableWeights, lCableWeights, levelHeight, gridSize, roomDensity } = config;
     if (!decorDensity) return primitives;
 
     const w = bounds.max.x - bounds.min.x;
