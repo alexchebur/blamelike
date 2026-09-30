@@ -2,7 +2,8 @@
 // @ts-check
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
-import edgeAgreement from './edgeAgreement.js';
+import { getBoundaryDecisions } from '../gen/edgeAgreement.js';
+//import edgeAgreement from './edgeAgreement.js';
 //import screenGenerator from './screenGenerator.js';
 
 
