@@ -133,26 +133,28 @@ class ChunkManager {
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
+        
         if (!chunkData) {
             chunkData = generateChunk(cx, cy, cz, config.seed, config);
             this.cache.set(key, chunkData);
         }
 
+        // 1. Создаем визуальную группу (InstancedMesh)
         const group = this.createChunkMesh(chunkData, config);
-                // СОХРАНЯЕМ ДАННЫЕ ЧАНКА ДЛЯ ФИЗИКИ И СПАВНА
-        group.userData.primitives = chunkData; 
+        group.userData.primitives = chunkData; // Сохраняем данные для спавна/логики
+        
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
-        // 2. Создаем слой коллизий для этого чанка
+
+        // 2. Создаем слой коллизий (невидимые меши)
         const collisionGroup = this.createCollisionChunk(chunkData, config);
         collisionGroup.name = `Collision_${key}`;
         this.sceneManager.collisionLayer.add(collisionGroup);
         
-        // Сохраняем ссылку на коллизию, чтобы удалить при выгрузке
-        // Можно хранить в activeChunks вместе с визуалом, например { visual: group, collision: collisionGroup }
-        // Для простоты добавим свойство к группе или отдельный Map
-        this.activeChunks.get(key).userData.collisionGroup = collisionGroup; 
-        
+        // Связываем визуал и коллизию для легкой очистки при выгрузке
+        group.userData.collisionGroup = collisionGroup; 
+
+        // 3. Регистрируем анимированные экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
@@ -161,6 +163,7 @@ class ChunkManager {
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
         if (!screenManager) return;
+
         for (let i = 0; i < primitives.length; i++) {
             const prim = primitives[i];
             if (prim.type === 'screen') {
@@ -174,28 +177,53 @@ class ChunkManager {
             }
         }
     }
+
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
-        
-        // Материал не важен, он невидимый, но можно сделать wireframe для отладки
-        const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, visible: false }); 
+        // Невидимый материал для отладки (можно включить visible: true для проверки)
+        const debugMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xff0000, 
+            wireframe: false, 
+            visible: false 
+        }); 
         
         for (const prim of primitives) {
-            // Пропускаем декор, который не должен быть коллайдером
+            // Фильтрация: что НЕ должно быть коллайдером
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen') continue;
-            if (prim.type === 'cable' || prim.type === 'l_cable') continue; // Кабели не коллайдеры
+            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
             if (prim.type === 'torus') continue;
 
             let geometry = null;
             let isLadder = false;
 
-            // Выбираем геометрию для коллизии
+            // Выбор геометрии коллайдера
             switch (prim.type) {
                 case 'box':
+                    // Обычные платформы и стены
+                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    break;
+
                 case 'platform_stair':
-                    // ИСПОЛЬЗУЕМ ТУ ЖЕ ГЕОМЕТРИЮ ЧТО И ДЛЯ РЕНДЕРА!
-                    // Это предотвращает рассинхрон формы и коллайдера
+                    // Платформы со встроенными лестницами (если такие есть в генераторе)
+                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    break;
+
+                case 'cylinder':
+                case 'cone':
+                case 'obelisk':
+                case 'spire':
+                    // Вертикальные препятствия используем Cylinder для точности или Box для скорости
+                    // Здесь используем Cylinder с низким polycount (8 сегментов)
+                    geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
+                    break;
+
+                case 'stair_north':
+                case 'stair_south':
+                case 'stair_east':
+                case 'stair_west':
+                    // ЛЕСТНИЦЫ: Используем ТОЧНУЮ геометрию из stairFactory
+                    // Это гарантирует, что физика совпадает с картинкой
                     if (typeof getStairGeometry !== 'undefined') {
                         const p = prim.params || {};
                         geometry = getStairGeometry(
@@ -205,45 +233,44 @@ class ChunkManager {
                         );
                         isLadder = true;
                     } else {
+                        // Фолбэк, если фабрика не загружена
                         geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     }
                     break;
-                case 'cylinder':
-                case 'cone':
-                case 'obelisk':
-                case 'spire':
-                    // Для вертикальных препятствий используем Box для простоты расчетов или Cylinder
-                    geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
+
+                case 'arch':
+                    // Арки тоже должны быть коллайдерами (чтобы об них ударяться)
+                    if (typeof getStairGeometry !== 'undefined') {
+                        geometry = getStairGeometry('arch');
+                    } else {
+                         geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    }
                     break;
-                case 'stair_north':
-                case 'stair_south':
-                case 'stair_east':
-                case 'stair_west':
-                    // ЛЕСТНИЦА: Создаем наклонный бокс или набор боксов
-                    // Для простоты и производительности сделаем один наклонный Box
-                    // Но лучше использовать ту же геометрию, что и в stairFactory, но упрощенную
-                    geometry = this.getStairCollisionGeometry(prim.type, config);
-                    isLadder = true;
-                    break;
+
                 case 'bridge_ns':
                 case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
+
                 default:
+                    // Неизвестные типы пропускаем
                     continue;
             }
 
             if (geometry) {
                 const mesh = new THREE.Mesh(geometry, debugMaterial);
+                
+                // Позиционирование
                 mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
                 
-                // Поворот
+                // Вращение
                 if (prim.rotation) {
                     mesh.rotation.x = THREE.MathUtils.degToRad(prim.rotation.tiltX || 0);
                     mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
                     mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
                 }
                 
+                // Метаданные для физики игрока
                 mesh.userData.isLadder = isLadder;
                 mesh.userData.type = prim.type;
                 
@@ -251,31 +278,6 @@ class ChunkManager {
             }
         }
         return group;
-    }
-
-    getStairCollisionGeometry(type, config) {
-        // Возвращает упрощенную геометрию лестницы для коллизий
-        // В идеале это должен быть один наклонный Box, покрывающий весь пролет
-        // Высота подъема = levelHeight
-        // Длина пролета зависит от типа
-        
-        const h = config.levelHeight;
-        const w = config.chunkSize / config.gridSize * 0.4; // Ширина лестницы
-        
-        // Для простоты создадим Box, повернутый под углом 45 градусов (примерно)
-        // Точный угол зависит от длины. Пусть длина будет 2 * cellSize
-        const len = (config.chunkSize / config.gridSize) * 2; 
-        const thickness = 0.5;
-        
-        const geo = new THREE.BoxGeometry(len, thickness, w);
-        
-        // Смещаем центр, чтобы pivot был внизу
-        // И поворачиваем
-        const angle = Math.atan(h / len);
-        geo.rotateX(angle);
-        geo.translate(0, h/2, 0); // Поднимаем, чтобы низ был на 0
-        
-        return geo;
     }
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
