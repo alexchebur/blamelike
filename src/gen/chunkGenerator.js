@@ -10,6 +10,10 @@ import edgeAgreement from './edgeAgreement.js';
 /**
  * Генерирует экраны, прикрепленные к нижней стороне платформ
  */
+/**
+ * Генерирует экраны, прикрепленные к нижней стороне платформ
+ * Экраны висят перпендикулярно полу, верхним ребром касаясь платформы
+ */
 function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { platformThickness } = config;
@@ -19,10 +23,10 @@ function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng,
     const types = ['monitor', 'panel', 'display'];
 
     for (const platform of platforms) {
-        // Нас интересуют только обычные платформы (type: 'box'), не лестницы
+        // Нас интересуют только обычные платформы (type: 'box'), не лестницы и не мосты
         if (platform.type !== 'box') continue;
         
-        // Детерминированный шанс появления экрана
+        // Детерминированный шанс появления экрана на основе координат платформы
         const hash = hash3D(
             Math.floor(platform.position.x), 
             Math.floor(platform.position.y), 
@@ -33,16 +37,19 @@ function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng,
         if (hash < screenChance) {
             const type = types[Math.floor(hash * types.length)];
             
-            // Позиция экрана: под платформой
-            // Платформа имеет высоту platformThickness, центр в platform.position.y
-            // Нижняя грань платформы: platform.position.y - platformThickness / 2
-            // Экран вешаем чуть ниже нижней грани
-            const screenOffset = 0.2; // Отступ от платформы
-            const yPos = platform.position.y - (platformThickness / 2) - screenOffset;
+            // === РАСЧЕТ ПОЗИЦИИ ДЛЯ ИДЕАЛЬНОГО ПРИМЫКАНИЯ ===
+            // 1. Нижняя грань платформы
+            const bottomY = platform.position.y - (platformThickness / 2);
             
-            // Размеры экрана (чуть меньше платформы)
-            const screenWidth = platform.scale.x * 0.8;
-            const screenHeight = platform.scale.z * 0.8; // Используем Z как высоту текстуры
+            // 2. Размеры экрана (80% от размера платформы, но не меньше 0.5)
+            const screenWidth = Math.max(0.5, platform.scale.x * 0.8);
+            const screenHeight = Math.max(0.5, platform.scale.z * 0.8);
+            
+            // 3. Позиция ЦЕНТРА экрана
+            // При повороте tiltX=90 локальная ось Y становится вертикальной.
+            // Чтобы верхнее ребро (центр + height/2) касалось bottomY,
+            // центр должен быть на bottomY - height/2
+            const yPos = bottomY - (screenHeight / 2);
             
             primitives.push({
                 type: 'screen',
@@ -53,14 +60,14 @@ function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng,
                     z: platform.position.z 
                 },
                 rotation: { 
-                    tiltX: 85 + rng() * 10,     // Наклон 85-95° (почти вертикально, но с живым уклоном)
-                    tiltY: 0, //rng() * 360,         // Случайный поворот вокруг вертикали
-                    twistZ: 0  //(rng() - 0.5) * 10  // Легкий перекос для "индустриальной небрежности"
+                    tiltX: 90,    // Строго перпендикулярно платформе (свисает вниз)
+                    tiltY: 0,     // Можно добавить рандом через hash, если нужно разнообразие
+                    twistZ: 0 
                 },
                 scale: { 
                     x: screenWidth, 
-                    y: screenHeight, 
-                    z: 1 
+                    y: screenHeight, // Высота "таблички" в мировых единицах
+                    z: 1             // Глубина не важна для PlaneGeometry
                 },
                 paletteSlot: 'glow',
                 role: 'decor',
