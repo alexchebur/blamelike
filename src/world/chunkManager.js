@@ -64,6 +64,71 @@ class ChunkManager {
         }
         this.unloadUnusedChunks(desiredChunks);
     }
+    // ... внутри class ChunkManager
+
+    /**
+     * Возвращает список всех платформ (примитивов типа 'box') из активных чанков
+     * Используется для поиска точки спавна
+     */
+    getActivePlatforms() {
+        const platforms = [];
+        for (const [key, chunk] of this.activeChunks) {
+            // Мы не можем легко получить исходные примитивы из InstancedMesh,
+            // поэтому нам нужно либо кэшировать примитивы, либо генерировать их заново.
+            // Для простоты и производительности при старте, мы можем использовать данные из кэша.
+            // Но так как ключи чанков зависят от позиции, давайте просто проверим чанк вокруг 0,0,0
+            
+            // Более надежный способ: запросить генерацию чанка (0,0,0) если он еще не загружен,
+            // или взять из кэша.
+        }
+        
+        // Упрощенный вариант: Генерируем чанк (0,0,0) специально для спавна, если нужно
+        // Но лучше использовать уже загруженные данные. 
+        // Так как у нас нет прямого доступа к PrimitiveRecord[] после создания меша,
+        // давайте добавим хранение примитивов в activeChunks.
+        
+        return []; 
+    }
+
+
+    /**
+     * Находит первую доступную платформу в радиусе поиска
+     * @param {THREE.Vector3} center - центр поиска
+     * @param {number} radius - радиус поиска в чанках
+     * @returns {{x: number, y: number, z: number, height: number}|null}
+     */
+    findSpawnPoint(center, radius = 1) {
+        const cx = Math.floor(center.x / this.config.chunkSize);
+        const cy = Math.floor(center.y / this.config.chunkSize);
+        const cz = Math.floor(center.z / this.config.chunkSize);
+
+        // Проверяем чанки вокруг центра
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+                for (let dz = -radius; dz <= radius; dz++) {
+                    const key = createChunkKey(cx + dx, cy + dy, cz + dz);
+                    const chunk = this.activeChunks.get(key);
+                    
+                    if (chunk && chunk.userData.primitives) {
+                        // Ищем платформы (type: 'box' и role: 'frame')
+                        for (const prim of chunk.userData.primitives) {
+                            if (prim.type === 'box' && prim.role === 'frame') {
+                                // Возвращаем точку НАД платформой
+                                const topY = prim.position.y + (prim.scale.y / 2);
+                                return {
+                                    x: prim.position.x,
+                                    y: topY + 2, // +2 метра запаса над полом
+                                    z: prim.position.z,
+                                    platformHeight: topY
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
 
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
@@ -74,6 +139,8 @@ class ChunkManager {
         }
 
         const group = this.createChunkMesh(chunkData, config);
+                // СОХРАНЯЕМ ДАННЫЕ ЧАНКА ДЛЯ ФИЗИКИ И СПАВНА
+        group.userData.primitives = chunkData; 
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
         // 2. Создаем слой коллизий для этого чанка
