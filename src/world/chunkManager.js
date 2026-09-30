@@ -193,8 +193,20 @@ class ChunkManager {
             // Выбираем геометрию для коллизии
             switch (prim.type) {
                 case 'box':
-                case 'platform_stair': // Платформа со ступеньками считается просто коробкой для простоты? Нет, лучше точно.
-                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                case 'platform_stair':
+                    // ИСПОЛЬЗУЕМ ТУ ЖЕ ГЕОМЕТРИЮ ЧТО И ДЛЯ РЕНДЕРА!
+                    // Это предотвращает рассинхрон формы и коллайдера
+                    if (typeof getStairGeometry !== 'undefined') {
+                        const p = prim.params || {};
+                        geometry = getStairGeometry(
+                            prim.type, 
+                            p.platformThickness || config.platformThickness, 
+                            p.levelHeight || config.levelHeight
+                        );
+                        isLadder = true;
+                    } else {
+                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    }
                     break;
                 case 'cylinder':
                 case 'cone':
