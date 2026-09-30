@@ -6,60 +6,63 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         
-        // Состояние игрока
-        this.position = new THREE.Vector3(0, 50, 0); // Начальная позиция
+        this.position = new THREE.Vector3(0, 50, 0); 
         this.velocity = new THREE.Vector3();
         this.onGround = false;
-        this.onLadder = null; // Ссылка на объект лестницы, если на ней стоим
+        this.onLadder = null; 
         
-        // Параметры управления
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
         this.jump = false;
         
-        // Векторы направления
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Raycaster для проверки пола и стен
         this.raycaster = new THREE.Raycaster();
         this.downRay = new THREE.Vector3(0, -1, 0);
-        this.forwardRay = new THREE.Vector3();
         
-        // Настройки
         this.playerHeight = config.playerHeight || 1.8;
         this.playerRadius = config.playerRadius || 0.4;
-        this.speed = (config.moveSpeed || 10) / 1.5; // В 1.5 раза медленнее камеры
+        this.speed = (config.moveSpeed || 50) / 1.5; 
         this.jumpForce = config.jumpForce || 6;
         this.gravity = config.gravity || 18;
+        this.ladderSpeed = config.ladderClimbSpeed || 4;
+        
+        // Векторы для проверки стен (4 направления)
+        this.wallCheckDirs = [
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 0, -1)
+        ];
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
 
-        // Защита от падения в бездну (рестарт позиции)
-        if (this.position.y < -500) {
-            console.log("💀 Player fell into the void! Respawning...");
-            this.position.set(0, 50, 0); 
+        // === ЗАЩИТА ОТ БЕЗДНЫ ===
+        if (this.position.y < -200) {
+            console.warn("⚠️ Player fell into void! Resetting...");
+            this.position.set(0, 50, 0);
             this.velocity.set(0, 0, 0);
+            // Пытаемся найти безопасную точку через SceneManager/ChunkManager если возможно
+            // Но для надежности просто сбрасываем на дефолтную высоту
+            return; 
         }
 
-        // 1. Применяем гравитацию
+        // 1. Гравитация
         if (!this.onGround) {
             this.velocity.y -= this.gravity * deltaTime;
         }
 
-        // 2. Обработка ввода движения
+        // 2. Ввод движения
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
 
-        // 3. Расчет желаемого перемещения
         const moveSpeed = this.speed * deltaTime;
-        
-        // Получаем направление взгляда камеры (только горизонтальное)
         const camDir = new THREE.Vector3();
         camera.getWorldDirection(camDir);
         camDir.y = 0;
@@ -72,118 +75,133 @@ class PlayerController {
         if (this.direction.z !== 0) moveVec.addScaledVector(camDir, this.direction.z * moveSpeed);
         if (this.direction.x !== 0) moveVec.addScaledVector(camRight, this.direction.x * moveSpeed);
 
-        // 4. Проверка лестниц (Приоритет над обычным движением)
+        // 3. Логика лестниц
         let isClimbing = false;
         if (this.onLadder) {
-            // Если мы на лестнице и пытаемся двигаться вперед/назад относительно лестницы
-            // Проверяем, смотрим ли мы "вдоль" лестницы
-            const ladderDir = new THREE.Vector3();
-            this.onLadder.getWorldDirection(ladderDir); // Условное направление лестницы
-            
-            // Упрощенно: если нажата кнопка движения, мы ползем вверх/вниз
             if (this.moveForward || this.moveBackward) {
                 const climbDir = this.moveForward ? 1 : -1;
-                this.velocity.y = climbDir * (this.config.ladderClimbSpeed || 4);
-                this.velocity.x = 0; // Отключаем горизонтальное скольжение при лазании
+                this.velocity.y = climbDir * this.ladderSpeed;
+                this.velocity.x = 0; 
                 this.velocity.z = 0;
                 isClimbing = true;
-                this.onGround = true; // Чтобы не падал
+                this.onGround = true; 
             } else {
                 this.velocity.y = 0;
                 this.onGround = true;
             }
         }
 
-        // 5. Прыжок
+        // 4. Прыжок
         if (this.jump && this.onGround && !isClimbing) {
             this.velocity.y = this.jumpForce;
             this.onGround = false;
             this.jump = false;
         }
 
-        // 6. Интеграция скорости (предварительная позиция)
+        // 5. Предварительная позиция
         const nextPos = this.position.clone();
-        nextPos.x += this.velocity.x + moveVec.x;
-        nextPos.z += this.velocity.z + moveVec.z;
+        if (!isClimbing) {
+            nextPos.x += this.velocity.x + moveVec.x;
+            nextPos.z += this.velocity.z + moveVec.z;
+        }
         nextPos.y += this.velocity.y * deltaTime;
 
-        // 7. Коллизии со стенами (Горизонтальные)
-        // Используем простую проверку: пускаем лучи от центра игрока в стороны движения
+        // 6. Коллизии со стенами (Горизонтальные)
         if (!isClimbing) {
             this.checkWallCollisions(nextPos, moveVec);
         }
 
-        // 8. Коллизии с полом/потолком (Вертикальные) и Лестницами
+        // 7. Коллизии с полом/потолком (Вертикальные)
         this.checkFloorAndLadderCollisions(nextPos);
 
-        // 9. Применяем позицию к камере
+        // 8. Применение позиции
         this.position.copy(nextPos);
-        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z); // Глаза чуть ниже роста
-        
-        // Обновляем поворот камеры
+        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
     checkWallCollisions(nextPos, moveVec) {
-        // Упрощенная проверка: если следующая позиция внутри препятствия - отменяем движение
-        // В реальном проекте здесь нужен Sweep Test, но для MVP хватит проверки точки
-        // Мы проверяем коллизии только с объектами слоя 'collision'
+        const collisionLayer = this.sceneManager.collisionLayer;
+        if (!collisionLayer) return;
+
+        // Проверяем движение в каждом направлении отдельно
+        // Если есть препятствие на расстоянии радиуса игрока - блокируем ось
         
-        // Примечание: Для полной реализации нужно пройтись по близким чанкам.
-        // Для оптимизации мы будем проверять только объекты в радиусе 5 единиц от игрока.
-        // Но так как у нас нет пространственного индекса (Octree), мы полагаемся на то,
-        // что ChunkManager может предоставить список коллайдеров текущего чанка.
-        
-        // В данной реализации мы пока пропускаем сложную стену, 
-        // так как доступ к геометрии чанков из контроллера сложен без рефакторинга ChunkManager.
-        // Реализуем "мягкие" стены через Raycast вниз и вперед.
+        // Упрощенный вариант: проверяем 4 точки вокруг игрока
+        for (const dir of this.wallCheckDirs) {
+            this.raycaster.set(
+                new THREE.Vector3(nextPos.x, nextPos.y + this.playerHeight * 0.5, nextPos.z), 
+                dir
+            );
+            
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
+            
+            if (intersects.length > 0) {
+                const dist = intersects[0].distance;
+                // Если расстояние меньше радиуса + небольшой запас
+                if (dist < this.playerRadius + 0.1) {
+                    // Блокируем движение вдоль этой оси
+                    if (Math.abs(dir.x) > 0.5) {
+                        nextPos.x = this.position.x; // Откат по X
+                        this.velocity.x = 0;
+                    }
+                    if (Math.abs(dir.z) > 0.5) {
+                        nextPos.z = this.position.z; // Откат по Z
+                        this.velocity.z = 0;
+                    }
+                }
+            }
+        }
     }
 
     checkFloorAndLadderCollisions(nextPos) {
         this.onGround = false;
         this.onLadder = null;
 
-        // Луч вниз от ног игрока
-        const rayOrigin = nextPos.clone();
-        rayOrigin.y += 0.1; // Чуть выше пола, чтобы не застревать
-        
-        this.raycaster.set(rayOrigin, this.downRay);
-        
-        // Важно: нам нужно проверять пересечения только с объектами коллизий.
-        // В SceneManager мы должны хранить ссылку на группу коллизий.
-        const collisionObjects = this.sceneManager.collisionLayer?.children || [];
-        
-        if (collisionObjects.length === 0) return;
+        const collisionLayer = this.sceneManager.collisionLayer;
+        if (!collisionLayer) return;
 
-        const intersects = this.raycaster.intersectObjects(collisionObjects, false);
+        // Используем несколько лучей для надежности (центр + 4 точки по кругу)
+        // Это предотвращает соскальзывание с узких стен
+        const origins = [
+            new THREE.Vector3(nextPos.x, nextPos.y + 0.2, nextPos.z),
+            new THREE.Vector3(nextPos.x + 0.2, nextPos.y + 0.2, nextPos.z),
+            new THREE.Vector3(nextPos.x - 0.2, nextPos.y + 0.2, nextPos.z),
+            new THREE.Vector3(nextPos.x, nextPos.y + 0.2, nextPos.z + 0.2),
+            new THREE.Vector3(nextPos.x, nextPos.y + 0.2, nextPos.z - 0.2)
+        ];
 
-        if (intersects.length > 0) {
-            const hit = intersects[0];
-            const distance = hit.distance;
+        let closestHit = null;
+        let minDist = Infinity;
+
+        for (const origin of origins) {
+            this.raycaster.set(origin, this.downRay);
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
             
-            // Если расстояние до пола меньше высоты игрока (или радиуса)
-            if (distance < this.playerHeight * 0.5) { // Центр цилиндра
-                
-                // Проверка: это лестница?
-                if (hit.object.userData.isLadder) {
-                    this.onLadder = hit.object;
-                    // Корректируем Y, чтобы встать на ступеньку
-                    nextPos.y = hit.point.y + this.playerHeight * 0.5;
-                    this.velocity.y = 0;
-                    this.onGround = true;
-                } else {
-                    // Обычный пол
-                    nextPos.y = hit.point.y + this.playerHeight * 0.5;
-                    this.velocity.y = 0;
-                    this.onGround = true;
-                }
+            if (intersects.length > 0 && intersects[0].distance < minDist) {
+                minDist = intersects[0].distance;
+                closestHit = intersects[0];
+            }
+        }
+
+        if (closestHit && minDist < this.playerHeight * 0.6) {
+            if (closestHit.object.userData.isLadder) {
+                this.onLadder = closestHit.object;
+                nextPos.y = closestHit.point.y + this.playerHeight * 0.5;
+                this.velocity.y = 0;
+                this.onGround = true;
+            } else {
+                // Обычный пол
+                nextPos.y = closestHit.point.y + this.playerHeight * 0.5;
+                this.velocity.y = 0;
+                this.onGround = true;
             }
         }
         
         // Потолок
         if (this.velocity.y > 0) {
              this.raycaster.set(nextPos, new THREE.Vector3(0, 1, 0));
-             const upHits = this.raycaster.intersectObjects(collisionObjects, false);
+             const upHits = this.raycaster.intersectObjects(collisionLayer.children, false);
              if (upHits.length > 0 && upHits[0].distance < this.playerHeight) {
                  this.velocity.y = 0;
              }
