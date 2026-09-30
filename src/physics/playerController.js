@@ -33,6 +33,12 @@ class PlayerController {
 
     update(deltaTime, camera) {
         if (!camera) return;
+        
+        // === ЗАЩИТА: Ждем инициализации ChunkManager ===
+        if (!this.sceneManager.chunkManager) {
+            return; 
+        }
+
         const dt = Math.min(deltaTime, 0.05);
 
         // 1. Движение по горизонтали
