@@ -6,8 +6,8 @@ import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
 import { getStairGeometry } from '../geom/stairFactory.js';
-// import screenGenerator from './screenGenerator.js'; // Не нужен, если генерация внутри chunkGenerator
-// src/world/chunkManager.js
+import { createLCableGeometry } from '../geom/meshFactory.js'; // <-- ДОБАВЛЕН ИМПОРТ
+
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'; // Убедитесь, что импорт есть
 
 /**
