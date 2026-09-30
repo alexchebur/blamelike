@@ -55,7 +55,7 @@ function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng,
                 rotation: { 
                     tiltX: 85 + rng() * 10,     // Наклон 85-95° (почти вертикально, но с живым уклоном)
                     tiltY: rng() * 360,         // Случайный поворот вокруг вертикали
-                    twistZ: (rng() - 0.5) * 10  // Легкий перекос для "индустриальной небрежности"
+                    twistZ: 0  //(rng() - 0.5) * 10  // Легкий перекос для "индустриальной небрежности"
                 },
                 scale: { 
                     x: screenWidth, 
