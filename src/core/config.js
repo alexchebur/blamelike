@@ -172,6 +172,7 @@ export const defaultConfig = {
     pierceExitChunk: 0.3,
     
     // Decor
+    // Decor параметры
     decorDensity: {
         antennas: 0.05,
         spheres: 0.03,
@@ -183,12 +184,18 @@ export const defaultConfig = {
         vents: 0.03,
         mushrooms: 0.02,
         crates: 0.05,
-        cables: 0.08      // Плотность пучков кабелей (свисают с платформ)
+        cables: 0.08,       // Прямые вертикальные кабели
+        lCables: 0.06       // Изогнутые L-кабели (уголки)
     },
     cableWeights: {
-        thick: 0.3,       // Толстые силовые кабели (radius ~0.4)
-        medium: 0.5,      // Средние провода (radius ~0.2)
-        thin: 0.2         // Тонкие сигнальные линии (radius ~0.1)
+        thick: 0.3,
+        medium: 0.5,
+        thin: 0.2
+    },
+    lCableWeights: {
+        short: 0.4,         // Короткие уголки
+        medium: 0.4,        // Средние
+        long: 0.2           // Длинные
     },
     glowChance: 0.1,
     microDensity: 0.1,
