@@ -24,9 +24,8 @@ class App {
         this.init();
     }
 
-    /**
-     * Инициализация приложения
-     */
+// src/main.js
+
     async init() {
         try {
             console.log('🚀 Initializing Blame! Generator...');
@@ -38,6 +37,13 @@ class App {
             // 2. Создаем менеджер чанков (стриминг мира)
             this.chunkManager = new ChunkManager(this.sceneManager);
             console.log('✅ ChunkManager initialized');
+
+            // === ВАЖНО: Связываем ChunkManager с PlayerController ===
+            if (this.sceneManager.playerController) {
+                this.sceneManager.playerController.sceneManager.chunkManager = this.chunkManager;
+                console.log('✅ PlayerController linked to ChunkManager');
+            }
+            // =========================================================
             
             // 3. Создаем панель управления
             this.controlPanel = new ControlPanel(
@@ -50,15 +56,27 @@ class App {
             // 4. Запускаем стриминг чанков вокруг начальной позиции камеры
             this.updateChunks();
             
-            // 5. Скрываем индикатор загрузки
+            // 5. Находим точку спавна
+            const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
+            
+            if (spawnPos) {
+                console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
+                
+                if (this.sceneManager.playerController) {
+                    this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+                    this.sceneManager.playerController.velocity.set(0, 0, 0);
+                }
+            } else {
+                console.warn('⚠️ No spawn point found! Keeping default position.');
+            }
+
+            // 6. Скрываем индикатор загрузки
             this.loading.style.display = 'none';
             this.isInitialized = true;
             
             console.log('✅ Blame! Generator ready!');
-            console.log('📍 Управление камерой: ЛКМ + Драг / ПКМ + Драг / Колесо');
-            console.log(' Панель настроек: справа вверху');
             
-            // 6. Запускаем цикл рендеринга
+            // 7. Запускаем цикл рендеринга
             this.animate();
             
         } catch (error) {
