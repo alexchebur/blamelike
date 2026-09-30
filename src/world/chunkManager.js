@@ -228,8 +228,8 @@ class ChunkManager {
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
 
-            // Убрали case 'screen', так как он обрабатывается в ScreenManager
-            
+            case 'l_cable':
+                return createLCableGeometry(); // Импорт из meshFactory.js            
             default:
                 // console.warn(`Unknown geometry type: "${type}"`); // Можно закомментировать, чтобы не спамить
                 return new THREE.BoxGeometry(1, 1, 1);
