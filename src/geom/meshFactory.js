@@ -1,11 +1,18 @@
 // src/geom/meshFactory.js
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const cableGeomCache = {};
 
 /**
  * Создает геометрию L-образного кабеля (уголок)
  * Верхняя часть крепится к платформе, нижняя свисает под углом
+ * Pivot находится ровно в точке крепления (0,0,0)
  */
 export function createLCableGeometry() {
+    const cacheKey = 'l_cable_v1';
+    if (cableGeomCache[cacheKey]) return cableGeomCache[cacheKey];
+
     const geometries = [];
     
     // Верхний горизонтальный сегмент (крепление)
@@ -21,5 +28,7 @@ export function createLCableGeometry() {
     geometries.push(botSeg);
     
     // Объединяем в одну геометрию для InstancedMesh
-    return THREE.BufferGeometryUtils.mergeGeometries(geometries);
+    const mergedGeo = mergeGeometries(geometries);
+    cableGeomCache[cacheKey] = mergedGeo;
+    return mergedGeo;
 }
