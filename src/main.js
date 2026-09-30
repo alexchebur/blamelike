@@ -3,63 +3,64 @@
  * Главная точка входа приложения Blame! Industrial Landscape Generator
  * Инициализирует сцену, менеджер чанков, панель управления и запускает цикл рендеринга
  */
+import * as THREE from 'three'; // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
 import SceneManager from './render/sceneManager.js';
 import ControlPanel from './ui/controlPanel.js';
 import ChunkManager from './world/chunkManager.js';
-
-// ... imports
 
 class App {
     constructor() {
         this.container = document.getElementById('canvas-container');
         this.loading = document.getElementById('loading');
+        
+        // Основные компоненты
         this.sceneManager = null;
         this.controlPanel = null;
         this.chunkManager = null;
+        
+        // Состояние
         this.isInitialized = false;
+        
         this.init();
     }
 
+    /**
+     * Инициализация приложения
+     */
     async init() {
         try {
             console.log('🚀 Initializing Blame! Generator...');
             
+            // 1. Создаем менеджер сцены (Three.js)
             this.sceneManager = new SceneManager(this.container);
             console.log('✅ SceneManager initialized');
             
+            // 2. Создаем менеджер чанков (стриминг мира)
             this.chunkManager = new ChunkManager(this.sceneManager);
             console.log('✅ ChunkManager initialized');
             
+            // 3. Создаем панель управления
             this.controlPanel = new ControlPanel(
                 this.sceneManager,
                 this.chunkManager,
                 (config) => this.onConfigChange(config)
             );
+            console.log('✅ ControlPanel initialized');
             
-            // 1. Загружаем начальные чанки
+            // 4. Запускаем стриминг чанков вокруг начальной позиции камеры
             this.updateChunks();
             
-            // 2. НАХОДИМ ТОЧКУ СПАВНА
-            const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
-            
-            if (spawnPos) {
-                console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
-                
-                // Телепортируем камеру игрока
-                if (this.sceneManager.playerController) {
-                    this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-                    // Сбрасываем скорость, чтобы не было инерции падения
-                    this.sceneManager.playerController.velocity.set(0, 0, 0);
-                }
-            } else {
-                console.warn('⚠️ No spawn point found! Keeping default position.');
-            }
-
+            // 5. Скрываем индикатор загрузки
             this.loading.style.display = 'none';
             this.isInitialized = true;
-            console.log('✅ Blame! Generator ready!');
             
+            console.log('✅ Blame! Generator ready!');
+            console.log('📍 Управление камерой: ЛКМ + Драг / ПКМ + Драг / Колесо');
+            console.log(' Панель настроек: справа вверху');
+            
+            // 6. Запускаем цикл рендеринга
             this.animate();
+            
         } catch (error) {
             console.error('❌ Initialization error:', error);
             this.loading.textContent = 'Ошибка загрузки! Проверьте консоль.';
@@ -67,17 +68,17 @@ class App {
         }
     }
 
+    /**
+     * Обновление чанков вокруг камеры
+     */
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager) return;
-        // Используем позицию камеры из контроллера, если он есть, иначе дефолтную
-        const pos = this.sceneManager.playerController 
-            ? this.sceneManager.playerController.position 
-            : this.sceneManager.camera.position;
-            
+        
+        const cameraPos = this.sceneManager.camera.position;
         const config = this.controlPanel.getConfig();
-        this.chunkManager.update(pos, config);
+        
+        this.chunkManager.update(cameraPos, config);
     }
-    
 
     /**
      * Обработчик изменения конфигурации из панели
