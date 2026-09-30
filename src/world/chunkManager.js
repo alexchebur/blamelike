@@ -6,7 +6,7 @@ import { generateChunk } from '../gen/chunkGenerator.js';
 import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
 import { getStairGeometry } from '../geom/stairFactory.js';
-import { getCachedArchWallGeometry } from '../gen/archWallBuilder.js';
+// import screenGenerator from './screenGenerator.js'; // Не нужен, если генерация внутри chunkGenerator
 
 class ChunkManager {
     constructor(sceneManager) {
@@ -26,7 +26,6 @@ class ChunkManager {
             config.chunkSize
         );
 
-        // Обновляем чанки при смене текущего чанка камеры ИЛИ при изменении maxRenderDistance
         const distChanged = this.config?.maxRenderDistance !== config.maxRenderDistance;
         
         if (!this.lastCameraChunk || 
@@ -43,8 +42,6 @@ class ChunkManager {
     updateVisibleChunks(centerChunk, config, cameraPos) {
         const { viewChunksXY, viewChunksZ, chunkSize, maxRenderDistance = 300 } = config;
         const desiredChunks = new Set();
-        
-        // Максимальное расстояние в квадрате (избегаем Math.sqrt для производительности)
         const maxDistSq = maxRenderDistance * maxRenderDistance;
 
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
@@ -54,8 +51,6 @@ class ChunkManager {
                     const cy = centerChunk.cy + dy;
                     const cz = centerChunk.cz + dz;
                     
-                    // === ПРОВЕРКА ДИСТАНЦИИ ===
-                    // Вычисляем центр чанка в мировых координатах
                     const chunkCenterX = (cx + 0.5) * chunkSize;
                     const chunkCenterY = (cy + 0.5) * chunkSize;
                     const chunkCenterZ = (cz + 0.5) * chunkSize;
@@ -65,9 +60,7 @@ class ChunkManager {
                         Math.pow(chunkCenterY - cameraPos.y, 2) +
                         Math.pow(chunkCenterZ - cameraPos.z, 2);
                     
-                    // Пропускаем чанки за пределами радиуса рендеринга
                     if (distSq > maxDistSq) continue;
-                    // ==========================
 
                     const key = createChunkKey(cx, cy, cz);
                     desiredChunks.add(key);
@@ -95,11 +88,11 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // === РЕГИСТРАЦИЯ ЭКРАНОВ В SCREENMANAGER ===
+        // === РЕГИСТРАЦИЯ ЭКРАНОВ ===
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
-        // ===========================================
+        // ===========================
     }
 
     /**
@@ -107,7 +100,8 @@ class ChunkManager {
      */
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
-        
+        if (!screenManager) return;
+
         for (let i = 0; i < primitives.length; i++) {
             const prim = primitives[i];
             if (prim.type === 'screen') {
@@ -136,8 +130,9 @@ class ChunkManager {
             const slot = typeSlot.substring(lastPipeIndex + 1);
             const fullType = typeSlot.substring(0, lastPipeIndex);
             
-            // Пропускаем экраны - они обрабатываются отдельно через ScreenManager
+            // === ПРОПУСКАЕМ ЭКРАНЫ (они обрабатываются отдельно) ===
             if (fullType === 'screen') continue;
+            // ======================================================
             
             const mesh = this.createInstancedMesh(fullType, slot, items, config);
             if (mesh) group.add(mesh);
@@ -150,9 +145,7 @@ class ChunkManager {
         const grouped = {};
         for (const prim of primitives) {
             if (!prim.type || !prim.position) continue;
-            
             const key = `${prim.type}|${prim.paletteSlot || 'base'}`;
-            
             if (!grouped[key]) grouped[key] = [];
             grouped[key].push(prim);
         }
@@ -199,24 +192,15 @@ class ChunkManager {
         const segments = config.maxSegments || 16;
         
         switch (type) {
-            case 'box':
-                return new THREE.BoxGeometry(1, 1, 1);
-            case 'cylinder':
-                return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            case 'cone':
-                return new THREE.ConeGeometry(0.5, 1, segments);
-            case 'octahedron':
-                return new THREE.OctahedronGeometry(0.5);
-            case 'capsule':
-                return new THREE.CapsuleGeometry(0.5, 1, 4, 8, segments);
-            case 'torus':
-                return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            case 'sphere':
-                return new THREE.SphereGeometry(0.5, segments, segments);
-            case 'obelisk':
-                return new THREE.ConeGeometry(0.4, 1, 4); 
-            case 'spire':
-                return new THREE.ConeGeometry(0.2, 1, 8);
+            case 'box': return new THREE.BoxGeometry(1, 1, 1);
+            case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
+            case 'cone': return new THREE.ConeGeometry(0.5, 1, segments);
+            case 'octahedron': return new THREE.OctahedronGeometry(0.5);
+            case 'capsule': return new THREE.CapsuleGeometry(0.5, 1, 4, 8, segments);
+            case 'torus': return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
+            case 'sphere': return new THREE.SphereGeometry(0.5, segments, segments);
+            case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
+            case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
 
             case 'stair_north':
             case 'stair_south':
@@ -230,7 +214,6 @@ class ChunkManager {
                     const lh = p.levelHeight || config.levelHeight;
                     return getStairGeometry(type, pt, lh);
                 }
-                console.warn(`getStairGeometry is not defined for ${type}`);
                 return new THREE.BoxGeometry(1, 1, 1);
             
             case 'platform_stair':
@@ -238,31 +221,17 @@ class ChunkManager {
                     return getStairGeometry(`stair_${variant || 'east'}`);
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
+                
             case 'arch':
-                if (typeof getStairGeometry !== 'undefined') {
+                 if (typeof getStairGeometry !== 'undefined') {
                     return getStairGeometry('arch');
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
-            case 'arch_wall':
-                if (typeof getCachedArchWallGeometry !== 'undefined') {
-                    const p = item?.params || {};
-                    const width = item?.scale?.x || 1;
-                    const height = item?.scale?.y || 20;
-                    const depth = item?.scale?.z || 0.9;
-                    
-                    return getCachedArchWallGeometry({
-                        width,
-                        height,
-                        depth,
-                        archWidthRatio: p.archWidthRatio || 0.6,
-                        archHeightRatio: p.archHeightRatio || 0.4
-                    });
-                }
-                console.warn('getCachedArchWallGeometry is not defined');
-                return new THREE.BoxGeometry(1, 1, 1);
 
+            // Убрали case 'screen', так как он обрабатывается в ScreenManager
+            
             default:
-                console.warn(`Unknown geometry type: "${type}"`);
+                // console.warn(`Unknown geometry type: "${type}"`); // Можно закомментировать, чтобы не спамить
                 return new THREE.BoxGeometry(1, 1, 1);
         }
     }
@@ -273,24 +242,21 @@ class ChunkManager {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
                 
-                // === УДАЛЕНИЕ ЭКРАНОВ ЧАНКА ===
+                // === УДАЛЕНИЕ ЭКРАНОВ ===
                 if (this.sceneManager.screenManager) {
                     this.unregisterScreens(key);
                 }
-                // ==============================
+                // ========================
                 
                 this.activeChunks.delete(key);
             }
         }
     }
 
-    /**
-     * Удаляет все экраны, принадлежащие чанку
-     */
     unregisterScreens(chunkKey) {
         const screenManager = this.sceneManager.screenManager;
-        
-        // Удаляем все экраны, ключ которых начинается с chunkKey
+        if (!screenManager) return;
+
         for (const [screenKey] of screenManager.activeScreens) {
             if (screenKey.startsWith(chunkKey)) {
                 screenManager.removeScreen(screenKey);
@@ -316,11 +282,9 @@ class ChunkManager {
         this.cache.clear();
         this.lastCameraChunk = null;
         
-        // === ОЧИСТКА ВСЕХ ЭКРАНОВ ===
         if (this.sceneManager.screenManager) {
             this.sceneManager.screenManager.clearAll();
         }
-        // ============================
         
         console.log('🧹 All chunks cleared');
     }
