@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
 import ScreenManager from './screenManager.js'; // <--- ИМПОРТ МЕНЕДЖЕРА ЭКРАНОВ
+import PlayerController from '../physics/playerController.js'; // Добавляем импорт
 
 class SceneManager {
     constructor(container) {
@@ -35,7 +36,13 @@ class SceneManager {
         // === SCREEN MANAGER STATE ===
         this.screenManager = null;
         // ============================
-
+        // === НОВЫЕ ПОЛЯ ===
+        this.collisionLayer = new THREE.Group();
+        this.collisionLayer.name = "CollisionLayer";
+        this.scene.add(this.collisionLayer);
+        
+        this.playerController = null; // Инициализируется позже
+        // ==================
         this.init();
         this._bindEvents();
     }
@@ -133,8 +140,48 @@ class SceneManager {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
-
+        this.playerController = new PlayerController(this, this.config);
+        
+        // Привязка событий для игрока
+        document.addEventListener('keydown', (e) => this.onPlayerKeyDown(e));
+        document.addEventListener('keyup', (e) => this.onPlayerKeyUp(e));
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+    onPlayerKeyDown(event) {
+        if (!this.playerController) return;
+        switch (event.code) {
+            case 'KeyW': this.playerController.moveForward = true; break;
+            case 'KeyS': this.playerController.moveBackward = true; break;
+            case 'KeyA': this.playerController.moveLeft = true; break;
+            case 'KeyD': this.playerController.moveRight = true; break;
+            case 'Space': this.playerController.jump = true; break; // Прыжок на Space или ПКМ? В ТЗ ПКМ, но это неудобно. Оставим Space для прыжка, ПКМ для обзора? Нет, в ТЗ ПКМ - прыжок. Ок.
+        }
+    }
+
+    onPlayerKeyUp(event) {
+        if (!this.playerController) return;
+        switch (event.code) {
+            case 'KeyW': this.playerController.moveForward = false; break;
+            case 'KeyS': this.playerController.moveBackward = false; break;
+            case 'KeyA': this.playerController.moveLeft = false; break;
+            case 'KeyD': this.playerController.moveRight = false; break;
+            case 'Space': this.playerController.jump = false; break;
+        }
+    }
+    
+    // Модифицируем обработчик мыши
+    onMouseMove(event) {
+        // Вращение камеры (голова)
+        if (this.playerController) {
+            this.playerController.onMouseMove(event.movementX || 0, event.movementY || 0);
+        }
+    }
+    
+    // Обработчик клика для прыжка (ПКМ)
+    onMouseDown(event) {
+        if (event.button === 2 && this.playerController) { // ПКМ
+            this.playerController.jump = true;
+        }
+    }
         
         // === КЛЮЧЕВОЙ МОМЕНТ: ВЕРХ ЭТО Y ===
         this.camera.up.set(0, 1, 0); 
@@ -194,7 +241,15 @@ class SceneManager {
     }
 
     render() {
-        this.updateCameraMovement();
+        //this.updateCameraMovement();
+        const time = performance.now();
+        const delta = (time - this.prevTime) / 1000;
+        this.prevTime = time;
+
+        // Обновляем физику игрока
+        if (this.playerController && this.camera) {
+            this.playerController.update(delta, this.camera);
+        }
         
         // Обновляем позицию осей, чтобы они всегда были перед камерой
         if (this.axisHelper && this.camera) {
