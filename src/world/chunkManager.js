@@ -144,9 +144,30 @@ class ChunkManager {
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            dummy.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
-            dummy.rotation.set(0, 0, THREE.MathUtils.degToRad(item.rotation?.twistZ || 0));
-            dummy.scale.set(item.scale?.x ?? 1, item.scale?.y ?? 1, item.scale?.z ?? 1);
+            
+            // Позиция
+            dummy.position.set(
+                item.position?.x ?? 0, 
+                item.position?.y ?? 0, 
+                item.position?.z ?? 0
+            );
+            
+            // Поворот: используем tiltY для направления и twistZ для угла изгиба
+            // Для обычных объектов tiltY=0, для l_cable tiltY=azimuthDeg
+            const rotY = THREE.MathUtils.degToRad(item.rotation?.tiltY || 0);
+            const rotZ = THREE.MathUtils.degToRad(item.rotation?.twistZ || 0);
+            const rotX = THREE.MathUtils.degToRad(item.rotation?.tiltX || 0);
+            
+            dummy.rotation.set(rotX, rotY, rotZ);
+
+            // Масштаб: для l_cable scale.y/z - это толщина, scale.x - длина
+            // Для остальных типов - обычный масштаб
+            dummy.scale.set(
+                item.scale?.x ?? 1, 
+                item.scale?.y ?? 1, 
+                item.scale?.z ?? 1
+            );
+            
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
         }
