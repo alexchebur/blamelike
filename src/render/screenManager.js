@@ -3,6 +3,7 @@
 /**
  * ScreenManager - управление анимированными экранами
  * Отвечает за создание, обновление и анимацию светящихся панелей
+ * Исправлено для работы с MeshBasicMaterial (без emissive)
  */
 
 import * as THREE from 'three';
@@ -11,7 +12,7 @@ class ScreenManager {
     constructor(scene) {
         this.scene = scene;
         
-        // Активные экраны: Map<key, {mesh, material, screenData, lastUpdate}>
+        // Активные экраны: Map<key, {mesh, material, screenData, baseColor, type}>
         this.activeScreens = new Map();
         
         // Кэш текстур для переиспользования
@@ -22,22 +23,19 @@ class ScreenManager {
             monitor: {
                 width: 64,
                 height: 32,
-                emissiveColor: 0x00ff88,
-                emissiveIntensity: 0.8,
+                emissiveColor: 0x00ff88, // Зеленый
                 updateInterval: 150
             },
             panel: {
                 width: 32,
                 height: 16,
-                emissiveColor: 0x00aaff,
-                emissiveIntensity: 0.6,
+                emissiveColor: 0x00aaff, // Синий
                 updateInterval: 200
             },
             display: {
                 width: 48,
                 height: 24,
-                emissiveColor: 0xff6600,
-                emissiveIntensity: 0.9,
+                emissiveColor: 0xff6600, // Оранжевый
                 updateInterval: 100
             }
         };
@@ -66,7 +64,7 @@ class ScreenManager {
         const ctx = canvas.getContext('2d');
         
         const texture = new THREE.CanvasTexture(canvas);
-        texture.magFilter = THREE.NearestFilter;
+        texture.magFilter = THREE.NearestFilter; // Пиксельный вид
         texture.minFilter = THREE.NearestFilter;
         texture.generateMipmaps = false;
         
@@ -88,16 +86,19 @@ class ScreenManager {
         
         const screenData = this.createScreenTexture(type);
         const config = this.screenTypes[type];
+        const baseColor = new THREE.Color(config.emissiveColor);
         
-        // Создаем материал со свечением
+        // === ИСПРАВЛЕННЫЙ МАТЕРИАЛ ===
+        // MeshBasicMaterial не имеет emissive, используем color для "свечения"
         const material = new THREE.MeshBasicMaterial({
             map: screenData.texture,
-            emissive: new THREE.Color(config.emissiveColor),
-            emissiveIntensity: config.emissiveIntensity,
+            color: baseColor,          // Яркий цвет вместо emissive
             transparent: true,
             opacity: 0.95,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            depthWrite: false          // Избегаем артефактов прозрачности
         });
+        // =============================
         
         // Геометрия плоскости
         const geometry = new THREE.PlaneGeometry(1, 1);
@@ -120,8 +121,8 @@ class ScreenManager {
             mesh,
             material,
             screenData,
-            type,
-            lastUpdate: Date.now()
+            baseColor, // Сохраняем для корректного мерцания
+            type
         });
     }
 
@@ -257,7 +258,7 @@ class ScreenManager {
     update(deltaTime) {
         const now = Date.now();
         
-        // Обновляем только если прошло достаточно времени
+        // Обновляем только если прошло достаточно времени (экономия CPU)
         if (now - this.lastUpdateTime < 100) {
             return;
         }
@@ -271,10 +272,13 @@ class ScreenManager {
             this.updateScreenFrame(screen.screenData, this.frameCount);
             screen.screenData.texture.needsUpdate = true;
             
-            // Мерцаем интенсивностью свечения
+            // === ИСПРАВЛЕННОЕ МЕРЦАНИЕ ===
+            // Меняем opacity вместо emissiveIntensity
             const flicker = 0.7 + Math.random() * 0.3;
-            const baseIntensity = this.screenTypes[screen.type]?.emissiveIntensity || 0.8;
-            screen.material.emissiveIntensity = baseIntensity * flicker;
+            screen.material.opacity = flicker;
+            
+            // Опционально: можно также слегка менять яркость цвета
+            // screen.material.color.copy(screen.baseColor).multiplyScalar(0.8 + Math.random() * 0.4);
         }
     }
 
