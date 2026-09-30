@@ -6,53 +6,41 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         
-        this.position = new THREE.Vector3(0, 10, 0); // Чуть выше нуля, чтобы упасть на первую платформу 
+        // Состояние игрока
+        this.position = new THREE.Vector3(0, 50, 0); 
         this.velocity = new THREE.Vector3();
         this.onGround = false;
         this.onLadder = null; 
         
+        // Параметры управления
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
         this.jump = false;
         
+        // Векторы направления
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
+        // Raycaster
         this.raycaster = new THREE.Raycaster();
         this.downRay = new THREE.Vector3(0, -1, 0);
         
+        // Настройки
         this.playerHeight = config.playerHeight || 1.8;
         this.playerRadius = config.playerRadius || 0.4;
         this.speed = (config.moveSpeed || 50) / 1.5; 
         this.jumpForce = config.jumpForce || 6;
         this.gravity = config.gravity || 18;
         this.ladderSpeed = config.ladderClimbSpeed || 4;
-        
-        // Векторы для проверки стен (4 направления)
-        this.wallCheckDirs = [
-            new THREE.Vector3(1, 0, 0),
-            new THREE.Vector3(-1, 0, 0),
-            new THREE.Vector3(0, 0, 1),
-            new THREE.Vector3(0, 0, -1)
-        ];
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
 
-        // === ЗАЩИТА ОТ БЕЗДНЫ ===
-        // Если упали слишком низко, телепортируем обратно вверх
-        if (this.position.y < -200) {
-            console.warn('⚠️ Player fell into void! Resetting position.');
-            this.position.y = 100;
-            this.velocity.set(0, 0, 0);
-            return;
-        }
-
-        // Ограничиваем deltaTime, чтобы при лагах не пробивать пол
-        const dt = Math.min(deltaTime, 0.05); 
+        // Ограничиваем dt, чтобы не проваливаться сквозь пол при лагах
+        const dt = Math.min(deltaTime, 0.05);
 
         // 1. Гравитация
         if (!this.onGround) {
@@ -64,7 +52,8 @@ class PlayerController {
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
 
-        const moveSpeed = this.speed * deltaTime;
+        // 3. Расчет вектора движения относительно взгляда
+        const moveSpeed = this.speed * dt;
         const camDir = new THREE.Vector3();
         camera.getWorldDirection(camDir);
         camDir.y = 0;
@@ -77,7 +66,7 @@ class PlayerController {
         if (this.direction.z !== 0) moveVec.addScaledVector(camDir, this.direction.z * moveSpeed);
         if (this.direction.x !== 0) moveVec.addScaledVector(camRight, this.direction.x * moveSpeed);
 
-        // 3. Логика лестниц
+        // 4. Логика лестниц
         let isClimbing = false;
         if (this.onLadder) {
             if (this.moveForward || this.moveBackward) {
@@ -93,7 +82,7 @@ class PlayerController {
             }
         }
 
-        // 4. Прыжок
+        // 5. Прыжок
         if (this.jump && this.onGround && !isClimbing) {
             this.velocity.y = this.jumpForce;
             this.onGround = false;
@@ -114,75 +103,37 @@ class PlayerController {
         // 8. Применение позиции к камере
         this.position.copy(nextPos);
         camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
-        camera.quaternion.setFromEuler(this.cameraEuler);
-    }
-    checkWallCollisions(nextPos, moveVec) {
-        const collisionLayer = this.sceneManager.collisionLayer;
-        if (!collisionLayer) return;
-
-        // Проверяем движение в каждом направлении отдельно
-        // Если есть препятствие на расстоянии радиуса игрока - блокируем ось
         
-        // Упрощенный вариант: проверяем 4 точки вокруг игрока
-        for (const dir of this.wallCheckDirs) {
-            this.raycaster.set(
-                new THREE.Vector3(nextPos.x, nextPos.y + this.playerHeight * 0.5, nextPos.z), 
-                dir
-            );
-            
-            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
-            
-            if (intersects.length > 0) {
-                const dist = intersects[0].distance;
-                // Если расстояние меньше радиуса + небольшой запас
-                if (dist < this.playerRadius + 0.1) {
-                    // Блокируем движение вдоль этой оси
-                    if (Math.abs(dir.x) > 0.5) {
-                        nextPos.x = this.position.x; // Откат по X
-                        this.velocity.x = 0;
-                    }
-                    if (Math.abs(dir.z) > 0.5) {
-                        nextPos.z = this.position.z; // Откат по Z
-                        this.velocity.z = 0;
-                    }
-                }
-            }
-        }
+        // Обновление поворота камеры
+        camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
     checkFloorAndLadderCollisions(nextPos) {
         this.onGround = false;
         this.onLadder = null;
 
-        // Пускаем луч чуть выше предполагаемых ног
         const rayOrigin = nextPos.clone();
         rayOrigin.y += 0.2; 
         
         this.raycaster.set(rayOrigin, this.downRay);
-        // Увеличиваем дистанцию проверки, чтобы не проскакивать тонкие объекты
         this.raycaster.far = this.playerHeight + 0.5; 
 
         const collisionLayer = this.sceneManager.collisionLayer;
-        if (!collisionLayer || collisionLayer.children.length === 0) return;
+        if (!collisionLayer) return;
 
-        // ВАЖНО: recursive = true, так как коллизии лежат во вложенных группах чанков
+        // ВАЖНО: recursive: true, чтобы видеть коллайдеры внутри групп чанков
         const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
 
         if (intersects.length > 0) {
-            // Берем ближайшее пересечение
             const hit = intersects[0];
             
-            // Проверяем, что мы падаем вниз или стоим, а не летим вверх сквозь пол
             if (this.velocity.y <= 0 && hit.distance < this.playerHeight * 0.6) {
-                
                 if (hit.object.userData.isLadder) {
                     this.onLadder = hit.object;
-                    // На лестнице фиксируем Y точно по точке удара + половина роста
                     nextPos.y = hit.point.y + this.playerHeight * 0.5;
                     this.velocity.y = 0;
                     this.onGround = true;
                 } else {
-                    // Обычный пол
                     nextPos.y = hit.point.y + this.playerHeight * 0.5;
                     this.velocity.y = 0;
                     this.onGround = true;
