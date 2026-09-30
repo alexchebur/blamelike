@@ -171,7 +171,6 @@ export const defaultConfig = {
     pierceDepth: 3,
     pierceExitChunk: 0.3,
     
-    // Decor
     // Decor параметры
     decorDensity: {
         antennas: 0.05,
@@ -192,10 +191,10 @@ export const defaultConfig = {
         medium: 0.5,
         thin: 0.2
     },
-    lCableWeights: {
-        short: 0.4,         // Короткие уголки
-        medium: 0.4,        // Средние
-        long: 0.2           // Длинные
+    lCableWeights: {          // <-- ДОБАВЬТЕ ЭТОТ БЛОК
+        short: 0.4,
+        medium: 0.4,
+        long: 0.2
     },
     glowChance: 0.1,
     microDensity: 0.1,
