@@ -394,9 +394,6 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
-/**
- * Этап F: Декор (Прямые кабели + L-кабели)
- */
 function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { decorDensity, cableWeights, lCableWeights, levelHeight, gridSize, roomDensity } = config;
@@ -535,5 +532,4 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
 
     return primitives;
 }
-
 export default { generateChunk };
