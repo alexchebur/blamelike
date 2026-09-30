@@ -683,7 +683,65 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             paletteSlot: 'baseLight', role: 'decor'
         });
     }
+    // Внутри generateDecor, после генерации сфер
 
+    const cableBundleCount = Math.floor(w * (decorDensity.cables || 0));
+    for (let i = 0; i < cableBundleCount; i++) {
+        // Находим случайную занятую клетку платформы
+        let placed = false;
+        let attempts = 0;
+        while (!placed && attempts < 20) {
+            const gx = Math.floor(rng() * gridSize);
+            const gy = Math.floor(rng() * gridSize);
+            const level = startLevel + Math.floor(rng() * (endLevel - startLevel + 1));
+        
+            if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
+                const yBase = level * levelHeight;
+                const attachY = yBase - (config.platformThickness || 0.5);
+            
+                // Количество кабелей в пучке: 4-8 штук
+                const bundleSize = 4 + Math.floor(rng() * 5);
+            
+                for (let b = 0; b < bundleSize; b++) {
+                    // Вариативность внутри пучка
+                    const lengthRatio = 0.6 + rng() * 0.8; // 0.6x - 1.4x базовой длины
+                    const thickness = 0.08 + rng() * 0.12; // 0.08 - 0.20
+                    const bendAngle = 15 + rng() * 45;     // 15° - 60° от вертикали
+                
+                    // Смещение точки крепления внутри клетки
+                    const offsetX = (rng() - 0.5) * cellSize * 0.7;
+                    const offsetZ = (rng() - 0.5) * cellSize * 0.7;
+                
+                    // Поворот всего уголка вокруг вертикальной оси (случайное направление свисания)
+                    const azimuthDeg = rng() * 360;
+                
+                    primitives.push({
+                        type: 'l_cable',
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize + offsetX, 
+                            y: attachY, // Пivot точно на нижней грани платформы
+                            z: bounds.min.z + (gy + 0.5) * cellSize + offsetZ 
+                        },
+                        rotation: { 
+                            tiltX: 0, 
+                            tiltY: azimuthDeg,      // Направление свисания
+                            twistZ: bendAngle       // Угол изгиба (наклон нижнего сегмента)
+                        }, 
+                        scale: { 
+                            x: lengthRatio,         // Масштабирует длину нижнего сегмента
+                            y: thickness / 0.1,     // Масштабирует толщину
+                            z: thickness / 0.1 
+                        },
+                        paletteSlot: rng() > 0.7 ? 'accent' : 'shadow',
+                        flags: {},
+                        role: 'decor'
+                    });
+                }
+                placed = true;
+            }
+            attempts++;
+        }
+    }
     return primitives;
 }
 
