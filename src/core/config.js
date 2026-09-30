@@ -234,7 +234,14 @@ export const defaultConfig = {
     maxSegments: 16,
     // В defaultConfig, рядом с Performance или Look
     maxRenderDistance: 400, // Расстояние отрисовки в мировых единицах
-
+// ... внутри defaultConfig
+    // Player Physics
+    playerHeight: 1.8,        // Рост игрока
+    playerRadius: 0.4,        // Радиус коллайдера игрока (цилиндр)
+    moveSpeed: 5.0,           // Базовая скорость (будет делиться на 1.5)
+    jumpForce: 6.0,           // Сила прыжка
+    gravity: 18.0,            // Гравитация
+    ladderClimbSpeed: 4.0,    // Скорость подъема по лестнице
     // === DEBUG / TUNING (для ручной настройки лестниц) ===
     stairTwistOffset: 0,
     stairTiltOffset: 0,
