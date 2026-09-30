@@ -39,6 +39,13 @@ class PlayerController {
     update(deltaTime, camera) {
         if (!camera) return;
 
+        // Защита от падения в бездну (рестарт позиции)
+        if (this.position.y < -500) {
+            console.log("💀 Player fell into the void! Respawning...");
+            this.position.set(0, 50, 0); 
+            this.velocity.set(0, 0, 0);
+        }
+
         // 1. Применяем гравитацию
         if (!this.onGround) {
             this.velocity.y -= this.gravity * deltaTime;
