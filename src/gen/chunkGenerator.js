@@ -60,7 +60,7 @@ function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng,
                     z: platform.position.z 
                 },
                 rotation: { 
-                    tiltX: 90,    // Строго перпендикулярно платформе (свисает вниз)
+                    tiltX: 0,    // Строго перпендикулярно платформе (свисает вниз)
                     tiltY: 0,     // Можно добавить рандом через hash, если нужно разнообразие
                     twistZ: 0 
                 },
