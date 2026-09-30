@@ -6,7 +6,7 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         
-        this.position = new THREE.Vector3(0, 50, 0); 
+        this.position = new THREE.Vector3(0, 10, 0); // Чуть выше нуля, чтобы упасть на первую платформу 
         this.velocity = new THREE.Vector3();
         this.onGround = false;
         this.onLadder = null; 
