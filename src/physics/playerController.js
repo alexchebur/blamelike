@@ -6,140 +6,103 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         
-        // Состояние игрока
         this.position = new THREE.Vector3(0, 50, 0); 
         this.velocity = new THREE.Vector3();
-        this.onGround = false;
-        this.onLadder = null; 
         
-        // Параметры управления
+        // Состояние
+        this.onGround = false;
+        this.isFalling = false;
+        this.onLadder = false;
+        
+        // Управление
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
         this.jump = false;
         
-        // Векторы направления
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Raycaster
-        this.raycaster = new THREE.Raycaster();
-        this.downRay = new THREE.Vector3(0, -1, 0);
-        
-        // Настройки
+        // Параметры
         this.playerHeight = config.playerHeight || 1.8;
-        this.playerRadius = config.playerRadius || 0.4;
         this.speed = (config.moveSpeed || 50) / 1.5; 
-        this.jumpForce = config.jumpForce || 6;
-        this.gravity = config.gravity || 18;
-        this.ladderSpeed = config.ladderClimbSpeed || 4;
+        this.fallSpeed = config.fallSpeed || 5; // Медленное падение
+        this.climbSpeed = config.ladderClimbSpeed || 4;
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
-
-        // Ограничиваем dt, чтобы не проваливаться сквозь пол при лагах
         const dt = Math.min(deltaTime, 0.05);
 
-        // 1. Гравитация
-        if (!this.onGround) {
-            this.velocity.y -= this.gravity * dt;
-        }
-
-        // 2. Ввод движения
+        // 1. Движение по горизонтали
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
 
-        // 3. Расчет вектора движения относительно взгляда
         const moveSpeed = this.speed * dt;
         const camDir = new THREE.Vector3();
         camera.getWorldDirection(camDir);
         camDir.y = 0;
         camDir.normalize();
-
-        const camRight = new THREE.Vector3();
-        camRight.crossVectors(camDir, new THREE.Vector3(0, 1, 0));
+        const camRight = new THREE.Vector3().crossVectors(camDir, new THREE.Vector3(0, 1, 0));
 
         const moveVec = new THREE.Vector3();
         if (this.direction.z !== 0) moveVec.addScaledVector(camDir, this.direction.z * moveSpeed);
         if (this.direction.x !== 0) moveVec.addScaledVector(camRight, this.direction.x * moveSpeed);
 
-        // 4. Логика лестниц
-        let isClimbing = false;
-        if (this.onLadder) {
-            if (this.moveForward || this.moveBackward) {
-                const climbDir = this.moveForward ? 1 : -1;
-                this.velocity.y = climbDir * this.ladderSpeed;
-                this.velocity.x = 0; 
-                this.velocity.z = 0;
-                isClimbing = true;
-                this.onGround = true; 
-            } else {
-                this.velocity.y = 0;
-                this.onGround = true;
-            }
-        }
+        // Предварительная позиция X/Z
+        const nextX = this.position.x + moveVec.x;
+        const nextZ = this.position.z + moveVec.z;
 
-        // 5. Прыжок
-        if (this.jump && this.onGround && !isClimbing) {
-            this.velocity.y = this.jumpForce;
-            this.onGround = false;
-            this.jump = false;
-        }
+        // 2. Логика высоты (Гравитация и Пол)
+        const logicalData = this.sceneManager.chunkManager.getLogicalHeight(nextX, nextZ, this.config);
+        let targetY = this.position.y;
 
-        // 6. Предварительная позиция
-        const nextPos = this.position.clone();
-        if (!isClimbing) {
-            nextPos.x += this.velocity.x + moveVec.x;
-            nextPos.z += this.velocity.z + moveVec.z;
-        }
-        nextPos.y += this.velocity.y * dt;
-
-        // 7. Коллизии
-        this.checkFloorAndLadderCollisions(nextPos);
-
-        // 8. Применение позиции к камере
-        this.position.copy(nextPos);
-        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
-        
-        // Обновление поворота камеры
-        camera.quaternion.setFromEuler(this.cameraEuler);
-    }
-
-    checkFloorAndLadderCollisions(nextPos) {
-        this.onGround = false;
-        this.onLadder = null;
-
-        const rayOrigin = nextPos.clone();
-        rayOrigin.y += 0.2; 
-        
-        this.raycaster.set(rayOrigin, this.downRay);
-        this.raycaster.far = this.playerHeight + 0.5; 
-
-        const collisionLayer = this.sceneManager.collisionLayer;
-        if (!collisionLayer) return;
-
-        // ВАЖНО: recursive: true, чтобы видеть коллайдеры внутри групп чанков
-        const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
-
-        if (intersects.length > 0) {
-            const hit = intersects[0];
+        if (logicalData) {
+            // Мы над твердой поверхностью
+            this.isFalling = false;
+            this.onLadder = logicalData.isLadder;
             
-            if (this.velocity.y <= 0 && hit.distance < this.playerHeight * 0.6) {
-                if (hit.object.userData.isLadder) {
-                    this.onLadder = hit.object;
-                    nextPos.y = hit.point.y + this.playerHeight * 0.5;
-                    this.velocity.y = 0;
-                    this.onGround = true;
+            const floorY = logicalData.y;
+            
+            if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                // ЛАЗАНИЕ ПО ЛЕСТНИЦЕ
+                const climbDir = this.moveForward ? 1 : -1;
+                targetY += climbDir * this.climbSpeed * dt;
+                // Ограничиваем, чтобы не улететь выше потолка лестницы (упрощенно)
+            } else {
+                // СТОИМ НА ПОВЕРХНОСТИ
+                // Плавно выравниваемся по высоте пола, если мы близко
+                const desiredY = floorY + this.playerHeight * 0.5;
+                
+                // Если мы упали сверху, просто телепортируемся на пол
+                if (this.position.y > desiredY) {
+                     // Можно сделать плавное приземление, но для надежности лучше жестко:
+                     if (this.position.y - desiredY < 2.0) {
+                         targetY = desiredY;
+                     } else {
+                         // Если упали с большой высоты, все равно ставим на пол
+                         targetY = desiredY;
+                     }
                 } else {
-                    nextPos.y = hit.point.y + this.playerHeight * 0.5;
-                    this.velocity.y = 0;
-                    this.onGround = true;
+                    targetY = desiredY;
                 }
             }
+        } else {
+            // МЫ В ПУСТОТЕ
+            this.isFalling = true;
+            this.onLadder = false;
+            // Медленное падение
+            targetY -= this.fallSpeed * dt;
         }
+
+        // Применяем позицию
+        this.position.set(nextX, targetY, nextZ);
+
+        // 3. Камера
+        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
+        camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
     onMouseMove(movementX, movementY) {
