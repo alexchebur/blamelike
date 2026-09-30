@@ -61,7 +61,7 @@ function generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng,
                 },
                 rotation: { 
                     tiltX: 0,    // Строго перпендикулярно платформе (свисает вниз)
-                    tiltY: 0,     // Можно добавить рандом через hash, если нужно разнообразие
+                    tiltY: rng() * 360, //0,     // Можно добавить рандом через hash, если нужно разнообразие
                     twistZ: 0 
                 },
                 scale: { 
