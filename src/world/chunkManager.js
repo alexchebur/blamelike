@@ -7,7 +7,32 @@ import ChunkCache from './chunkCache.js';
 import { palettes } from '../core/config.js';
 import { getStairGeometry } from '../geom/stairFactory.js';
 // import screenGenerator from './screenGenerator.js'; // Не нужен, если генерация внутри chunkGenerator
+// src/world/chunkManager.js
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'; // Убедитесь, что импорт есть
 
+/**
+ * Создает базовую геометрию L-кабеля (уголок)
+ * Pivot находится ровно в углу крепления к платформе (0,0,0)
+ */
+function createLCableGeometry() {
+    const geometries = [];
+    
+    // Верхний горизонтальный сегмент (крепление к платформе)
+    // Длина 0.5, Толщина 0.1, Ширина 0.1
+    const topSeg = new THREE.BoxGeometry(0.5, 0.1, 0.1);
+    // Сдвигаем центр так, чтобы угол оказался в точке (0,0,0)
+    topSeg.translate(0.25, 0, 0); 
+    geometries.push(topSeg);
+    
+    // Нижний свисающий сегмент
+    // Длина 1.0 (будет скейлиться через scale.x), Толщина 0.1, Ширина 0.1
+    const botSeg = new THREE.BoxGeometry(0.1, 1.0, 0.1);
+    // Сдвигаем вниз от угла
+    botSeg.translate(0, -0.5, 0); 
+    geometries.push(botSeg);
+    
+    return mergeGeometries(geometries);
+}
 class ChunkManager {
     constructor(sceneManager) {
         this.sceneManager = sceneManager;
