@@ -605,6 +605,10 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
                     const bundleSize = 3 + Math.floor(rng() * 5); 
                     
                     for (let b = 0; b < bundleSize; b++) {
+// Внутри generateDecor, в цикле генерации пучков кабелей
+
+// ... после определения bundleSize и цикла for (let b = 0; b < bundleSize; b++)
+
                         // Определяем тип кабеля внутри пучка
                         let r = rng() * ((cableWeights?.thick || 0.3) + (cableWeights?.medium || 0.5) + (cableWeights?.thin || 0.2));
                         let radius = 0.1;
@@ -617,15 +621,21 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
                             radius = 0.2; length = 8 + rng() * 10; slot = 'accent';
                         }
 
-                        // Смещение внутри клетки платформы, чтобы кабели не сливались в одну линию
+                        // Смещение внутри клетки платформы
                         const offsetX = (rng() - 0.5) * cellSize * 0.6;
                         const offsetZ = (rng() - 0.5) * cellSize * 0.6;
 
+                        // ИСПРАВЛЕНИЕ: Крепим строго к НИЖНЕЙ грани платформы
+                        // yBase - это высота уровня (верхняя грань плиты)
+                        // platformThickness - толщина самой плиты
+                        const attachY = yBase - (config.platformThickness || 1); 
+                        
                         primitives.push({
                             type: 'capsule',
                             position: { 
                                 x: bounds.min.x + (gx + 0.5) * cellSize + offsetX, 
-                                y: yBase - length / 2, // Висят вниз от уровня платформы
+                                // Центр капсулы смещаем вниз на половину длины ОТ точки крепления
+                                y: attachY - length / 2, 
                                 z: bounds.min.z + (gy + 0.5) * cellSize + offsetZ 
                             },
                             rotation: { 
@@ -643,7 +653,6 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
             }
         }
     }
-
     // 4. Торусы
     for (let i = 0; i < Math.floor(w * (decorDensity.torus || 0)); i++) {
         primitives.push({
