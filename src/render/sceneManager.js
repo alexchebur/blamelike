@@ -12,38 +12,22 @@ class SceneManager {
         this.camera = null;
         this.renderer = null;
 
-        // === FPS CONTROLS STATE ===
         this.euler = new THREE.Euler(0, 0, 0, 'YXZ');
         this.PI_2 = Math.PI / 2;
         
-        this.moveForward = false;
-        this.moveBackward = false;
-        this.moveLeft = false;
-        this.moveRight = false;
-        this.moveUp = false;
-        this.moveDown = false;
-        
-        this.velocity = new THREE.Vector3();
-        this.direction = new THREE.Vector3();
         this.prevTime = performance.now();
-        // ==========================
 
         this.directionalLight = null;
         this.hemisphereLight = null;
         this.fog = null;
         this.axisHelper = null;
 
-        // === SCREEN MANAGER STATE ===
         this.screenManager = null;
-        // ============================
         
-        // === НОВЫЕ ПОЛЯ ===
-        // Создаем группу сейчас, но добавим в сцену позже в init()
         this.collisionLayer = new THREE.Group();
         this.collisionLayer.name = "CollisionLayer";
         
         this.playerController = null; 
-        // ==================
 
         this.init();
         this._bindEvents();
@@ -53,60 +37,37 @@ class SceneManager {
         document.addEventListener('keydown', (e) => this.onKeyDown(e));
         document.addEventListener('keyup', (e) => this.onKeyUp(e));
         document.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        // Блокируем контекстное меню для использования ПКМ как прыжка
         document.addEventListener('contextmenu', event => event.preventDefault());
         document.addEventListener('mousedown', (e) => this.onMouseDown(e));
     }
 
     onKeyDown(event) {
-        // Старое управление камерой (если нужно)
         switch (event.code) {
-            case 'KeyW': this.moveForward = true; break;
-            case 'KeyA': this.moveLeft = true; break;
-            case 'KeyS': this.moveBackward = true; break;
-            case 'KeyD': this.moveRight = true; break;
-            case 'KeyQ': this.moveUp = true; break;
-            case 'KeyE': this.moveDown = true; break;
-            case 'Space': 
-                if (this.playerController) this.playerController.jump = true; 
-                break;
+            case 'KeyW': if (this.playerController) this.playerController.moveForward = true; break;
+            case 'KeyA': if (this.playerController) this.playerController.moveLeft = true; break;
+            case 'KeyS': if (this.playerController) this.playerController.moveBackward = true; break;
+            case 'KeyD': if (this.playerController) this.playerController.moveRight = true; break;
+            case 'Space': if (this.playerController) this.playerController.jump = true; break;
         }
     }
 
     onKeyUp(event) {
         switch (event.code) {
-            case 'KeyW': this.moveForward = false; break;
-            case 'KeyA': this.moveLeft = false; break;
-            case 'KeyS': this.moveBackward = false; break;
-            case 'KeyD': this.moveRight = false; break;
-            case 'KeyQ': this.moveUp = false; break;
-            case 'KeyE': this.moveDown = false; break;
-            case 'Space': 
-                if (this.playerController) this.playerController.jump = false; 
-                break;
+            case 'KeyW': if (this.playerController) this.playerController.moveForward = false; break;
+            case 'KeyA': if (this.playerController) this.playerController.moveLeft = false; break;
+            case 'KeyS': if (this.playerController) this.playerController.moveBackward = false; break;
+            case 'KeyD': if (this.playerController) this.playerController.moveRight = false; break;
+            case 'Space': if (this.playerController) this.playerController.jump = false; break;
         }
     }
 
     onMouseMove(event) {
-        // Если есть контроллер игрока, используем его для вращения
         if (this.playerController) {
             this.playerController.onMouseMove(event.movementX || 0, event.movementY || 0);
-        } else {
-            // Фолбэк на старую логику Orbit-like если контроллер не создан
-            if (event.buttons !== 1) return;
-            const movementX = event.movementX || 0;
-            const movementY = event.movementY || 0;
-            const sensitivity = 0.002;
-            this.euler.setFromQuaternion(this.camera.quaternion);
-            this.euler.y -= movementX * sensitivity;
-            this.euler.x -= movementY * sensitivity;
-            this.euler.x = Math.max(-this.PI_2, Math.min(this.PI_2, this.euler.x));
-            this.camera.quaternion.setFromEuler(this.euler);
         }
     }
 
     onMouseDown(event) {
-        // ПКМ (button 2) для прыжка
         if (event.button === 2 && this.playerController) {
             this.playerController.jump = true;
         }
@@ -134,18 +95,12 @@ class SceneManager {
         this.axisHelper = new THREE.AxesHelper(30);
         this.scene.add(this.axisHelper);
         
-        // Добавляем слой коллизий в сцену (теперь сцена существует)
         this.scene.add(this.collisionLayer);
 
         this.setupLighting();
         
-        // === ИНИЦИАЛИЗАЦИЯ МЕНЕДЖЕРОВ ===
         this.screenManager = new ScreenManager(this.scene);
-        
-        // Инициализируем контроллер игрока
         this.playerController = new PlayerController(this, this.config);
-        
-        // ====================================
         
         window.addEventListener('resize', () => this.onWindowResize());
     }
@@ -173,7 +128,6 @@ class SceneManager {
         this.renderer.shadowMap.enabled = this.config.enableShadows;
         if (this.directionalLight) this.directionalLight.castShadow = this.config.enableShadows;
         
-        // Обновляем параметры игрока если они изменились
         if (this.playerController) {
             this.playerController.speed = (this.config.moveSpeed || 50) / 1.5;
         }
@@ -190,12 +144,10 @@ class SceneManager {
         const delta = (time - this.prevTime) / 1000;
         this.prevTime = time;
 
-        // Обновляем физику игрока вместо старого движения камеры
         if (this.playerController && this.camera) {
             this.playerController.update(delta, this.camera);
         }
 
-        // Обновляем позицию осей
         if (this.axisHelper && this.camera) {
             const direction = new THREE.Vector3();
             this.camera.getWorldDirection(direction);
@@ -203,7 +155,6 @@ class SceneManager {
             this.axisHelper.position.copy(axisPos);
         }
 
-        // Обновляем анимацию экранов
         if (this.screenManager) {
             this.screenManager.update();
         }
