@@ -1,9 +1,8 @@
 // @ts-check
 /**
  * Главная точка входа приложения Blame! Industrial Landscape Generator
- * Инициализирует сцену, менеджер чанков, панель управления и запускает цикл рендеринга
  */
-import * as THREE from 'three'; // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+import * as THREE from 'three'; // <--- ОБЯЗАТЕЛЬНО ДОБАВИТЬ ЭТОТ ИМПОРТ
 import SceneManager from './render/sceneManager.js';
 import ControlPanel from './ui/controlPanel.js';
 import ChunkManager from './world/chunkManager.js';
@@ -24,8 +23,9 @@ class App {
         this.init();
     }
 
-// src/main.js
-
+    /**
+     * Инициализация приложения
+     */
     async init() {
         try {
             console.log('🚀 Initializing Blame! Generator...');
@@ -38,13 +38,6 @@ class App {
             this.chunkManager = new ChunkManager(this.sceneManager);
             console.log('✅ ChunkManager initialized');
 
-            // === ВАЖНО: Связываем ChunkManager с PlayerController ===
-            if (this.sceneManager.playerController) {
-                this.sceneManager.playerController.sceneManager.chunkManager = this.chunkManager;
-                console.log('✅ PlayerController linked to ChunkManager');
-            }
-            // =========================================================
-            
             // 3. Создаем панель управления
             this.controlPanel = new ControlPanel(
                 this.sceneManager,
@@ -52,20 +45,33 @@ class App {
                 (config) => this.onConfigChange(config)
             );
             console.log('✅ ControlPanel initialized');
+
+            // === ВАЖНО: Связываем ChunkManager с PlayerController ===
+            if (this.sceneManager.playerController) {
+                // Передаем ссылку на chunkManager внутрь sceneManager, 
+                // чтобы playerController мог его видеть через sceneManager
+                this.sceneManager.chunkManager = this.chunkManager;
+                console.log('✅ PlayerController linked to ChunkManager');
+            }
+            // =========================================================
             
             // 4. Запускаем стриминг чанков вокруг начальной позиции камеры
+            // Это заполнит heightMap в chunkManager, необходимый для спавна
             this.updateChunks();
             
+            // Небольшая задержка, чтобы гарантировать обработку всех микрозадач генерации
+            await new Promise(resolve => setTimeout(resolve, 0));
+
             // 5. Находим точку спавна
             const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
             
-            if (spawnPos) {
+            if (spawnPos && this.sceneManager.playerController) {
                 console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
                 
-                if (this.sceneManager.playerController) {
-                    this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-                    this.sceneManager.playerController.velocity.set(0, 0, 0);
-                }
+                // Телепортируем игрока
+                this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+                // Сбрасываем скорость, чтобы не было инерции падения при старте
+                this.sceneManager.playerController.velocity.set(0, 0, 0);
             } else {
                 console.warn('⚠️ No spawn point found! Keeping default position.');
             }
@@ -92,10 +98,13 @@ class App {
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager) return;
         
-        const cameraPos = this.sceneManager.camera.position;
+        // Используем позицию игрока, если он есть, иначе позицию камеры
+        const pos = this.sceneManager.playerController 
+            ? this.sceneManager.playerController.position 
+            : this.sceneManager.camera.position;
+            
         const config = this.controlPanel.getConfig();
-        
-        this.chunkManager.update(cameraPos, config);
+        this.chunkManager.update(pos, config);
     }
 
     /**
@@ -123,15 +132,7 @@ class App {
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        // === КРИТИЧЕСКИ ВАЖНО: Обновляем OrbitControls каждый кадр ===
-        // Без этого камера не обновляет свои матрицы, что приводит к ошибкам
-        // при получении позиции и рендеринге
-        if (this.sceneManager && this.sceneManager.controls) {
-            this.sceneManager.controls.update();
-        }
-        // ============================================================
-        
-        // Обновляем чанки при движении камеры
+        // Обновляем чанки при движении камеры/игрока
         if (this.isInitialized) {
             this.updateChunks();
         }
