@@ -85,12 +85,11 @@ class ChunkManager {
                     
                     if (chunk && chunk.userData.primitives) {
                         for (const prim of chunk.userData.primitives) {
-                            // Ищем любые твердые платформы
                             if (prim.type === 'box' && (prim.role === 'frame' || prim.role === 'platform')) {
                                 const topY = prim.position.y + (prim.scale.y / 2);
                                 return {
                                     x: prim.position.x,
-                                    y: topY + 2, // Запас над полом
+                                    y: topY + 2,
                                     z: prim.position.z,
                                     platformHeight: topY
                                 };
@@ -105,7 +104,6 @@ class ChunkManager {
 
     /**
      * Получает логическую высоту поверхности в точке (x, z)
-     * Используется PlayerController для определения пола без Raycasting
      */
     getLogicalHeight(x, z) {
         if (!this.config) return null;
@@ -125,28 +123,23 @@ class ChunkManager {
         const cellSize = this.config.cellSize || (this.config.chunkSize / this.config.gridSize);
         
         for (const prim of chunkData) {
-            // Пропускаем декор и несущественные объекты
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'cable' || prim.type === 'l_cable') continue;
             if (prim.type === 'screen') continue;
             
-            // Вычисляем границы примитива в сетке
             const minX = Math.floor((prim.position.x - prim.scale.x / 2) / cellSize);
             const maxX = Math.floor((prim.position.x + prim.scale.x / 2) / cellSize);
             const minZ = Math.floor((prim.position.z - prim.scale.z / 2) / cellSize);
             const maxZ = Math.floor((prim.position.z + prim.scale.z / 2) / cellSize);
             
-            // Верхняя грань объекта
             const topY = prim.position.y + prim.scale.y / 2;
             const isLadder = prim.type.includes('stair');
 
-            // Заполняем карту: берем максимальную высоту для каждой ячейки
             for (let x = minX; x <= maxX; x++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const key = `${x},${z}`;
                     const currentData = this.heightMap.get(key);
                     
-                    // Если ячейка пуста или новый объект выше старого
                     if (!currentData || topY > currentData.y) {
                         this.heightMap.set(key, {
                             y: topY,
@@ -172,21 +165,19 @@ class ChunkManager {
         this.updateHeightMapForChunk(chunkData);
         // =======================================
 
-        // 1. Создаем визуальную группу (InstancedMesh)
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Создаем слой коллизий (невидимые меши для резервной физики/стен)
+        // Коллайдеры оставляем для стен, но пол теперь логический
         const collisionGroup = this.createCollisionChunk(chunkData, config);
         collisionGroup.name = `Collision_${key}`;
         this.sceneManager.collisionLayer.add(collisionGroup);
         
         group.userData.collisionGroup = collisionGroup; 
 
-        // 3. Регистрируем анимированные экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
@@ -195,7 +186,6 @@ class ChunkManager {
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
         if (!screenManager) return;
-
         for (let i = 0; i < primitives.length; i++) {
             const prim = primitives[i];
             if (prim.type === 'screen') {
@@ -212,82 +202,47 @@ class ChunkManager {
 
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
-        const debugMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xff0000, 
-            visible: false 
-        }); 
+        const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
         
         for (const prim of primitives) {
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen') continue;
             if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
             if (prim.type === 'torus') continue;
+            if (prim.type === 'box') continue; // Платформы теперь логические, убираем их из физических коллизий для скорости
 
             let geometry = null;
             let isLadder = false;
 
             switch (prim.type) {
-                case 'box':
-                case 'platform_stair':
-                    // Обязательно создаем коллайдеры для платформ!
-                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    break;
-
                 case 'cylinder':
                 case 'cone':
                 case 'obelisk':
                 case 'spire':
                     geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
                     break;
-
-                case 'stair_north':
-                case 'stair_south':
-                case 'stair_east':
-                case 'stair_west':
-                    // Используем точную геометрию лестницы
+                case 'stair_north': case 'stair_south': case 'stair_east': case 'stair_west':
                     if (typeof getStairGeometry !== 'undefined') {
                         const p = prim.params || {};
-                        geometry = getStairGeometry(
-                            prim.type, 
-                            p.platformThickness || config.platformThickness, 
-                            p.levelHeight || config.levelHeight
-                        );
+                        geometry = getStairGeometry(prim.type, p.platformThickness || config.platformThickness, p.levelHeight || config.levelHeight);
                         isLadder = true;
-                    } else {
-                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     }
                     break;
-
-                case 'arch':
-                    if (typeof getStairGeometry !== 'undefined') {
-                        geometry = getStairGeometry('arch');
-                    } else {
-                         geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    }
-                    break;
-
-                case 'bridge_ns':
-                case 'bridge_ew':
+                case 'bridge_ns': case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
-
-                default:
-                    continue;
+                default: continue;
             }
 
             if (geometry) {
                 const mesh = new THREE.Mesh(geometry, debugMaterial);
                 mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
-                
                 if (prim.rotation) {
                     mesh.rotation.x = THREE.MathUtils.degToRad(prim.rotation.tiltX || 0);
                     mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
                     mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
                 }
-                
                 mesh.userData.isLadder = isLadder;
-                mesh.userData.type = prim.type;
-                
                 group.add(mesh);
             }
         }
@@ -297,15 +252,12 @@ class ChunkManager {
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
         const grouped = this.groupPrimitives(primitives);
-
         for (const [typeSlot, items] of Object.entries(grouped)) {
             const lastPipeIndex = typeSlot.lastIndexOf('|');
             if (lastPipeIndex === -1) continue;
-            
             const slot = typeSlot.substring(lastPipeIndex + 1);
             const fullType = typeSlot.substring(0, lastPipeIndex);
             if (fullType === 'screen') continue;
-            
             const mesh = this.createInstancedMesh(fullType, slot, items, config);
             if (mesh) group.add(mesh);
         }
@@ -327,37 +279,21 @@ class ChunkManager {
         if (!items || items.length === 0) return null;
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
-        
         const geometry = this.createGeometry(type, null, config, items[0]);
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
         });
-
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
         mesh.frustumCulled = true; 
         const dummy = new THREE.Object3D();
-
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            
-            dummy.position.set(
-                item.position?.x ?? 0, 
-                item.position?.y ?? 0, 
-                item.position?.z ?? 0
-            );
-            
+            dummy.position.set(item.position?.x ?? 0, item.position?.y ?? 0, item.position?.z ?? 0);
             const rotY = THREE.MathUtils.degToRad(item.rotation?.tiltY || 0);
             const rotZ = THREE.MathUtils.degToRad(item.rotation?.twistZ || 0);
             const rotX = THREE.MathUtils.degToRad(item.rotation?.tiltX || 0);
-            
             dummy.rotation.set(rotX, rotY, rotZ);
-
-            dummy.scale.set(
-                item.scale?.x ?? 1, 
-                item.scale?.y ?? 1, 
-                item.scale?.z ?? 1
-            );
-            
+            dummy.scale.set(item.scale?.x ?? 1, item.scale?.y ?? 1, item.scale?.z ?? 1);
             dummy.updateMatrix();
             mesh.setMatrixAt(i, dummy.matrix);
         }
@@ -378,7 +314,6 @@ class ChunkManager {
             case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
             case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
             case 'l_cable': return createLCableGeometry();
-            
             case 'stair_north': case 'stair_south': case 'stair_east': case 'stair_west':
             case 'bridge_ns': case 'bridge_ew':
                 if (typeof getStairGeometry !== 'undefined') {
@@ -386,15 +321,12 @@ class ChunkManager {
                     return getStairGeometry(type, p.platformThickness || config.platformThickness, p.levelHeight || config.levelHeight);
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
-            
             case 'platform_stair':
                 if (typeof getStairGeometry !== 'undefined') return getStairGeometry(`stair_${variant || 'east'}`);
                 return new THREE.BoxGeometry(1, 1, 1);
-                
             case 'arch':
                  if (typeof getStairGeometry !== 'undefined') return getStairGeometry('arch');
                 return new THREE.BoxGeometry(1, 1, 1);
-
             default: return new THREE.BoxGeometry(1, 1, 1);
         }
     }
@@ -404,14 +336,12 @@ class ChunkManager {
             if (!desiredKeys.has(key)) {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
-                
                 if (chunk.userData.collisionGroup) {
                     this.sceneManager.collisionLayer.remove(chunk.userData.collisionGroup);
                     chunk.userData.collisionGroup.traverse(child => {
                         if (child.geometry) child.geometry.dispose();
                     });
                 }
-                
                 this.activeChunks.delete(key);
             }
         }
@@ -441,10 +371,9 @@ class ChunkManager {
         }
         this.activeChunks.clear();
         this.cache.clear();
-        this.heightMap.clear(); // Очищаем и логическую карту
+        this.heightMap.clear();
         this.lastCameraChunk = null;
         if (this.sceneManager.screenManager) this.sceneManager.screenManager.clearAll();
-        console.log(' All chunks cleared');
     }
 }
 
