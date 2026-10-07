@@ -40,10 +40,11 @@
     <!-- Import map для Three.js и lil-gui -->
     <script type="importmap">
     {
-      "imports": {
-        "three": "https://esm.sh/three@0.160.0",
-        "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/"
-      }
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+            "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.0/dist/lil-gui.esm.min.js"
+        }
     }
     </script>
 </head>
@@ -51,27 +52,5 @@
     <div id="canvas-container"></div>
     <div id="loading">Загрузка...</div>
     <script type="module" src="./src/main.js"></script>
-<!-- Добавьте перед закрывающим </body> -->
-<div id="debug-hud" style="
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.7);
-    color: #00ff88;
-    padding: 10px;
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    z-index: 1000;
-    pointer-events: none;
-    border: 1px solid #00ff88;
-    min-width: 300px;
-">
-    <div><b>🎮 Player State</b></div>
-    <div id="hud-state">State: ...</div>
-    <div id="hud-pos">Position: ...</div>
-    <div id="hud-floor">Floor Y: ...</div>
-    <div id="hud-grid">Grid: ...</div>
-    <div id="hud-map">HeightMap size: ...</div>
-</div>
 </body>
 </html>
