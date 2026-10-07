@@ -2,7 +2,7 @@
 /**
  * Главная точка входа приложения Blame! Industrial Landscape Generator
  */
-import * as THREE from 'three'; // <--- ОБЯЗАТЕЛЬНО ДОБАВИТЬ ЭТОТ ИМПОРТ
+import * as THREE from 'three';
 import SceneManager from './render/sceneManager.js';
 import ControlPanel from './ui/controlPanel.js';
 import ChunkManager from './world/chunkManager.js';
