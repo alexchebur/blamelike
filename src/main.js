@@ -154,44 +154,28 @@ class App {
         const cm = this.chunkManager;
         if (!pc || !cm) return;
         
-        const logicalData = cm.getLogicalHeight(pc.position.x, pc.position.z);
+        // Теперь мы не можем легко получить Floor Y без дублирования логики Raycast,
+        // поэтому просто покажем состояние.
+        // Или можно добавить метод getPlayerFloorHeight() в контроллер.
         
         let stateText = '❓ UNKNOWN';
         let statusClass = '';
-        if (pc.onLadder) { 
-            stateText = '🪜 ON LADDER'; 
-            statusClass = 'status-warn'; 
-        } else if (!pc.isFalling) { 
-            stateText = '✅ ON GROUND'; 
-            statusClass = 'status-ok'; 
-        } else { 
-            stateText = '⬇️ FALLING'; 
-            statusClass = 'status-error'; 
-        }
+        if (pc.onLadder) { stateText = '🪜 ON LADDER'; statusClass = 'status-warn'; }
+        else if (pc.onGround) { stateText = '✅ ON GROUND'; statusClass = 'status-ok'; }
+        else { stateText = '⬇️ FALLING'; statusClass = 'status-error'; }
         
         const hudState = document.getElementById('hud-state');
-        const hudPos = document.getElementById('hud-pos');
-        const hudFloor = document.getElementById('hud-floor');
-        const hudGrid = document.getElementById('hud-grid');
-        const hudMap = document.getElementById('hud-map');
-        const hudCell = document.getElementById('hud-cell');
-        
         if (hudState) {
             hudState.textContent = stateText;
             hudState.className = `hud-value ${statusClass}`;
         }
         
+        // Остальные поля можно оставить, но Floor Y теперь неактуален в старом виде
+        const hudPos = document.getElementById('hud-pos');
         if (hudPos) hudPos.textContent = `${pc.position.x.toFixed(1)}, ${pc.position.y.toFixed(1)}, ${pc.position.z.toFixed(1)}`;
-        if (hudFloor) hudFloor.textContent = logicalData ? logicalData.y.toFixed(2) : 'NULL';
         
-        if (hudGrid) {
-            const cellSize = cm.config?.cellSize || (cm.config?.chunkSize / cm.config?.gridSize);
-            const gridX = Math.floor(pc.position.x / cellSize);
-            const gridZ = Math.floor(pc.position.z / cellSize);
-            hudGrid.textContent = `${gridX}, ${gridZ}`;
-            if (hudCell) hudCell.textContent = cellSize?.toFixed(2) || 'N/A';
-        }
-        
+        // HeightMap size все еще полезен для отладки генерации
+        const hudMap = document.getElementById('hud-map');
         if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
     }
 }
