@@ -17,7 +17,7 @@ class ChunkManager {
         this.config = null;
         
         // === ЛОГИЧЕСКАЯ КАРТА ВЫСОТ ===
-        // Хранит: key="gridX,gridZ" -> { y: number, isLadder: boolean }
+        // Хранит: key="gridX,gridZ" -> { y: number, isLadder: boolean, type: string }
         this.heightMap = new Map(); 
     }
 
@@ -73,6 +73,8 @@ class ChunkManager {
      * Находит первую доступную платформу в радиусе поиска для спавна
      */
     findSpawnPoint(center, radius = 1) {
+        if (!this.config) return null;
+        
         const cx = Math.floor(center.x / this.config.chunkSize);
         const cy = Math.floor(center.y / this.config.chunkSize);
         const cz = Math.floor(center.z / this.config.chunkSize);
@@ -85,11 +87,12 @@ class ChunkManager {
                     
                     if (chunk && chunk.userData.primitives) {
                         for (const prim of chunk.userData.primitives) {
+                            // Ищем надежные платформы для спавна
                             if (prim.type === 'box' && (prim.role === 'frame' || prim.role === 'platform')) {
                                 const topY = prim.position.y + (prim.scale.y / 2);
                                 return {
                                     x: prim.position.x,
-                                    y: topY + 2,
+                                    y: topY + 2, // Запас над полом
                                     z: prim.position.z,
                                     platformHeight: topY
                                 };
@@ -104,6 +107,7 @@ class ChunkManager {
 
     /**
      * Получает логическую высоту поверхности в точке (x, z)
+     * Используется PlayerController вместо физического Raycasting
      */
     getLogicalHeight(x, z) {
         if (!this.config) return null;
@@ -117,29 +121,35 @@ class ChunkManager {
 
     /**
      * Обновляет логическую карту высот данными из чанка
+     * Сканирует все твердые примитивы и заполняет heightMap
      */
     updateHeightMapForChunk(chunkData) {
         if (!this.config) return;
         const cellSize = this.config.cellSize || (this.config.chunkSize / this.config.gridSize);
         
         for (const prim of chunkData) {
+            // Пропускаем декор и незначительные объекты
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'cable' || prim.type === 'l_cable') continue;
             if (prim.type === 'screen') continue;
             
+            // Вычисляем границы примитива в логической сетке
             const minX = Math.floor((prim.position.x - prim.scale.x / 2) / cellSize);
             const maxX = Math.floor((prim.position.x + prim.scale.x / 2) / cellSize);
             const minZ = Math.floor((prim.position.z - prim.scale.z / 2) / cellSize);
             const maxZ = Math.floor((prim.position.z + prim.scale.z / 2) / cellSize);
             
+            // Верхняя грань объекта
             const topY = prim.position.y + prim.scale.y / 2;
             const isLadder = prim.type.includes('stair');
 
+            // Заполняем карту: берем максимальную высоту для каждой ячейки
             for (let x = minX; x <= maxX; x++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const key = `${x},${z}`;
                     const currentData = this.heightMap.get(key);
                     
+                    // Если ячейка пуста или новый объект выше существующего
                     if (!currentData || topY > currentData.y) {
                         this.heightMap.set(key, {
                             y: topY,
@@ -165,19 +175,25 @@ class ChunkManager {
         this.updateHeightMapForChunk(chunkData);
         // =======================================
 
+        // 1. Создаем визуальную группу (InstancedMesh)
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // Коллайдеры оставляем для стен, но пол теперь логический
+        // 2. Создаем слой коллизий (только для стен и лестниц, пол теперь логический)
         const collisionGroup = this.createCollisionChunk(chunkData, config);
         collisionGroup.name = `Collision_${key}`;
-        this.sceneManager.collisionLayer.add(collisionGroup);
+        
+        // Безопасная проверка наличия collisionLayer
+        if (this.sceneManager.collisionLayer) {
+            this.sceneManager.collisionLayer.add(collisionGroup);
+        }
         
         group.userData.collisionGroup = collisionGroup; 
 
+        // 3. Регистрируем анимированные экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
@@ -205,44 +221,67 @@ class ChunkManager {
         const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
         
         for (const prim of primitives) {
+            // Фильтрация: что НЕ должно быть физическим коллайдером
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen') continue;
             if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
             if (prim.type === 'torus') continue;
-            if (prim.type === 'box') continue; // Платформы теперь логические, убираем их из физических коллизий для скорости
+            
+            // ВАЖНО: Обычные платформы (box) убираем из физических коллизий!
+            // Пол теперь определяется через heightMap в PlayerController.
+            // Это предотвращает конфликт логики и физики.
+            if (prim.type === 'box') continue; 
 
             let geometry = null;
             let isLadder = false;
 
             switch (prim.type) {
+                // Вертикальные препятствия (стены, колонны)
                 case 'cylinder':
                 case 'cone':
                 case 'obelisk':
                 case 'spire':
                     geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
                     break;
-                case 'stair_north': case 'stair_south': case 'stair_east': case 'stair_west':
+                
+                // Лестницы: используем точную геометрию для корректного подъема
+                case 'stair_north': 
+                case 'stair_south': 
+                case 'stair_east': 
+                case 'stair_west':
                     if (typeof getStairGeometry !== 'undefined') {
                         const p = prim.params || {};
-                        geometry = getStairGeometry(prim.type, p.platformThickness || config.platformThickness, p.levelHeight || config.levelHeight);
+                        geometry = getStairGeometry(
+                            prim.type, 
+                            p.platformThickness || config.platformThickness, 
+                            p.levelHeight || config.levelHeight
+                        );
                         isLadder = true;
                     }
                     break;
-                case 'bridge_ns': case 'bridge_ew':
+                
+                // Мосты тоже могут быть коллайдерами (если они узкие и не покрывают всю клетку)
+                case 'bridge_ns': 
+                case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
-                default: continue;
+                    
+                default: 
+                    continue;
             }
 
             if (geometry) {
                 const mesh = new THREE.Mesh(geometry, debugMaterial);
                 mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
+                
                 if (prim.rotation) {
                     mesh.rotation.x = THREE.MathUtils.degToRad(prim.rotation.tiltX || 0);
                     mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
                     mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
                 }
+                
                 mesh.userData.isLadder = isLadder;
+                mesh.userData.type = prim.type;
                 group.add(mesh);
             }
         }
@@ -336,12 +375,20 @@ class ChunkManager {
             if (!desiredKeys.has(key)) {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
+                
                 if (chunk.userData.collisionGroup) {
-                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionGroup);
+                    if (this.sceneManager.collisionLayer) {
+                        this.sceneManager.collisionLayer.remove(chunk.userData.collisionGroup);
+                    }
                     chunk.userData.collisionGroup.traverse(child => {
                         if (child.geometry) child.geometry.dispose();
                     });
                 }
+                
+                if (this.sceneManager.screenManager) {
+                    this.unregisterScreens(key);
+                }
+                
                 this.activeChunks.delete(key);
             }
         }
@@ -371,9 +418,10 @@ class ChunkManager {
         }
         this.activeChunks.clear();
         this.cache.clear();
-        this.heightMap.clear();
+        this.heightMap.clear(); // Очищаем и логическую карту
         this.lastCameraChunk = null;
         if (this.sceneManager.screenManager) this.sceneManager.screenManager.clearAll();
+        console.log('🧹 All chunks cleared');
     }
 }
 
