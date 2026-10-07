@@ -93,22 +93,45 @@ class PlayerController {
         this.debugHelper.visible = true;
     }
 
+    /**
+     * Рекурсивная проверка пересечений AABB
+     */
+    checkIntersectionsRecursive(playerBox, group, result) {
+        for (const child of group.children) {
+            if (child.isGroup) {
+                // Если это группа (чанк), ныряем глубже
+                this.checkIntersectionsRecursive(playerBox, child, result);
+            } else if (child.isMesh && child.geometry) {
+                // Это меш-коллайдер
+                if (!child.geometry.boundingBox) {
+                    child.geometry.computeBoundingBox();
+                }
+                
+                this._tempBox.copy(child.geometry.boundingBox).applyMatrix4(child.matrixWorld);
+
+                if (this._playerBox.intersectsBox(this._tempBox)) {
+                    const colliderTopY = this._tempBox.max.y;
+                    
+                    // Проверяем, что это пол под нами
+                    if (colliderTopY <= result.feetY + 0.5 && colliderTopY > result.closestHitY) {
+                        result.closestHitY = colliderTopY;
+                        result.isLadderHit = child.userData.isLadder || false;
+                    }
+                }
+            }
+        }
+    }
+
     checkGroundAABB(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
         const collisionLayer = this.sceneManager.collisionLayer;
         
-        // Логируем раз в 60 кадров, чтобы не спамить
         this.logCounter++;
         const shouldLog = (this.logCounter % 60 === 0);
 
-        if (shouldLog) {
-            console.log(`[DEBUG] CollisionLayer children count: ${collisionLayer ? collisionLayer.children.length : 'NULL'}`);
-        }
-
         if (!collisionLayer || collisionLayer.children.length === 0) {
-            if (shouldLog) console.warn('[DEBUG] NO COLLISION LAYER OR EMPTY!');
             return;
         }
 
@@ -120,52 +143,27 @@ class PlayerController {
             this._tempVec.set(this.footRadius * 2, this.maxFallDistance, this.footRadius * 2)
         );
 
-        let closestHitY = -Infinity;
-        let isLadderHit = false;
-        let checkedCount = 0;
-        let intersectedCount = 0;
+        // Объект для хранения результатов рекурсии
+        const result = {
+            closestHitY: -Infinity,
+            isLadderHit: false,
+            feetY: feetY,
+            checkedCount: 0,
+            intersectedCount: 0
+        };
 
-        for (const child of collisionLayer.children) {
-            if (!child.isMesh) continue;
-            checkedCount++;
-            
-            // ВАЖНО: Пересчитываем BB каждый кадр, так как мы могли изменить матрицу
-            // Но для статических объектов это дорого. Лучше делать это один раз при создании.
-            // Для отладки сделаем принудительно:
-            if (!child.geometry.boundingBox) {
-                child.geometry.computeBoundingBox();
-                if (shouldLog && checkedCount < 5) console.log(`[DEBUG] Computed BB for mesh type: ${child.userData.type}`);
-            }
-            
-            this._tempBox.copy(child.geometry.boundingBox).applyMatrix4(child.matrixWorld);
-
-            if (this._playerBox.intersectsBox(this._tempBox)) {
-                intersectedCount++;
-                const colliderTopY = this._tempBox.max.y;
-                
-                // Проверяем, что это пол под нами, а не потолок над нами или стена сбоку
-                // colliderTopY должен быть ниже наших ног (feetY + небольшой допуск)
-                // и выше дна нашего поискового бокса
-                if (colliderTopY <= feetY + 0.5 && colliderTopY > closestHitY) {
-                    closestHitY = colliderTopY;
-                    isLadderHit = child.userData.isLadder || false;
-                    
-                    if (shouldLog) {
-                        console.log(`[DEBUG] HIT! Type: ${child.userData.type}, TopY: ${colliderTopY.toFixed(2)}, PlayerFeetY: ${feetY.toFixed(2)}`);
-                    }
-                }
-            }
-        }
+        // Запускаем рекурсивный обход
+        this.checkIntersectionsRecursive(this._playerBox, collisionLayer, result);
 
         if (shouldLog) {
-            console.log(`[DEBUG] Checked: ${checkedCount}, Intersected: ${intersectedCount}, ClosestHitY: ${closestHitY}`);
+            console.log(`[DEBUG] Recursively checked meshes. ClosestHitY: ${result.closestHitY}`);
         }
 
-        if (closestHitY > -Infinity) {
+        if (result.closestHitY > -Infinity) {
             this.onGround = true;
             this.isFalling = false;
-            this.onLadder = isLadderHit;
-            this.position.y = closestHitY + (this.playerHeight * 0.5);
+            this.onLadder = result.isLadderHit;
+            this.position.y = result.closestHitY + (this.playerHeight * 0.5);
             this.velocity.y = 0;
         }
     }
