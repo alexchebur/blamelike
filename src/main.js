@@ -76,13 +76,19 @@ class App {
                 console.warn('⚠️ No spawn point found! Keeping default position.');
             }
 
-            // 6. Скрываем индикатор загрузки
+            // 6. ВКЛЮЧАЕМ DEBUG HUD
+            const debugHud = document.getElementById('debug-hud');
+            if (debugHud) {
+                debugHud.style.display = 'block';
+            }
+
+            // 7. Скрываем индикатор загрузки
             this.loading.style.display = 'none';
             this.isInitialized = true;
             
             console.log('✅ Blame! Generator ready!');
             
-            // 7. Запускаем цикл рендеринга
+            // 8. Запускаем цикл рендеринга
             this.animate();
             
         } catch (error) {
@@ -129,23 +135,20 @@ class App {
     /**
      * Цикл анимации и рендеринга
      */
-// src/main.js
-
-// ... в классе App ...
-
     animate() {
         requestAnimationFrame(() => this.animate());
         
         if (this.isInitialized) {
             this.updateChunks();
+            this.updateDebugHUD(); // Обновляем HUD каждый кадр
         }
         
         this.sceneManager.render();
-        
-        // Обновляем HUD
-        this.updateDebugHUD();
     }
 
+    /**
+     * Обновление данных в Debug HUD
+     */
     updateDebugHUD() {
         const pc = this.sceneManager?.playerController;
         const cm = this.chunkManager;
@@ -154,26 +157,42 @@ class App {
         const logicalData = cm.getLogicalHeight(pc.position.x, pc.position.z);
         
         let stateText = '❓ UNKNOWN';
-        if (pc.onLadder) stateText = '🪜 ON LADDER';
-        else if (!pc.isFalling) stateText = '✅ ON GROUND';
-        else stateText = '⬇️ FALLING';
+        let statusClass = '';
+        if (pc.onLadder) { 
+            stateText = '🪜 ON LADDER'; 
+            statusClass = 'status-warn'; 
+        } else if (!pc.isFalling) { 
+            stateText = '✅ ON GROUND'; 
+            statusClass = 'status-ok'; 
+        } else { 
+            stateText = '⬇️ FALLING'; 
+            statusClass = 'status-error'; 
+        }
         
         const hudState = document.getElementById('hud-state');
         const hudPos = document.getElementById('hud-pos');
         const hudFloor = document.getElementById('hud-floor');
         const hudGrid = document.getElementById('hud-grid');
         const hudMap = document.getElementById('hud-map');
+        const hudCell = document.getElementById('hud-cell');
         
-        if (hudState) hudState.textContent = `State: ${stateText}`;
-        if (hudPos) hudPos.textContent = `Position: (${pc.position.x.toFixed(1)}, ${pc.position.y.toFixed(1)}, ${pc.position.z.toFixed(1)})`;
-        if (hudFloor) hudFloor.textContent = `Floor Y: ${logicalData ? logicalData.y.toFixed(2) : 'NULL'}`;
+        if (hudState) {
+            hudState.textContent = stateText;
+            hudState.className = `hud-value ${statusClass}`;
+        }
+        
+        if (hudPos) hudPos.textContent = `${pc.position.x.toFixed(1)}, ${pc.position.y.toFixed(1)}, ${pc.position.z.toFixed(1)}`;
+        if (hudFloor) hudFloor.textContent = logicalData ? logicalData.y.toFixed(2) : 'NULL';
+        
         if (hudGrid) {
             const cellSize = cm.config?.cellSize || (cm.config?.chunkSize / cm.config?.gridSize);
             const gridX = Math.floor(pc.position.x / cellSize);
             const gridZ = Math.floor(pc.position.z / cellSize);
-            hudGrid.textContent = `Grid: (${gridX}, ${gridZ}) | CellSize: ${cellSize.toFixed(2)}`;
+            hudGrid.textContent = `${gridX}, ${gridZ}`;
+            if (hudCell) hudCell.textContent = cellSize?.toFixed(2) || 'N/A';
         }
-        if (hudMap) hudMap.textContent = `HeightMap size: ${cm.heightMap?.size || 0}`;
+        
+        if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
     }
 }
 
