@@ -228,20 +228,15 @@ class ChunkManager {
             if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
             if (prim.type === 'torus') continue;
             
-            // ВАЖНО: Возвращаем платформы (box) в слой коллизий!
-            // Без них Raycast игрока проходит сквозь пол, так как heightMap 
-            // содержит глобальные максимумы высот, а не локальные данные под ногами.
             let geometry = null;
             let isLadder = false;
 
             switch (prim.type) {
                 case 'box':
                 case 'platform_stair':
-                    // Создаем точный BoxGeometry для платформ
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
 
-                // Вертикальные препятствия (стены, колонны)
                 case 'cylinder':
                 case 'cone':
                 case 'obelisk':
@@ -249,7 +244,6 @@ class ChunkManager {
                     geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
                     break;
                 
-                // Лестницы: используем точную геометрию для корректного подъема
                 case 'stair_north': 
                 case 'stair_south': 
                 case 'stair_east': 
@@ -263,12 +257,10 @@ class ChunkManager {
                         );
                         isLadder = true;
                     } else {
-                        // Фолбэк, если фабрика лестниц недоступна
                         geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     }
                     break;
                 
-                // Мосты
                 case 'bridge_ns': 
                 case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
@@ -279,6 +271,11 @@ class ChunkManager {
             }
 
             if (geometry) {
+                // === КРИТИЧЕСКИ ВАЖНО ДЛЯ BOXCASTER ===
+                // Bounding box не вычисляется автоматически при создании геометрии!
+                geometry.computeBoundingBox();
+                // ==========================================
+
                 const mesh = new THREE.Mesh(geometry, debugMaterial);
                 mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
                 
@@ -287,6 +284,12 @@ class ChunkManager {
                     mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
                     mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
                 }
+                
+                // === КРИТИЧЕСКИ ВАЖНО ДЛЯ BOXCASTER ===
+                // Обновляем мировую матрицу, чтобы applyMatrix4 работал корректно
+                mesh.updateMatrix();
+                mesh.updateMatrixWorld(true);
+                // ==========================================
                 
                 mesh.userData.isLadder = isLadder;
                 mesh.userData.type = prim.type;
