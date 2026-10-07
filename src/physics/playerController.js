@@ -22,14 +22,19 @@ class PlayerController {
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Raycaster для проверки пола
-        this.raycaster = new THREE.Raycaster();
-        this.downVector = new THREE.Vector3(0, -1, 0);
+        // Параметры "толстого луча"
+        this.footRadius = 0.3; // Радиус проверки пола (в мировых единицах)
+        this.maxFallDistance = 2.5; // Максимальная дистанция поиска пола вниз
         
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = (config.moveSpeed || 50) / 1.5; 
-        this.fallSpeed = config.fallSpeed || 10; // Увеличим скорость падения для отзывчивости
+        this.fallSpeed = config.fallSpeed || 10;
         this.climbSpeed = config.ladderClimbSpeed || 4;
+        
+        // Кэшируемые объекты для AABB (чтобы не создавать их каждый кадр)
+        this._playerBox = new THREE.Box3();
+        this._tempBox = new THREE.Box3();
+        this._tempVec = new THREE.Vector3();
     }
 
     update(deltaTime, camera) {
@@ -53,34 +58,26 @@ class PlayerController {
         if (this.direction.z !== 0) moveVec.addScaledVector(camDir, this.direction.z * moveSpeed);
         if (this.direction.x !== 0) moveVec.addScaledVector(camRight, this.direction.x * moveSpeed);
 
-        // Предварительная новая позиция X/Z
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола через Raycast (самый надежный способ для многоярусности)
-        this.checkGround(nextX, nextZ);
+        // 2. Проверка пола "толстым лучом" (AABB Intersection)
+        this.checkGroundAABB(nextX, nextZ);
 
         // 3. Логика высоты
         let targetY = this.position.y;
 
         if (this.onGround) {
-            // Если мы на лестнице и движемся
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
-            } else {
-                // Просто стоим на полу. 
-                // Мы не меняем Y здесь, он был установлен в checkGround при приземлении.
-                // Или если мы уже стояли, он остается прежним.
-                // Важно: если мы на лестнице, но не движемся, мы тоже стоим.
             }
+            // Если стоим на полу, Y корректируется внутри checkGroundAABB
         } else {
-            // Падаем
             this.isFalling = true;
             targetY -= this.fallSpeed * dt;
         }
 
-        // Применяем позицию
         this.position.set(nextX, targetY, nextZ);
 
         // 4. Камера
@@ -88,50 +85,66 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    checkGround(x, z) {
+    /**
+     * Проверяет наличие пола под ногами используя объемный тест (Box vs Box)
+     * Это игнорирует микро-щели между платформами
+     */
+    checkGroundAABB(x, z) {
         this.onGround = false;
         this.onLadder = false;
-
-        // Луч пускаем чуть выше текущей позиции ног, чтобы не застревать
-        const rayOrigin = new THREE.Vector3(x, this.position.y + 0.5, z);
-        
-        this.raycaster.set(rayOrigin, this.downVector);
-        // Ищем пересечения только на расстоянии до 2-3 метров вниз
-        this.raycaster.far = 3.0; 
 
         const collisionLayer = this.sceneManager.collisionLayer;
         if (!collisionLayer) return;
 
-        // recursive: true обязательно, так как коллайдеры внутри групп чанков
-        const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
+        // Создаем "столб" под ногами игрока
+        // Центр столба: (x, позиция_ног, z)
+        // Размер: footRadius * 2 по X/Z, maxFallDistance по Y
+        const feetY = this.position.y - (this.playerHeight * 0.5) + 0.2; // Чуть выше ног, чтобы не застревать
+        
+        this._playerBox.setFromCenterAndSize(
+            this._tempVec.set(x, feetY - (this.maxFallDistance / 2), z),
+            this._tempVec.set(this.footRadius * 2, this.maxFallDistance, this.footRadius * 2)
+        );
 
-        if (intersects.length > 0) {
-            const hit = intersects[0];
+        let closestHitY = -Infinity;
+        let isLadderHit = false;
+
+        // Проходим по всем коллайдерам в слое
+        // Оптимизация: в реальном проекте здесь нужен Spatial Hash / Octree
+        // Но для MVP перебор children допустим, если чанков немного
+        for (const child of collisionLayer.children) {
+            if (!child.isMesh) continue;
             
-            // Проверяем, что мы падаем вниз или стоим, а не прыгаем вверх сквозь пол
-            // И что расстояние до пола меньше роста игрока (с запасом)
-            if (this.velocity.y <= 0 && hit.distance < this.playerHeight) {
+            // Получаем мировой BoundingBox меша
+            // Важно: computeBoundingBox должен быть вызван после изменения матрицы
+            if (!child.geometry.boundingBox) child.geometry.computeBoundingBox();
+            
+            // Применяем мировую трансформацию к локальному BB
+            this._tempBox.copy(child.geometry.boundingBox).applyMatrix4(child.matrixWorld);
+
+            // Проверяем пересечение нашего "столба" с коллайдером
+            if (this._playerBox.intersectsBox(this._tempBox)) {
+                // Нас интересует только верхняя грань коллайдера, которая ниже нас
+                const colliderTopY = this._tempBox.max.y;
                 
-                // Определяем, что это за поверхность
-                const isLadder = hit.object.userData.isLadder;
-                
-                if (isLadder) {
-                    this.onLadder = true;
-                    this.onGround = true;
-                    // На лестнице мы можем "прилипать" к поверхности, 
-                    // но лучше позволять гравитации работать, если не жмем кнопки
-                    // Для простоты пока просто ставим на поверхность
-                    this.position.y = hit.point.y + this.playerHeight * 0.5;
-                    this.velocity.y = 0;
-                } else {
-                    // Обычный пол
-                    this.onGround = true;
-                    this.isFalling = false;
-                    // Жестко ставим на пол + половина роста (центр капсулы)
-                    this.position.y = hit.point.y + this.playerHeight * 0.5;
-                    this.velocity.y = 0;
+                // Условие: коллайдер должен быть под ногами, но не слишком далеко
+                if (colliderTopY <= feetY + 0.1 && colliderTopY > closestHitY) {
+                    closestHitY = colliderTopY;
+                    isLadderHit = child.userData.isLadder || false;
                 }
             }
+        }
+
+        // Если нашли ближайшую поверхность
+        if (closestHitY > -Infinity) {
+            this.onGround = true;
+            this.isFalling = false;
+            this.onLadder = isLadderHit;
+            
+            // Жестко ставим игрока на найденную поверхность
+            // + половина роста (так как position - это центр капсулы/тела)
+            this.position.y = closestHitY + (this.playerHeight * 0.5);
+            this.velocity.y = 0;
         }
     }
 
