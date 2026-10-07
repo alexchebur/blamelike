@@ -129,16 +129,51 @@ class App {
     /**
      * Цикл анимации и рендеринга
      */
+// src/main.js
+
+// ... в классе App ...
+
     animate() {
         requestAnimationFrame(() => this.animate());
         
-        // Обновляем чанки при движении камеры/игрока
         if (this.isInitialized) {
             this.updateChunks();
         }
         
-        // Рендерим сцену
         this.sceneManager.render();
+        
+        // Обновляем HUD
+        this.updateDebugHUD();
+    }
+
+    updateDebugHUD() {
+        const pc = this.sceneManager?.playerController;
+        const cm = this.chunkManager;
+        if (!pc || !cm) return;
+        
+        const logicalData = cm.getLogicalHeight(pc.position.x, pc.position.z);
+        
+        let stateText = '❓ UNKNOWN';
+        if (pc.onLadder) stateText = '🪜 ON LADDER';
+        else if (!pc.isFalling) stateText = '✅ ON GROUND';
+        else stateText = '⬇️ FALLING';
+        
+        const hudState = document.getElementById('hud-state');
+        const hudPos = document.getElementById('hud-pos');
+        const hudFloor = document.getElementById('hud-floor');
+        const hudGrid = document.getElementById('hud-grid');
+        const hudMap = document.getElementById('hud-map');
+        
+        if (hudState) hudState.textContent = `State: ${stateText}`;
+        if (hudPos) hudPos.textContent = `Position: (${pc.position.x.toFixed(1)}, ${pc.position.y.toFixed(1)}, ${pc.position.z.toFixed(1)})`;
+        if (hudFloor) hudFloor.textContent = `Floor Y: ${logicalData ? logicalData.y.toFixed(2) : 'NULL'}`;
+        if (hudGrid) {
+            const cellSize = cm.config?.cellSize || (cm.config?.chunkSize / cm.config?.gridSize);
+            const gridX = Math.floor(pc.position.x / cellSize);
+            const gridZ = Math.floor(pc.position.z / cellSize);
+            hudGrid.textContent = `Grid: (${gridX}, ${gridZ}) | CellSize: ${cellSize.toFixed(2)}`;
+        }
+        if (hudMap) hudMap.textContent = `HeightMap size: ${cm.heightMap?.size || 0}`;
     }
 }
 
