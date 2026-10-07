@@ -9,22 +9,25 @@ class PlayerController {
         this.position = new THREE.Vector3(0, 50, 0); 
         this.velocity = new THREE.Vector3();
         
+        // Состояние
         this.onGround = false;
         this.isFalling = false;
         this.onLadder = false;
         
+        // Управление
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
-        this.jump = false;
+        this.jump = false; // Пока не используем, но оставим
         
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
+        // Параметры
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = (config.moveSpeed || 50) / 1.5; 
-        this.fallSpeed = config.fallSpeed || 5;
+        this.fallSpeed = config.fallSpeed || 5; // Медленное падение
         this.climbSpeed = config.ladderClimbSpeed || 4;
     }
 
@@ -55,29 +58,46 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Логика высоты
+        // 2. Логика высоты (Гравитация и Пол)
         const logicalData = this.sceneManager.chunkManager.getLogicalHeight(nextX, nextZ);
         let targetY = this.position.y;
 
         if (logicalData) {
+            // Мы над твердой поверхностью
             this.isFalling = false;
             this.onLadder = logicalData.isLadder;
+            
             const floorY = logicalData.y;
             
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                // ЛАЗАНИЕ ПО ЛЕСТНИЦЕ
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
             } else {
-                // Жесткая установка на пол
-                targetY = floorY + this.playerHeight * 0.5;
+                // СТОИМ НА ПОВЕРХНОСТИ
+                // Жестко выравниваем Y, если мы близко к полу
+                const desiredY = floorY + this.playerHeight * 0.5;
+                
+                // Если мы упали сверху, просто телепортируемся на пол
+                if (this.position.y > desiredY) {
+                     if (this.position.y - desiredY < 2.0) {
+                         targetY = desiredY;
+                     } else {
+                         targetY = desiredY; // Даже с большой высоты встаем на пол
+                     }
+                } else {
+                    targetY = desiredY;
+                }
             }
         } else {
-            // Падение
+            // МЫ В ПУСТОТЕ
             this.isFalling = true;
             this.onLadder = false;
+            // Медленное падение
             targetY -= this.fallSpeed * dt;
         }
 
+        // Применяем позицию
         this.position.set(nextX, targetY, nextZ);
 
         // 3. Камера
