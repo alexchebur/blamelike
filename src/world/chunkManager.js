@@ -218,6 +218,7 @@ class ChunkManager {
 
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
+        // Невидимый материал для коллизий
         const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
         
         for (const prim of primitives) {
@@ -227,15 +228,19 @@ class ChunkManager {
             if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
             if (prim.type === 'torus') continue;
             
-            // ВАЖНО: Обычные платформы (box) убираем из физических коллизий!
-            // Пол теперь определяется через heightMap в PlayerController.
-            // Это предотвращает конфликт логики и физики.
-            if (prim.type === 'box') continue; 
-
+            // ВАЖНО: Возвращаем платформы (box) в слой коллизий!
+            // Без них Raycast игрока проходит сквозь пол, так как heightMap 
+            // содержит глобальные максимумы высот, а не локальные данные под ногами.
             let geometry = null;
             let isLadder = false;
 
             switch (prim.type) {
+                case 'box':
+                case 'platform_stair':
+                    // Создаем точный BoxGeometry для платформ
+                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    break;
+
                 // Вертикальные препятствия (стены, колонны)
                 case 'cylinder':
                 case 'cone':
@@ -257,10 +262,13 @@ class ChunkManager {
                             p.levelHeight || config.levelHeight
                         );
                         isLadder = true;
+                    } else {
+                        // Фолбэк, если фабрика лестниц недоступна
+                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     }
                     break;
                 
-                // Мосты тоже могут быть коллайдерами (если они узкие и не покрывают всю клетку)
+                // Мосты
                 case 'bridge_ns': 
                 case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
