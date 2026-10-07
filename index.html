@@ -35,6 +35,54 @@
             z-index: 1000;
             pointer-events: none;
         }
+
+        /* === СТИЛИ ДЛЯ DEBUG HUD === */
+        #debug-hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.75);
+            color: #00ff88;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            z-index: 999;
+            pointer-events: none; /* Чтобы клики проходили сквозь HUD */
+            border: 1px solid #00ff88;
+            min-width: 320px;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.2);
+            display: none; /* Скрыт по умолчанию, включается через JS или GUI */
+        }
+
+        #debug-hud h3 {
+            margin: 0 0 8px 0;
+            color: #fff;
+            border-bottom: 1px solid #00ff88;
+            padding-bottom: 4px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .hud-row {
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .hud-label {
+            color: #aaa;
+        }
+
+        .hud-value {
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .status-ok { color: #00ff88; }
+        .status-warn { color: #ffaa00; }
+        .status-error { color: #ff4444; }
     </style>
     
     <!-- Import map для Three.js и lil-gui -->
@@ -51,6 +99,36 @@
 <body>
     <div id="canvas-container"></div>
     <div id="loading">Загрузка...</div>
+    
+    <!-- DEBUG HUD OVERLAY -->
+    <div id="debug-hud">
+        <h3>🐞 Physics Debug</h3>
+        <div class="hud-row">
+            <span class="hud-label">State:</span>
+            <span id="hud-state" class="hud-value">...</span>
+        </div>
+        <div class="hud-row">
+            <span class="hud-label">Position:</span>
+            <span id="hud-pos" class="hud-value">...</span>
+        </div>
+        <div class="hud-row">
+            <span class="hud-label">Floor Y:</span>
+            <span id="hud-floor" class="hud-value">...</span>
+        </div>
+        <div class="hud-row">
+            <span class="hud-label">Grid Cell:</span>
+            <span id="hud-grid" class="hud-value">...</span>
+        </div>
+        <div class="hud-row">
+            <span class="hud-label">HeightMap Size:</span>
+            <span id="hud-map" class="hud-value">...</span>
+        </div>
+        <div class="hud-row">
+            <span class="hud-label">Cell Size:</span>
+            <span id="hud-cell" class="hud-value">...</span>
+        </div>
+    </div>
+
     <script type="module" src="./src/main.js"></script>
 </body>
 </html>
