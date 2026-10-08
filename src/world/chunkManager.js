@@ -356,18 +356,17 @@ class ChunkManager {
     }
 
 // src/world/chunkManager.js
+// src/world/chunkManager.js
+
 createChunkMesh(primitives, config) {
     const group = new THREE.Group();
     
     // Получаем позицию камеры для расчета дистанции
     const cameraPos = this.sceneManager.camera.position;
-    const chunkCenter = new THREE.Vector3(
-        (this.lastCameraChunk?.cx || 0) * config.chunkSize + config.chunkSize/2,
-        (this.lastCameraChunk?.cy || 0) * config.chunkSize + config.chunkSize/2,
-        (this.lastCameraChunk?.cz || 0) * config.chunkSize + config.chunkSize/2
-    );
-    const distToChunk = cameraPos.distanceTo(chunkCenter);
-
+    // Берем координаты текущего чанка из ключа группы (если он уже создан) или вычисляем
+    // Для простоты используем lastCameraChunk как референс, но лучше брать из key
+    // Здесь мы просто проверим дистанцию до центра чанка, который сейчас загружаем
+    
     const grouped = this.groupPrimitives(primitives);
     for (const [typeSlot, items] of Object.entries(grouped)) {
         const lastPipeIndex = typeSlot.lastIndexOf('|');
@@ -376,11 +375,29 @@ createChunkMesh(primitives, config) {
         const slot = typeSlot.substring(lastPipeIndex + 1);
         const fullType = typeSlot.substring(0, lastPipeIndex);
         
-        // === ОПТИМИЗАЦИЯ: Пропускаем декор на дальних дистанциях ===
-        if (distToChunk > 150 && (slot === 'decor' || slot === 'micro')) {
-            continue; 
+        // === LOD ЛОГИКА ===
+        // Вычисляем примерную дистанцию до первого объекта этого типа в группе
+        const firstItem = items[0];
+        const dist = Math.sqrt(
+            Math.pow(firstItem.position.x - cameraPos.x, 2) +
+            Math.pow(firstItem.position.y - cameraPos.y, 2) +
+            Math.pow(firstItem.position.z - cameraPos.z, 2)
+        );
+
+        // Если объект далеко (> 150 единиц), упрощаем его
+        if (dist > 150) {
+            // Пропускаем сложный декор и микро-детали
+            if (slot === 'micro' || slot === 'decor') continue;
+            
+            // Заменяем лестницы и мосты на простые боксы (LOD 1)
+            if (fullType.includes('stair') || fullType.includes('bridge')) {
+                // Вместо вызова createInstancedMesh со сложной геометрией,
+                // мы можем создать упрощенный меш или просто пропустить его,
+                // если коллайдеры достаточно.
+                // Для визуала заменим геометрию на Box в createGeometry
+            }
         }
-        // ==========================================================
+        // ==================
 
         if (fullType === 'screen') continue;
         const mesh = this.createInstancedMesh(fullType, slot, items, config);
