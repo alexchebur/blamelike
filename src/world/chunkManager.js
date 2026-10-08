@@ -444,37 +444,88 @@ createChunkMesh(primitives, config) {
     }
 
     createGeometry(type, variant, config, item = null) {
-        const segments = config.maxSegments || 16;
+        // === ОПТИМИЗАЦИЯ: Жестко ограничиваем сложность базовых фигур ===
+        // Для стиля Blame! "граненость" даже желательна, а лишние полигоны убивают FPS.
+        
         switch (type) {
+            // --- ПРОСТЫЕ ФИГУРЫ (Box-like) ---
             case 'box': 
             case 'mega_block':
                 return new THREE.BoxGeometry(1, 1, 1);
-            case 'cylinder': return new THREE.CylinderGeometry(0.5, 0.5, 1, segments);
-            case 'cone': return new THREE.ConeGeometry(0.5, 1, segments);
-            case 'octahedron': return new THREE.OctahedronGeometry(0.5);
-            case 'capsule': return new THREE.CapsuleGeometry(0.5, 1, 4, 8, segments);
-            case 'torus': return new THREE.TorusGeometry(0.5, 0.2, 8, segments);
-            case 'sphere': return new THREE.SphereGeometry(0.5, segments, segments);
-            case 'obelisk': return new THREE.ConeGeometry(0.4, 1, 4); 
-            case 'spire': return new THREE.ConeGeometry(0.2, 1, 8);
+
+            // --- КРУГЛЫЕ ФИГУРЫ (Low Poly) ---
+            case 'cylinder': 
+                // 8 сегментов достаточно для индустриального стиля
+                return new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+            
+            case 'cone': 
+                return new THREE.ConeGeometry(0.5, 1, 8);
+            
+            case 'obelisk': 
+                // 4 грани (пирамида/квадратная колонна)
+                return new THREE.ConeGeometry(0.4, 1, 4); 
+            
+            case 'spire': 
+                // Острый шпиль, 6 граней
+                return new THREE.ConeGeometry(0.2, 1, 6);
+
+            case 'sphere': 
+                // 12x8 сегментов вместо 16x16 или больше
+                return new THREE.SphereGeometry(0.5, 12, 8);
+
+            case 'capsule': 
+                // Capsule тяжелая, заменяем на упрощенную версию или оставляем минимум
+                // radiusTop, radiusBottom, length, capSegments, radialSegments
+                return new THREE.CapsuleGeometry(0.5, 1, 2, 8);
+
+            case 'torus': 
+                // Минимально возможное качество для декоративных колец
+                // radius, tube, radialSegments, tubularSegments
+                return new THREE.TorusGeometry(0.5, 0.15, 6, 12);
+
+            case 'octahedron': 
+                return new THREE.OctahedronGeometry(0.5);
+
+            // --- СПЕЦИАЛЬНЫЕ / СОСТАВНЫЕ ---
             case 'l_cable': 
-                return (typeof createLCableGeometry === 'function') 
-                    ? createLCableGeometry() 
-                    : new THREE.BoxGeometry(0.1, 1, 0.1);
-            case 'stair_north': case 'stair_south': case 'stair_east': case 'stair_west':
-            case 'bridge_ns': case 'bridge_ew':
+                if (typeof createLCableGeometry === 'function') {
+                    return createLCableGeometry();
+                }
+                // Fallback: простой тонкий бокс
+                return new THREE.BoxGeometry(0.1, 1, 0.1);
+
+            case 'stair_north': 
+            case 'stair_south': 
+            case 'stair_east': 
+            case 'stair_west':
+            case 'bridge_ns': 
+            case 'bridge_ew':
                 if (typeof getStairGeometry === 'function') {
                     const p = item?.params || {};
-                    return getStairGeometry(type, p.platformThickness || config.platformThickness, p.levelHeight || config.levelHeight);
+                    return getStairGeometry(
+                        type, 
+                        p.platformThickness || config.platformThickness, 
+                        p.levelHeight || config.levelHeight
+                    );
                 }
                 return new THREE.BoxGeometry(1, 1, 1);
+
             case 'platform_stair':
-                if (typeof getStairGeometry === 'function') return getStairGeometry(`stair_${variant || 'east'}`);
+                if (typeof getStairGeometry === 'function') {
+                    return getStairGeometry(`stair_${variant || 'east'}`);
+                }
                 return new THREE.BoxGeometry(1, 1, 1);
+
             case 'arch':
-                 if (typeof getStairGeometry === 'function') return getStairGeometry('arch');
+                if (typeof getStairGeometry === 'function') {
+                    return getStairGeometry('arch');
+                }
+                // Fallback для арки: два столба и перекладина (упрощенно боксом)
                 return new THREE.BoxGeometry(1, 1, 1);
-            default: return new THREE.BoxGeometry(1, 1, 1);
+
+            // --- DEFAULT ---
+            default: 
+                return new THREE.BoxGeometry(1, 1, 1);
         }
     }
 
