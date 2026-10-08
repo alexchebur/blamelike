@@ -173,9 +173,9 @@ export const defaultConfig = {
     
     // Decor параметры
     decorDensity: {
-        antennas: 0.05,
-        spheres: 0.03,
-        torus: 0.02,
+        antennas: 0.03,    // БЫЛО 0.05
+        spheres: 0.01,     // БЫЛО 0.03 (Сферы очень тяжелые для рендера!)
+        torus: 0.005,      // БЫЛО 0.02 (Торы тоже тяжелые)
         panels: 0.04,
         windows: 0.06,
         grilles: 0.03,
@@ -183,8 +183,8 @@ export const defaultConfig = {
         vents: 0.03,
         mushrooms: 0.02,
         crates: 0.05,
-        cables: 0.08,       // Прямые вертикальные кабели
-        lCables: 0.06       // Изогнутые L-кабели (уголки)
+        cables: 0.08,
+        lCables: 0.06
     },
     cableWeights: {
         thick: 0.3,
@@ -218,7 +218,7 @@ export const defaultConfig = {
     
     // Look
     palette: 'blame',
-    fogDensity: 0.008,
+    fogDensity: 0.015,
     backgroundColor: '#0a0a0a',
     shadingMode: 'lambert',
     enableShadows: false,
