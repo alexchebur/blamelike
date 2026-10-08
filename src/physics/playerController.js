@@ -26,15 +26,15 @@ class PlayerController {
         this.raycaster = new THREE.Raycaster();
         this.downVector = new THREE.Vector3(0, -1, 0);
         
-        // Параметры "виртуально толстого луча" для защиты от щелей
+        // Параметры "толстого луча" для защиты от щелей
         this.footRadius = 0.35; 
         
         this.playerHeight = config.playerHeight || 1.8;
-        // Увеличенная скорость для комфортного перемещения
-        this.speed = (config.moveSpeed || 50) * 3; 
+        // ЯВНО ВЫСОКАЯ СКОРОСТЬ: 15 единиц в секунду (нормальный бег)
+        this.speed = 15.0; 
         
-        this.fallSpeed = config.fallSpeed || 12;
-        this.climbSpeed = config.ladderClimbSpeed || 4;
+        this.fallSpeed = config.fallSpeed || 15; // Быстрое падение для отзывчивости
+        this.climbSpeed = config.ladderClimbSpeed || 6;
     }
 
     update(deltaTime, camera) {
@@ -107,7 +107,7 @@ class PlayerController {
 
         let highestHitY = -Infinity;
         let isLadderFound = false;
-        const maxCheckDist = this.playerHeight + 0.5;
+        const maxCheckDist = this.playerHeight + 0.5; // Проверяем только близко к ногам
 
         for (const offset of offsets) {
             const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.5, z + offset.z);
