@@ -22,23 +22,24 @@ class PlayerController {
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Параметры
+        // Raycaster для проверки пола
+        this.raycaster = new THREE.Raycaster();
+        this.downVector = new THREE.Vector3(0, -1, 0);
+        
+        // Параметры "виртуально толстого луча" для защиты от щелей
+        this.footRadius = 0.35; 
+        
         this.playerHeight = config.playerHeight || 1.8;
-        // УВЕЛИЧИВАЕМ СКОРОСТЬ: было / 1.5, стало * 1.5 от базы
+        // Увеличенная скорость для комфортного перемещения
         this.speed = (config.moveSpeed || 50) * 1.5; 
         
-        this.fallSpeed = config.fallSpeed || 10;
+        this.fallSpeed = config.fallSpeed || 12;
         this.climbSpeed = config.ladderClimbSpeed || 4;
-        
-        // Максимальная дистанция, на которой мы считаем, что "пол существует"
-        // Если пол ниже этого значения, мы должны падать
-        this.maxFloorDistance = 10.0; 
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
-        if (!this.sceneManager.chunkManager) return;
-
+        
         const dt = Math.min(deltaTime, 0.05);
 
         // 1. Горизонтальное движение
@@ -60,47 +61,88 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Логика высоты с проверкой дистанции
-        const logicalData = this.sceneManager.chunkManager.getLogicalHeight(nextX, nextZ);
+        // 2. Проверка пола через Raycast (с защитой от щелей)
+        this.checkGroundWithOffsets(nextX, nextZ);
+
+        // 3. Логика высоты
         let targetY = this.position.y;
-        let foundValidFloor = false;
 
-        if (logicalData) {
-            const floorY = logicalData.y;
-            const distToFloor = this.position.y - floorY;
-
-            // ПРОВЕРКА: Пол должен быть близко (мы стоим на нем или чуть выше)
-            // И мы не должны быть глубоко под землей (distToFloor < playerHeight)
-            if (distToFloor >= -0.5 && distToFloor <= this.maxFloorDistance) {
-                foundValidFloor = true;
-                this.isFalling = false;
-                this.onLadder = logicalData.isLadder;
-                
-                if (this.onLadder && (this.moveForward || this.moveBackward)) {
-                    const climbDir = this.moveForward ? 1 : -1;
-                    targetY += climbDir * this.climbSpeed * dt;
-                } else {
-                    // Ставим на пол
-                    targetY = floorY + this.playerHeight * 0.5;
-                }
+        if (this.onGround) {
+            if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                const climbDir = this.moveForward ? 1 : -1;
+                targetY += climbDir * this.climbSpeed * dt;
             }
-        }
-
-        if (!foundValidFloor) {
-            // Нет валидного пола рядом -> ПАДАЕМ
-            this.isFalling = true;
-            this.onLadder = false;
-            this.onGround = false;
-            targetY -= this.fallSpeed * dt;
+            // Если стоим на полу, Y был скорректирован в checkGround
         } else {
-            this.onGround = true;
+            this.isFalling = true;
+            targetY -= this.fallSpeed * dt;
         }
 
         this.position.set(nextX, targetY, nextZ);
 
-        // 3. Камера
+        // 4. Камера
         camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
         camera.quaternion.setFromEuler(this.cameraEuler);
+    }
+
+    /**
+     * Проверяет наличие пола центральным лучом и 4-мя вспомогательными по углам.
+     * Это решает проблему проваливания в щели между платформами.
+     */
+    checkGroundWithOffsets(x, z) {
+        this.onGround = false;
+        this.onLadder = false;
+
+        const collisionLayer = this.sceneManager.collisionLayer;
+        if (!collisionLayer) return;
+
+        // Точки для проверки: центр + 4 угла квадрата вокруг игрока
+        const offsets = [
+            { x: 0, z: 0 },
+            { x: this.footRadius, z: this.footRadius },
+            { x: -this.footRadius, z: this.footRadius },
+            { x: this.footRadius, z: -this.footRadius },
+            { x: -this.footRadius, z: -this.footRadius }
+        ];
+
+        let highestHitY = -Infinity;
+        let isLadderFound = false;
+        const maxCheckDist = this.playerHeight + 0.5;
+
+        for (const offset of offsets) {
+            const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.5, z + offset.z);
+            this.raycaster.set(rayOrigin, this.downVector);
+            this.raycaster.far = maxCheckDist;
+
+            // recursive: true критически важен, так как коллайдеры внутри групп чанков
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                
+                // Проверяем, что это пол под ногами, а не стена сбоку или потолок
+                if (hit.distance < this.playerHeight * 0.8) {
+                    const hitY = hit.point.y;
+                    
+                    // Берем самую высокую точку столкновения (ближайший пол)
+                    if (hitY > highestHitY) {
+                        highestHitY = hitY;
+                        isLadderFound = hit.object.userData.isLadder || false;
+                    }
+                }
+            }
+        }
+
+        // Если хоть один луч нашел землю
+        if (highestHitY > -Infinity) {
+            this.onGround = true;
+            this.isFalling = false;
+            this.onLadder = isLadderFound;
+            
+            // Жестко ставим игрока на найденную поверхность
+            this.position.y = highestHitY + (this.playerHeight * 0.5);
+            this.velocity.y = 0;
+        }
     }
 
     onMouseMove(movementX, movementY) {
