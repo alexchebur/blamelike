@@ -110,28 +110,52 @@ class ChunkManager {
         return this.heightMap.get(key) || null;
     }
 
+    /**
+     * Обновляет логическую карту высот данными из чанка
+     */
     updateHeightMapForChunk(chunkData) {
         if (!this.config) return;
         const cellSize = this.config.cellSize || (this.config.chunkSize / this.config.gridSize);
         
         for (const prim of chunkData) {
+            // 1. Явно пропускаем только то, что НЕ является полом
             if (prim.role === 'decor' || prim.role === 'micro') continue;
-            if (prim.type === 'cable' || prim.type === 'l_cable') continue;
             if (prim.type === 'screen') continue;
+            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
+            if (prim.type === 'torus') continue;
             
-            const minX = Math.floor((prim.position.x - prim.scale.x / 2) / cellSize);
-            const maxX = Math.floor((prim.position.x + prim.scale.x / 2) / cellSize);
-            const minZ = Math.floor((prim.position.z - prim.scale.z / 2) / cellSize);
-            const maxZ = Math.floor((prim.position.z + prim.scale.z / 2) / cellSize);
+            // ВАЖНО: Мосты ДОЛЖНЫ быть в heightMap!
+            // Проверяем тип и роль
+            const isWalkable = 
+                prim.type === 'box' || 
+                prim.type.includes('stair') || 
+                prim.type.includes('bridge') ||
+                prim.type === 'platform_stair';
+
+            if (!isWalkable) continue;
             
-            const topY = prim.position.y + prim.scale.y / 2;
+            // 2. Вычисляем границы примитива в сетке
+            // Для мостов scale может быть нестандартным, поэтому используем Math.abs
+            const halfW = Math.abs(prim.scale.x) / 2;
+            const halfD = Math.abs(prim.scale.z) / 2;
+            
+            const minX = Math.floor((prim.position.x - halfW) / cellSize);
+            const maxX = Math.floor((prim.position.x + halfW) / cellSize);
+            const minZ = Math.floor((prim.position.z - halfD) / cellSize);
+            const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
+            
+            // Верхняя грань объекта
+            // Для мостов и лестниц topY считается от центра + половина высоты
+            const topY = prim.position.y + (Math.abs(prim.scale.y) / 2);
             const isLadder = prim.type.includes('stair');
 
+            // Заполняем карту
             for (let x = minX; x <= maxX; x++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const key = `${x},${z}`;
                     const currentData = this.heightMap.get(key);
                     
+                    // Если ячейка пуста или новый объект выше существующего
                     if (!currentData || topY > currentData.y) {
                         this.heightMap.set(key, {
                             y: topY,
