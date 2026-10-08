@@ -16,8 +16,7 @@ class ChunkManager {
         this.lastCameraChunk = null;
         this.config = null;
         
-        // === ЛОГИЧЕСКАЯ КАРТА ВЫСОТ ===
-        // Хранит: key="gridX,gridZ" -> { y: number, isLadder: boolean, type: string }
+        // Логическая карта высот (для спавна и общей логики)
         this.heightMap = new Map(); 
     }
 
@@ -69,9 +68,6 @@ class ChunkManager {
         this.unloadUnusedChunks(desiredChunks);
     }
 
-    /**
-     * Находит первую доступную платформу в радиусе поиска для спавна
-     */
     findSpawnPoint(center, radius = 1) {
         if (!this.config) return null;
         
@@ -87,12 +83,11 @@ class ChunkManager {
                     
                     if (chunk && chunk.userData.primitives) {
                         for (const prim of chunk.userData.primitives) {
-                            // Ищем надежные платформы для спавна
                             if (prim.type === 'box' && (prim.role === 'frame' || prim.role === 'platform')) {
                                 const topY = prim.position.y + (prim.scale.y / 2);
                                 return {
                                     x: prim.position.x,
-                                    y: topY + 2, // Запас над полом
+                                    y: topY + 2,
                                     z: prim.position.z,
                                     platformHeight: topY
                                 };
@@ -105,10 +100,6 @@ class ChunkManager {
         return null;
     }
 
-    /**
-     * Получает логическую высоту поверхности в точке (x, z)
-     * Используется PlayerController вместо физического Raycasting
-     */
     getLogicalHeight(x, z) {
         if (!this.config) return null;
         const cellSize = this.config.cellSize || (this.config.chunkSize / this.config.gridSize);
@@ -119,37 +110,28 @@ class ChunkManager {
         return this.heightMap.get(key) || null;
     }
 
-    /**
-     * Обновляет логическую карту высот данными из чанка
-     * Сканирует все твердые примитивы и заполняет heightMap
-     */
     updateHeightMapForChunk(chunkData) {
         if (!this.config) return;
         const cellSize = this.config.cellSize || (this.config.chunkSize / this.config.gridSize);
         
         for (const prim of chunkData) {
-            // Пропускаем декор и незначительные объекты
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'cable' || prim.type === 'l_cable') continue;
             if (prim.type === 'screen') continue;
             
-            // Вычисляем границы примитива в логической сетке
             const minX = Math.floor((prim.position.x - prim.scale.x / 2) / cellSize);
             const maxX = Math.floor((prim.position.x + prim.scale.x / 2) / cellSize);
             const minZ = Math.floor((prim.position.z - prim.scale.z / 2) / cellSize);
             const maxZ = Math.floor((prim.position.z + prim.scale.z / 2) / cellSize);
             
-            // Верхняя грань объекта
             const topY = prim.position.y + prim.scale.y / 2;
             const isLadder = prim.type.includes('stair');
 
-            // Заполняем карту: берем максимальную высоту для каждой ячейки
             for (let x = minX; x <= maxX; x++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const key = `${x},${z}`;
                     const currentData = this.heightMap.get(key);
                     
-                    // Если ячейка пуста или новый объект выше существующего
                     if (!currentData || topY > currentData.y) {
                         this.heightMap.set(key, {
                             y: topY,
@@ -171,29 +153,26 @@ class ChunkManager {
             this.cache.set(key, chunkData);
         }
 
-        // === ОБНОВЛЯЕМ ЛОГИЧЕСКУЮ КАРТУ ВЫСОТ ===
         this.updateHeightMapForChunk(chunkData);
-        // =======================================
 
-        // 1. Создаем визуальную группу (InstancedMesh)
+        // 1. Визуал
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Создаем слой коллизий (только для стен и лестниц, пол теперь логический)
+        // 2. Коллизии (ФИЗИЧЕСКИЙ СЛОЙ)
         const collisionGroup = this.createCollisionChunk(chunkData, config);
         collisionGroup.name = `Collision_${key}`;
         
-        // Безопасная проверка наличия collisionLayer
         if (this.sceneManager.collisionLayer) {
             this.sceneManager.collisionLayer.add(collisionGroup);
         }
         
         group.userData.collisionGroup = collisionGroup; 
 
-        // 3. Регистрируем анимированные экраны
+        // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
@@ -218,11 +197,9 @@ class ChunkManager {
 
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
-        // Невидимый материал для коллизий
         const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
         
         for (const prim of primitives) {
-            // Фильтрация: что НЕ должно быть физическим коллайдером
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen') continue;
             if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
@@ -271,8 +248,7 @@ class ChunkManager {
             }
 
             if (geometry) {
-                // === КРИТИЧЕСКИ ВАЖНО ДЛЯ BOXCASTER ===
-                // Bounding box не вычисляется автоматически при создании геометрии!
+                // === ИСПРАВЛЕНИЕ: Вычисляем Bounding Box ===
                 geometry.computeBoundingBox();
                 // ==========================================
 
@@ -285,11 +261,9 @@ class ChunkManager {
                     mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
                 }
                 
-                // === КРИТИЧЕСКИ ВАЖНО ДЛЯ BOXCASTER ===
-                // Обновляем мировую матрицу, чтобы applyMatrix4 работал корректно
+                // Обновляем матрицы для корректной работы Raycaster/AABB
                 mesh.updateMatrix();
                 mesh.updateMatrixWorld(true);
-                // ==========================================
                 
                 mesh.userData.isLadder = isLadder;
                 mesh.userData.type = prim.type;
@@ -429,7 +403,7 @@ class ChunkManager {
         }
         this.activeChunks.clear();
         this.cache.clear();
-        this.heightMap.clear(); // Очищаем и логическую карту
+        this.heightMap.clear();
         this.lastCameraChunk = null;
         if (this.sceneManager.screenManager) this.sceneManager.screenManager.clearAll();
         console.log('🧹 All chunks cleared');
