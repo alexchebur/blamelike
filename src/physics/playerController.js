@@ -31,7 +31,7 @@ class PlayerController {
         
         this.playerHeight = config.playerHeight || 1.8;
         // Увеличенная скорость для комфортного перемещения
-        this.speed = (config.moveSpeed || 50) * 1.5; 
+        this.speed = (config.moveSpeed || 50) * 3; 
         
         this.fallSpeed = config.fallSpeed || 12;
         this.climbSpeed = config.ladderClimbSpeed || 4;
