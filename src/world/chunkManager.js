@@ -355,20 +355,39 @@ class ChunkManager {
         return group;
     }
 
-    createChunkMesh(primitives, config) {
-        const group = new THREE.Group();
-        const grouped = this.groupPrimitives(primitives);
-        for (const [typeSlot, items] of Object.entries(grouped)) {
-            const lastPipeIndex = typeSlot.lastIndexOf('|');
-            if (lastPipeIndex === -1) continue;
-            const slot = typeSlot.substring(lastPipeIndex + 1);
-            const fullType = typeSlot.substring(0, lastPipeIndex);
-            if (fullType === 'screen') continue;
-            const mesh = this.createInstancedMesh(fullType, slot, items, config);
-            if (mesh) group.add(mesh);
+// src/world/chunkManager.js
+createChunkMesh(primitives, config) {
+    const group = new THREE.Group();
+    
+    // Получаем позицию камеры для расчета дистанции
+    const cameraPos = this.sceneManager.camera.position;
+    const chunkCenter = new THREE.Vector3(
+        (this.lastCameraChunk?.cx || 0) * config.chunkSize + config.chunkSize/2,
+        (this.lastCameraChunk?.cy || 0) * config.chunkSize + config.chunkSize/2,
+        (this.lastCameraChunk?.cz || 0) * config.chunkSize + config.chunkSize/2
+    );
+    const distToChunk = cameraPos.distanceTo(chunkCenter);
+
+    const grouped = this.groupPrimitives(primitives);
+    for (const [typeSlot, items] of Object.entries(grouped)) {
+        const lastPipeIndex = typeSlot.lastIndexOf('|');
+        if (lastPipeIndex === -1) continue;
+        
+        const slot = typeSlot.substring(lastPipeIndex + 1);
+        const fullType = typeSlot.substring(0, lastPipeIndex);
+        
+        // === ОПТИМИЗАЦИЯ: Пропускаем декор на дальних дистанциях ===
+        if (distToChunk > 150 && (slot === 'decor' || slot === 'micro')) {
+            continue; 
         }
-        return group;
+        // ==========================================================
+
+        if (fullType === 'screen') continue;
+        const mesh = this.createInstancedMesh(fullType, slot, items, config);
+        if (mesh) group.add(mesh);
     }
+    return group;
+}
 
     groupPrimitives(primitives) {
         const grouped = {};
