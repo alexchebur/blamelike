@@ -358,53 +358,47 @@ class ChunkManager {
 // src/world/chunkManager.js
 // src/world/chunkManager.js
 
-createChunkMesh(primitives, config) {
-    const group = new THREE.Group();
-    
-    // Получаем позицию камеры для расчета дистанции
-    const cameraPos = this.sceneManager.camera.position;
-    // Берем координаты текущего чанка из ключа группы (если он уже создан) или вычисляем
-    // Для простоты используем lastCameraChunk как референс, но лучше брать из key
-    // Здесь мы просто проверим дистанцию до центра чанка, который сейчас загружаем
-    
-    const grouped = this.groupPrimitives(primitives);
-    for (const [typeSlot, items] of Object.entries(grouped)) {
-        const lastPipeIndex = typeSlot.lastIndexOf('|');
-        if (lastPipeIndex === -1) continue;
+    createChunkMesh(primitives, config) {
+        const group = new THREE.Group();
+        const cameraPos = this.sceneManager.camera.position;
         
-        const slot = typeSlot.substring(lastPipeIndex + 1);
-        const fullType = typeSlot.substring(0, lastPipeIndex);
+        const grouped = this.groupPrimitives(primitives);
         
-        // === LOD ЛОГИКА ===
-        // Вычисляем примерную дистанцию до первого объекта этого типа в группе
-        const firstItem = items[0];
-        const dist = Math.sqrt(
-            Math.pow(firstItem.position.x - cameraPos.x, 2) +
-            Math.pow(firstItem.position.y - cameraPos.y, 2) +
-            Math.pow(firstItem.position.z - cameraPos.z, 2)
-        );
-
-        // Если объект далеко (> 150 единиц), упрощаем его
-        if (dist > 150) {
-            // Пропускаем сложный декор и микро-детали
-            if (slot === 'micro' || slot === 'decor') continue;
+        for (const [typeSlot, items] of Object.entries(grouped)) {
+            const lastPipeIndex = typeSlot.lastIndexOf('|');
+            if (lastPipeIndex === -1) continue;
             
-            // Заменяем лестницы и мосты на простые боксы (LOD 1)
-            if (fullType.includes('stair') || fullType.includes('bridge')) {
-                // Вместо вызова createInstancedMesh со сложной геометрией,
-                // мы можем создать упрощенный меш или просто пропустить его,
-                // если коллайдеры достаточно.
-                // Для визуала заменим геометрию на Box в createGeometry
-            }
-        }
-        // ==================
+            const slot = typeSlot.substring(lastPipeIndex + 1);
+            const fullType = typeSlot.substring(0, lastPipeIndex);
+            
+            if (fullType === 'screen') continue;
 
-        if (fullType === 'screen') continue;
-        const mesh = this.createInstancedMesh(fullType, slot, items, config);
-        if (mesh) group.add(mesh);
+            // Быстрый расчет дистанции до первого элемента группы
+            const item = items[0];
+            const dx = item.position.x - cameraPos.x;
+            const dy = item.position.y - cameraPos.y;
+            const dz = item.position.z - cameraPos.z;
+            const distSq = dx*dx + dy*dy + dz*dz;
+
+            // === ЖЕСТКАЯ ФИЛЬТРАЦИЯ ДЛЯ FPS ===
+            
+            // 1. Скрываем весь декор и кабели дальше 150 единиц
+            if (distSq > 22500) { // 150^2
+                if (slot === 'decor' || slot === 'micro') continue;
+                if (fullType === 'cable' || fullType === 'l_cable') continue;
+                if (fullType === 'sphere' || fullType === 'torus') continue; // Тяжелые фигуры
+            }
+
+            // 2. Скрываем микро-декор ближе, но все же далеко
+            if (distSq > 10000) { // 100^2
+                if (slot === 'micro') continue;
+            }
+
+            const mesh = this.createInstancedMesh(fullType, slot, items, config);
+            if (mesh) group.add(mesh);
+        }
+        return group;
     }
-    return group;
-}
 
     groupPrimitives(primitives) {
         const grouped = {};
