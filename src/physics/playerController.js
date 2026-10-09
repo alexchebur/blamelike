@@ -6,7 +6,7 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         this.position = new THREE.Vector3(0, 50, 0); 
-        this.previousPosition = new THREE.Vector3(0, 50, 0); // Для расчета пути падения
+        this.previousPosition = new THREE.Vector3(0, 50, 0);
         this.velocity = new THREE.Vector3();
         this.onGround = false;
         this.isFalling = false;
@@ -37,8 +37,8 @@ class PlayerController {
     }
 
     /**
-     * Обновляет список коллайдеров, которые нужно проверять.
-     * Радиус увеличен до 2 чанков для надежного обнаружения пола при падении.
+     * Обновляет список коллайдеров.
+     * РАДИУС 1 ЧАНК (27 чанков всего) для максимальной скорости.
      */
     updateCollisionCache(activeChunksMap, cameraPos, chunkSize) {
         this.localColliders = [];
@@ -47,14 +47,16 @@ class PlayerController {
         const cy = Math.floor(this.position.y / chunkSize);
         const cz = Math.floor(this.position.z / chunkSize);
 
-        // === УВЕЛИЧЕННЫЙ РАДИУС (2 чанка) ===
-        for (let dx = -2; dx <= 2; dx++) {
-            for (let dy = -2; dy <= 2; dy++) {
-                for (let dz = -2; dz <= 2; dz++) {
+        // === РАДИУС 1 ===
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dz = -1; dz <= 1; dz++) {
                     const key = `${cx + dx},${cy + dy},${cz + dz}`;
                     const chunk = activeChunksMap.get(key);
                     
                     if (chunk && chunk.userData.collisionGroup) {
+                        // Добавляем детей напрямую. 
+                        // ВАЖНО: В chunkManager мы должны убедиться, что collisionGroup.children - это меши, а не вложенные группы.
                         this.localColliders.push(...chunk.userData.collisionGroup.children);
                     }
                 }
@@ -66,7 +68,6 @@ class PlayerController {
         if (!camera) return;
         const dt = Math.min(deltaTime, 0.05);
 
-        // Сохраняем позицию ДО движения для расчета сканирования
         this.previousPosition.copy(this.position);
 
         // 1. Горизонтальное движение
@@ -96,14 +97,13 @@ class PlayerController {
             targetY -= this.fallSpeed * dt;
         } else {
             this.isFalling = false;
-            // Логика лестниц
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
             }
         }
 
-        // Временно обновляем Y для проверки коллизий
+        // Временно обновляем Y для проверки
         const tempY = this.position.y;
         this.position.y = targetY;
 
@@ -119,28 +119,19 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    /**
-     * Сканирует пол по всему пути падения (Swept Volume)
-     * @param {number} x - новая X
-     * @param {number} z - новая Z
-     * @param {number} startY - позиция в начале кадра
-     * @param {number} endY - позиция в конце кадра (до коррекции)
-     */
     checkGroundWithOffsets(x, z, startY, endY) {
         this.onGround = false;
         this.onLadder = false;
 
         if (this.localColliders.length === 0) return;
 
-        // Длина луча = пройденное расстояние вниз + небольшой запас
+        // Длина луча = пройденное расстояние + запас
         const dist = Math.abs(startY - endY) + 1.0; 
         
-        // Плотная сетка из 9 лучей для надежности
+        // Сетка из 5 лучей (центр + углы)
         const r = this.footRadius * 0.8;
         const offsets = [
             { x: 0, z: 0 },
-            { x: r, z: 0 }, { x: -r, z: 0 },
-            { x: 0, z: r }, { x: 0, z: -r },
             { x: r, z: r }, { x: -r, z: r },
             { x: r, z: -r }, { x: -r, z: -r }
         ];
@@ -149,12 +140,13 @@ class PlayerController {
         let isLadderFound = false;
 
         for (const offset of offsets) {
-            // Луч пускаем ИЗ СТАРОЙ ПОЗИЦИИ (startY) вниз
             const rayOrigin = new THREE.Vector3(x + offset.x, startY + 0.2, z + offset.z);
             
             this.raycaster.set(rayOrigin, this.downVector);
             this.raycaster.far = dist; 
 
+            // === КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===
+            // recursive: false, так как localColliders уже содержит плоский список мешей
             const intersects = this.raycaster.intersectObjects(this.localColliders, false);
 
             if (intersects.length > 0) {
@@ -166,15 +158,11 @@ class PlayerController {
             }
         }
 
-        // Если нашли землю
         if (highestHitY > -Infinity) {
-            // Проверяем, что земля действительно ниже нас
             if (highestHitY < startY) {
                 this.onGround = true;
                 this.isFalling = false;
                 this.onLadder = isLadderFound;
-                
-                // Ставим игрока НА поверхность + половина роста
                 this.position.y = highestHitY + (this.playerHeight * 0.5);
             }
         }
