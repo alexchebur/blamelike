@@ -221,7 +221,6 @@ class ChunkManager {
         this.sceneManager.scene.add(group);
 
         // 2. Физический слой (коллизии)
-        
         const collisionGroup = this.createCollisionChunk(chunkData, config);
         collisionGroup.name = `Collision_${key}`;
         
@@ -254,15 +253,16 @@ class ChunkManager {
         }
     }
 
+    /**
+     * Создает физические коллайдеры для чанка.
+     * ВАЖНО: mesh.matrixAutoUpdate = false для повышения FPS.
+     */
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
         const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
         
         for (const prim of primitives) {
-            if (prim.role === 'decor' || prim.role === 'micro') continue;
-            if (prim.type === 'screen') continue;
-            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
-            if (prim.type === 'torus') continue;
+            if (!isWalkablePrimitive(prim)) continue;
             
             let geometry = null;
             let isLadder = false;
@@ -270,19 +270,21 @@ class ChunkManager {
             switch (prim.type) {
                 case 'box':
                 case 'platform_stair':
+                case 'mega_block':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
                 case 'cylinder':
                 case 'cone':
                 case 'obelisk':
                 case 'spire':
+                case 'capsule':
                     geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
                     break;
                 case 'stair_north': 
                 case 'stair_south': 
                 case 'stair_east': 
                 case 'stair_west':
-                    if (typeof getStairGeometry !== 'undefined') {
+                    if (typeof getStairGeometry === 'function') {
                         const p = prim.params || {};
                         geometry = getStairGeometry(
                             prim.type, 
@@ -298,8 +300,17 @@ class ChunkManager {
                 case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
+                case 'arch':
+                     if (typeof getStairGeometry === 'function') {
+                        geometry = getStairGeometry('arch');
+                    } else {
+                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    }
+                    break;
                 default: 
-                    continue;
+                    // Для любых других walkable-типов создаем бокс по габаритам
+                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
+                    break;
             }
 
             if (geometry) {
@@ -318,9 +329,10 @@ class ChunkManager {
                 mesh.updateMatrix();
                 mesh.updateMatrixWorld(true);
                 
-                // === ОПТИМИЗАЦИЯ: Запрещаем движку пересчитывать матрицы каждый кадр ===
+                // === КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===
+                // Запрещаем движку пересчитывать мировые матрицы каждый кадр для статичных объектов
                 mesh.matrixAutoUpdate = false;
-                // ================================================================
+                // ===============================
                 
                 mesh.userData.isLadder = isLadder;
                 mesh.userData.type = prim.type;
@@ -329,9 +341,6 @@ class ChunkManager {
         }
         return group;
     }
-
-// src/world/chunkManager.js
-// src/world/chunkManager.js
 
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
@@ -348,23 +357,23 @@ class ChunkManager {
             
             if (fullType === 'screen') continue;
 
-            // Быстрый расчет дистанции до первого элемента группы
+            // Быстрый расчет дистанции до первого элемента группы для LOD
             const item = items[0];
             const dx = item.position.x - cameraPos.x;
             const dy = item.position.y - cameraPos.y;
             const dz = item.position.z - cameraPos.z;
             const distSq = dx*dx + dy*dy + dz*dz;
 
-            // === ЖЕСТКАЯ ФИЛЬТРАЦИЯ ДЛЯ FPS ===
+            // === ЖЕСТКАЯ ФИЛЬТРАЦИЯ ДЛЯ FPS (LOD) ===
             
-            // 1. Скрываем весь декор и кабели дальше 150 единиц
+            // 1. Скрываем весь декор, кабели и тяжелые фигуры дальше 150 единиц
             if (distSq > 22500) { // 150^2
                 if (slot === 'decor' || slot === 'micro') continue;
                 if (fullType === 'cable' || fullType === 'l_cable') continue;
-                if (fullType === 'sphere' || fullType === 'torus') continue; // Тяжелые фигуры
+                if (fullType === 'sphere' || fullType === 'torus') continue;
             }
 
-            // 2. Скрываем микро-декор ближе, но все же далеко
+            // 2. Скрываем микро-декор ближе, но все же далеко (> 100 единиц)
             if (distSq > 10000) { // 100^2
                 if (slot === 'micro') continue;
             }
@@ -390,7 +399,7 @@ class ChunkManager {
         if (!items || items.length === 0) return null;
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
-        const geometry = this.createGeometry(type, null, config, items[0]);
+        const geometry = this.createGeometry(type, slot, config, items[0]);
         const material = new THREE.MeshLambertMaterial({
             color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
         });
@@ -413,8 +422,7 @@ class ChunkManager {
     }
 
     createGeometry(type, variant, config, item = null) {
-        // === ОПТИМИЗАЦИЯ: Жестко ограничиваем сложность базовых фигур ===
-        // Для стиля Blame! "граненость" даже желательна, а лишние полигоны убивают FPS.
+        // === ОПТИМИЗАЦИЯ: Жестко ограничиваем сложность базовых фигур (Low Poly) ===
         
         switch (type) {
             // --- ПРОСТЫЕ ФИГУРЫ (Box-like) ---
@@ -422,34 +430,26 @@ class ChunkManager {
             case 'mega_block':
                 return new THREE.BoxGeometry(1, 1, 1);
 
-            // --- КРУГЛЫЕ ФИГУРЫ (Low Poly) ---
+            // --- КРУГЛЫЕ ФИГУРЫ (Минимум сегментов) ---
             case 'cylinder': 
-                // 8 сегментов достаточно для индустриального стиля
                 return new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
             
             case 'cone': 
                 return new THREE.ConeGeometry(0.5, 1, 8);
             
             case 'obelisk': 
-                // 4 грани (пирамида/квадратная колонна)
                 return new THREE.ConeGeometry(0.4, 1, 4); 
             
             case 'spire': 
-                // Острый шпиль, 6 граней
                 return new THREE.ConeGeometry(0.2, 1, 6);
 
             case 'sphere': 
-                // 12x8 сегментов вместо 16x16 или больше
                 return new THREE.SphereGeometry(0.5, 12, 8);
 
             case 'capsule': 
-                // Capsule тяжелая, заменяем на упрощенную версию или оставляем минимум
-                // radiusTop, radiusBottom, length, capSegments, radialSegments
                 return new THREE.CapsuleGeometry(0.5, 1, 2, 8);
 
             case 'torus': 
-                // Минимально возможное качество для декоративных колец
-                // radius, tube, radialSegments, tubularSegments
                 return new THREE.TorusGeometry(0.5, 0.15, 6, 12);
 
             case 'octahedron': 
@@ -460,7 +460,6 @@ class ChunkManager {
                 if (typeof createLCableGeometry === 'function') {
                     return createLCableGeometry();
                 }
-                // Fallback: простой тонкий бокс
                 return new THREE.BoxGeometry(0.1, 1, 0.1);
 
             case 'stair_north': 
@@ -489,7 +488,6 @@ class ChunkManager {
                 if (typeof getStairGeometry === 'function') {
                     return getStairGeometry('arch');
                 }
-                // Fallback для арки: два столба и перекладина (упрощенно боксом)
                 return new THREE.BoxGeometry(1, 1, 1);
 
             // --- DEFAULT ---
