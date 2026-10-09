@@ -38,14 +38,26 @@ class PlayerController {
 
     updateCollisionCache(activeChunksMap, cameraPos, chunkSize) {
         this.localColliders = [];
+        
         const cx = Math.floor(this.position.x / chunkSize);
         const cy = Math.floor(this.position.y / chunkSize);
         const cz = Math.floor(this.position.z / chunkSize);
 
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dz = -1; dz <= 1; dz++) {
+        // === УВЕЛИЧИВАЕМ РАДИУС ДО 2 ЧАНКОВ ===
+        // Это гарантирует, что мы захватим платформы, которые находятся на ярус ниже
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dz = -2; dz <= 2; dz++) {
                     const key = `${cx + dx},${cy + dy},${cz + dz}`;
+                    const chunk = activeChunksMap.get(key);
+                    
+                    if (chunk && chunk.userData.collisionGroup) {
+                        this.localColliders.push(...chunk.userData.collisionGroup.children);
+                    }
+                }
+            }
+        }
+    }
                     const chunk = activeChunksMap.get(key);
                     if (chunk && chunk.userData.collisionGroup) {
                         this.localColliders.push(...chunk.userData.collisionGroup.children);
