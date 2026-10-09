@@ -28,44 +28,34 @@ class PlayerController {
         this.footRadius = 0.35; 
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = 15.0; 
-        this.fallSpeed = config.fallSpeed || 15;
+        this.fallSpeed = config.fallSpeed || 25; // Увеличил скорость падения для динамики
         this.climbSpeed = config.ladderClimbSpeed || 6;
 
-        // === НОВОЕ: Локальный кэш коллизий ===
+        // Локальный кэш коллизий (только ближайшие чанки)
         this.localColliders = []; 
     }
 
-    /**
-     * Обновляет список коллайдеров, которые нужно проверять.
-     * Вызывается из ChunkManager или App каждый кадр.
-     */
     updateCollisionCache(activeChunksMap, cameraPos, chunkSize) {
         this.localColliders = [];
         
-        // Определяем текущий чанк игрока
         const cx = Math.floor(this.position.x / chunkSize);
         const cy = Math.floor(this.position.y / chunkSize);
         const cz = Math.floor(this.position.z / chunkSize);
 
-        // Берем только текущий чанк и его соседей (радиус 1)
+        // Берем радиус 1 вокруг игрока
         for (let dx = -1; dx <= 1; dx++) {
             for (let dy = -1; dy <= 1; dy++) {
                 for (let dz = -1; dz <= 1; dz++) {
-                    // Простая генерация ключа, как в chunkKey.js
                     const key = `${cx + dx},${cy + dy},${cz + dz}`;
                     const chunk = activeChunksMap.get(key);
                     
                     if (chunk && chunk.userData.collisionGroup) {
-                        // Добавляем детей группы коллизий в наш локальный массив
-                        // Это намного быстрее, чем рекурсивный поиск по всей сцене
                         this.localColliders.push(...chunk.userData.collisionGroup.children);
                     }
                 }
             }
         }
     }
-
-// src/physics/playerController.js
 
     update(deltaTime, camera) {
         if (!camera) return;
@@ -91,114 +81,69 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Логика вертикального движения и падения
+        // 2. Проверка пола (единая точка входа)
+        // Мы вызываем проверку ВСЕГДА, но внутри она оптимизирована
+        this.checkGroundWithOffsets(nextX, nextZ);
+
         let targetY = this.position.y;
-        const cm = this.sceneManager.chunkManager;
 
-        if (this.isFalling) {
-            // Применяем гравитацию
-            targetY -= this.fallSpeed * dt;
-
-            // === УМНОЕ ПАДЕНИЕ ===
-            // Проверяем пол только если у нас есть доступ к карте высот
-            if (cm && cm.heightMap) {
-                const cellSize = cm.config.chunkSize / cm.config.gridSize;
-                const gridX = Math.floor(nextX / cellSize);
-                const gridZ = Math.floor(nextZ / cellSize);
-                const key = `${gridX},${gridZ}`;
-                const floorData = cm.heightMap.get(key);
-
-                // Если мы знаем, где пол, и мы близко к нему (в пределах 2 единиц)
-                if (floorData && targetY <= floorData.y + 2.0) {
-                    // Включаем точную проверку Raycast'ом для финального приземления
-                    this.checkGroundWithOffsets(nextX, nextZ);
-                    
-                    // Если после проверки мы все еще падаем (например, heightMap неточен), 
-                    // продолжаем падать. Но обычно здесь isFalling станет false.
-                }
-                // Если до пола еще далеко — просто летим вниз без проверок (максимальный FPS)
-            } else {
-                // Fallback: если heightMap недоступен, проверяем редко (раз в 10 кадров)
-                if (Math.random() < 0.1) { 
-                    this.checkGroundWithOffsets(nextX, nextZ);
-                }
+        if (this.onGround) {
+            this.isFalling = false;
+            // Логика лестниц
+            if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                const climbDir = this.moveForward ? 1 : -1;
+                targetY += climbDir * this.climbSpeed * dt;
             }
-            // ==================
-
         } else {
-            // Обычное состояние: стоим или идем
-            this.checkGroundWithOffsets(nextX, nextZ);
-
-            if (this.onGround) {
-                if (this.onLadder && (this.moveForward || this.moveBackward)) {
-                    const climbDir = this.moveForward ? 1 : -1;
-                    targetY += climbDir * this.climbSpeed * dt;
-                }
-            } else {
-                // Только что потеряли опору -> начинаем падение
-                this.isFalling = true;
-                targetY -= this.fallSpeed * dt;
-            }
+            // Если мы не на земле -> падаем
+            this.isFalling = true;
+            targetY -= this.fallSpeed * dt;
         }
 
         this.position.set(nextX, targetY, nextZ);
 
-        // 4. Камера
+        // 3. Камера
         camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
+
     checkGroundWithOffsets(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
-        // === ШАГ 1: Быстрая проверка через HeightMap ===
-        const cm = this.sceneManager.chunkManager;
-        if (cm && cm.heightMap) {
-            const cellSize = cm.config.chunkSize / cm.config.gridSize;
-            const gridX = Math.floor(x / cellSize);
-            const gridZ = Math.floor(z / cellSize);
-            const key = `${gridX},${gridZ}`;
-            const data = cm.heightMap.get(key);
-
-            // Если мы близко к высоте из карты, доверяем ей полностью
-            if (data && Math.abs(this.position.y - data.y) < 1.5) {
-                this.onGround = true;
-                this.isFalling = false;
-                this.onLadder = data.isLadder;
-                this.position.y = data.y + (this.playerHeight * 0.5);
-                this.velocity.y = 0;
-                return; // Выходим, экономя ресурсы CPU
-            }
-        }
-
-        // === ШАГ 2: Точная проверка через Raycast (только если HeightMap не сработала) ===
-        // Используем ТОЛЬКО локальные коллайдеры, а не весь слой
+        // Если коллайдеров нет (игрок в пустоте), сразу выходим
         if (this.localColliders.length === 0) return;
 
+        // Оптимизация: проверяем только 3 точки (центр и две диагонали) вместо 5
         const offsets = [
             { x: 0, z: 0 },
             { x: this.footRadius, z: this.footRadius },
-            { x: -this.footRadius, z: this.footRadius },
-            { x: this.footRadius, z: -this.footRadius },
             { x: -this.footRadius, z: -this.footRadius }
         ];
 
         let highestHitY = -Infinity;
         let isLadderFound = false;
-        const maxCheckDist = this.playerHeight + 0.5;
+        
+        // Ограничиваем дальность луча высотой игрока + небольшой запас
+        // Это критично для производительности: луч не будет сканировать всю глубину мира
+        const maxCheckDist = this.playerHeight + 1.0; 
 
         for (const offset of offsets) {
-            const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.5, z + offset.z);
+            // Луч пускаем чуть выше текущей позиции ног, чтобы не застревать в полу
+            const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.2, z + offset.z);
+            
             this.raycaster.set(rayOrigin, this.downVector);
             this.raycaster.far = maxCheckDist;
 
-            // Пускаем лучи только по локальному списку
+            // recursive: false, так как мы уже развернули детей в localColliders
             const intersects = this.raycaster.intersectObjects(this.localColliders, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
-                if (hit.distance < this.playerHeight * 0.8) {
+                // Проверяем, что пересечение произошло ниже нас, но в пределах досягаемости
+                if (hit.distance < maxCheckDist) {
                     const hitY = hit.point.y;
+                    // Ищем самую высокую точку опоры (ближайшую к ногам снизу)
                     if (hitY > highestHitY) {
                         highestHitY = hitY;
                         isLadderFound = hit.object.userData.isLadder || false;
@@ -207,12 +152,17 @@ class PlayerController {
             }
         }
 
+        // Если нашли землю
         if (highestHitY > -Infinity) {
-            this.onGround = true;
-            this.isFalling = false;
-            this.onLadder = isLadderFound;
-            this.position.y = highestHitY + (this.playerHeight * 0.5);
-            this.velocity.y = 0;
+            // Проверяем, что земля действительно под нами, а не над головой (баг при прыжке вверх)
+            if (highestHitY < this.position.y + 0.5) {
+                this.onGround = true;
+                this.onLadder = isLadderFound;
+                
+                // Корректируем позицию, чтобы ноги стояли на поверхности
+                // Добавляем половину высоты игрока, чтобы камера была на уровне глаз
+                this.position.y = highestHitY + (this.playerHeight * 0.5);
+            }
         }
     }
 
