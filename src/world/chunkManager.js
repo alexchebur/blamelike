@@ -202,15 +202,13 @@ class ChunkManager {
         }
     }
 
+// src/world/chunkManager.js
+// ... (остальной код без изменений)
+
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
-        // В loadChunk():
-        const distToChunk = cameraPos.distanceTo(chunkCenter);
-        if (distToChunk > 100) {
-            // Пропускаем создание коллизий для дальних чанков
-            return;
-        }        
+        
         if (!chunkData) {
             chunkData = generateChunk(cx, cy, cz, config.seed, config);
             this.cache.set(key, chunkData);
@@ -225,15 +223,31 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой (коллизии)
-        const collisionGroup = this.createCollisionChunk(chunkData, config);
-        collisionGroup.name = `Collision_${key}`;
+        // === РЕШЕНИЕ 3: Отключаем коллизии для дальних чанков ===
+        // Вычисляем центр чанка
+        const chunkCenterX = (cx + 0.5) * config.chunkSize;
+        const chunkCenterY = (cy + 0.5) * config.chunkSize;
+        const chunkCenterZ = (cz + 0.5) * config.chunkSize;
         
-        if (this.sceneManager.collisionLayer) {
-            this.sceneManager.collisionLayer.add(collisionGroup);
+        const distSq = Math.pow(chunkCenterX - cameraPos.x, 2) +
+                       Math.pow(chunkCenterY - cameraPos.y, 2) +
+                       Math.pow(chunkCenterZ - cameraPos.z, 2);
+        
+        // Если чанк дальше 150 единиц, не создаем для него физику
+        if (distSq < 22500) { 
+            const collisionGroup = this.createCollisionChunk(chunkData, config);
+            collisionGroup.name = `Collision_${key}`;
+            
+            if (this.sceneManager.collisionLayer) {
+                this.sceneManager.collisionLayer.add(collisionGroup);
+            }
+            
+            group.userData.collisionGroup = collisionGroup; 
+        } else {
+            // Для дальних чанков оставляем поле пустым или ставим флаг
+            group.userData.collisionGroup = null;
         }
-        
-        group.userData.collisionGroup = collisionGroup; 
+        // =========================================================
 
         // 3. Экраны (анимированные текстуры)
         if (this.sceneManager.screenManager) {
@@ -241,6 +255,64 @@ class ChunkManager {
         }
     }
 
+    /**
+     * Создает физические коллайдеры для чанка.
+     * === РЕШЕНИЕ 4: Упрощение до предела ===
+     * Все объекты теперь представлены простыми боксами.
+     */
+    createCollisionChunk(primitives, config) {
+        const group = new THREE.Group();
+        const debugMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xff0000, 
+            visible: false,
+            side: THREE.DoubleSide
+        }); 
+        
+        for (const prim of primitives) {
+            // Используем ту же фильтрацию, что и раньше
+            if (prim.role === 'decor' || prim.role === 'micro') continue;
+            if (prim.type === 'screen') continue;
+            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
+            if (prim.type === 'torus') continue;
+            
+            // === УПРОЩЕНИЕ: Всегда создаем BoxGeometry по габаритам объекта ===
+            // Это избавляет от сложных вычислений mergeGeometries для лестниц
+            const geometry = new THREE.BoxGeometry(
+                Math.abs(prim.scale.x), 
+                Math.abs(prim.scale.y), 
+                Math.abs(prim.scale.z)
+            );
+            
+            // Определяем, является ли объект лестницей (для логики игрока)
+            const isLadder = prim.type.includes('stair');
+
+            if (geometry) {
+                geometry.computeBoundingBox();
+
+                const mesh = new THREE.Mesh(geometry, debugMaterial);
+                mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
+                
+                if (prim.rotation) {
+                    mesh.rotation.x = THREE.MathUtils.degToRad(prim.rotation.tiltX || 0);
+                    mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
+                    mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
+                }
+                
+                mesh.updateMatrix();
+                mesh.updateMatrixWorld(true);
+                
+                // КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ
+                mesh.matrixAutoUpdate = false;
+                
+                mesh.userData.isLadder = isLadder;
+                mesh.userData.type = prim.type;
+                group.add(mesh);
+            }
+        }
+        return group;
+    }
+
+// ... (остальной код без изменений)
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
         if (!screenManager) return;
@@ -258,120 +330,6 @@ class ChunkManager {
         }
     }
 
-    /**
-     * Создает физические коллайдеры для чанка.
-     * Оптимизировано: Лестницы заменены на простые рампы для ускорения Raycasting.
-     */
-    createCollisionChunk(primitives, config) {
-        const group = new THREE.Group();
-        const debugMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xff0000, 
-            visible: false,
-            side: THREE.DoubleSide
-        }); 
-        
-        // Вспомогательная функция для создания рампы (наклонного бокса)
-        const createRampGeometry = (length, height, width) => {
-            // Создаем бокс длиной в лестницу
-            const geo = new THREE.BoxGeometry(length, 0.5, width);
-            // Вычисляем угол наклона
-            const angle = Math.atan2(height, length);
-            // Поворачиваем геометрию так, чтобы она легла "горкой"
-            geo.rotateX(-angle);
-            // Сдвигаем центр вверх на половину высоты подъема, чтобы низ был на уровне пола
-            geo.translate(0, height / 2, 0);
-            return geo;
-        };
-
-        for (const prim of primitives) {
-            if (!isWalkablePrimitive(prim)) continue;
-            
-            let geometry = null;
-            let isLadder = false;
-
-            switch (prim.type) {
-                case 'box':
-                case 'platform_stair':
-                case 'mega_block':
-                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    break;
-
-                case 'cylinder':
-                case 'cone':
-                case 'obelisk':
-                case 'spire':
-                case 'capsule':
-                    // Для pierce-фигур используем упрощенный цилиндр
-                    geometry = new THREE.CylinderGeometry(
-                        prim.scale.x * 0.8, 
-                        prim.scale.x * 0.8, 
-                        prim.scale.y, 
-                        8
-                    );
-                    break;
-                
-                case 'stair_north': 
-                case 'stair_south': 
-                case 'stair_east': 
-                case 'stair_west':
-                    // === ОПТИМИЗАЦИЯ: Вместо 21 ступеньки создаем одну рампу ===
-                    const p = prim.params || {};
-                    const levelH = p.levelHeight || config.levelHeight;
-                    const cellS = prim.scale.x; // Длина лестницы равна размеру клетки
-                    
-                    // Создаем рампу, покрывающую всю клетку по высоте
-                    geometry = createRampGeometry(cellS, levelH, cellS * 0.8);
-                    isLadder = true;
-                    break;
-                
-                case 'bridge_ns': 
-                case 'bridge_ew':
-                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    break;
-
-                case 'arch':
-                    if (typeof getStairGeometry === 'function') {
-                        geometry = getStairGeometry('arch');
-                    } else {
-                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    }
-                    break;
-                    
-                default: 
-                    // Fallback для любых других walkable объектов
-                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    break;
-            }
-
-            if (geometry) {
-                // КРИТИЧНО: Вычисляем bounding box ДО трансформаций
-                geometry.computeBoundingBox();
-
-                const mesh = new THREE.Mesh(geometry, debugMaterial);
-                mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
-                
-                if (prim.rotation) {
-                    mesh.rotation.x = THREE.MathUtils.degToRad(prim.rotation.tiltX || 0);
-                    mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
-                    mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
-                }
-                
-                // Обновляем матрицы один раз при создании
-                mesh.updateMatrix();
-                mesh.updateMatrixWorld(true);
-                
-                // === КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===
-                // Запрещаем движку пересчитывать мировые матрицы каждый кадр для статичных объектов
-                mesh.matrixAutoUpdate = false;
-                // ===============================
-                
-                mesh.userData.isLadder = isLadder;
-                mesh.userData.type = prim.type;
-                group.add(mesh);
-            }
-        }
-        return group;
-    }
 
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
