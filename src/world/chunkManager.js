@@ -221,7 +221,7 @@ class ChunkManager {
         this.sceneManager.scene.add(group);
 
         // 2. Физический слой (коллизии)
-        /*
+        
         const collisionGroup = this.createCollisionChunk(chunkData, config);
         collisionGroup.name = `Collision_${key}`;
         
@@ -229,7 +229,7 @@ class ChunkManager {
             this.sceneManager.collisionLayer.add(collisionGroup);
         }
         
-        group.userData.collisionGroup = collisionGroup; */
+        group.userData.collisionGroup = collisionGroup; 
 
         // 3. Экраны (анимированные текстуры)
         if (this.sceneManager.screenManager) {
