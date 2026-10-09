@@ -255,30 +255,31 @@ class ScreenManager {
     /**
      * Обновляет все активные экраны (вызывается каждый кадр)
      */
-    update(deltaTime) {
+    update(deltaTime, cameraPos) { // Добавили cameraPos
         const now = Date.now();
-        
-        // Обновляем только если прошло достаточно времени (экономия CPU)
-        if (now - this.lastUpdateTime < 100) {
-            return;
-        }
+        if (now - this.lastUpdateTime < 100) return;
         
         this.lastUpdateTime = now;
         this.frameCount++;
-        
-        // Обновляем каждый экран
+
         for (const [key, screen] of this.activeScreens) {
-            // Обновляем текстуру
+            // === ОПТИМИЗАЦИЯ: Проверка дистанции ===
+            const distSq = screen.mesh.position.distanceToSquared(cameraPos);
+            
+            // Если экран дальше 150 единиц, просто мерцаем прозрачностью, не перерисовывая Canvas
+            if (distSq > 22500) {
+                const flicker = 0.7 + Math.random() * 0.3;
+                screen.material.opacity = flicker;
+                continue; // Пропускаем тяжелую отрисовку паттерна
+            }
+            // ==========================================
+
+            // Обновляем текстуру только для близких экранов
             this.updateScreenFrame(screen.screenData, this.frameCount);
             screen.screenData.texture.needsUpdate = true;
             
-            // === ИСПРАВЛЕННОЕ МЕРЦАНИЕ ===
-            // Меняем opacity вместо emissiveIntensity
             const flicker = 0.7 + Math.random() * 0.3;
             screen.material.opacity = flicker;
-            
-            // Опционально: можно также слегка менять яркость цвета
-            // screen.material.color.copy(screen.baseColor).multiplyScalar(0.8 + Math.random() * 0.4);
         }
     }
 
