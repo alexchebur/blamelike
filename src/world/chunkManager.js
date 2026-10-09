@@ -254,21 +254,15 @@ class ChunkManager {
         }
     }
 
-    /**
-     * Создает физические коллайдеры для чанка.
-     * Использует ту же логику фильтрации, что и heightMap.
-     */
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
-        // Невидимый материал для коллайдеров
-        const debugMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xff0000, 
-            visible: false,
-            side: THREE.DoubleSide
-        }); 
+        const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
         
         for (const prim of primitives) {
-            if (!isWalkablePrimitive(prim)) continue;
+            if (prim.role === 'decor' || prim.role === 'micro') continue;
+            if (prim.type === 'screen') continue;
+            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
+            if (prim.type === 'torus') continue;
             
             let geometry = null;
             let isLadder = false;
@@ -276,29 +270,19 @@ class ChunkManager {
             switch (prim.type) {
                 case 'box':
                 case 'platform_stair':
-                case 'mega_block':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
-
                 case 'cylinder':
                 case 'cone':
                 case 'obelisk':
                 case 'spire':
-                case 'capsule':
-                    // Для pierce-фигур используем упрощенный цилиндр/конус
-                    geometry = new THREE.CylinderGeometry(
-                        prim.scale.x * 0.8, // Немного уменьшаем радиус для надежности
-                        prim.scale.x * 0.8, 
-                        prim.scale.y, 
-                        8
-                    );
+                    geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
                     break;
-                
                 case 'stair_north': 
                 case 'stair_south': 
                 case 'stair_east': 
                 case 'stair_west':
-                    if (typeof getStairGeometry === 'function') {
+                    if (typeof getStairGeometry !== 'undefined') {
                         const p = prim.params || {};
                         geometry = getStairGeometry(
                             prim.type, 
@@ -307,32 +291,18 @@ class ChunkManager {
                         );
                         isLadder = true;
                     } else {
-                        // Fallback на бокс если фабрика недоступна
                         geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     }
                     break;
-                
                 case 'bridge_ns': 
                 case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
-
-                case 'arch':
-                    if (typeof getStairGeometry === 'function') {
-                        geometry = getStairGeometry('arch');
-                    } else {
-                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    }
-                    break;
-                    
                 default: 
-                    // Для любых других walkable-типов создаем бокс по габаритам
-                    geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    break;
+                    continue;
             }
 
             if (geometry) {
-                // КРИТИЧНО: Вычисляем bounding box ДО трансформаций
                 geometry.computeBoundingBox();
 
                 const mesh = new THREE.Mesh(geometry, debugMaterial);
@@ -344,9 +314,13 @@ class ChunkManager {
                     mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
                 }
                 
-                // Обновляем матрицы для корректной работы Raycaster
+                // Обновляем матрицы один раз при создании
                 mesh.updateMatrix();
                 mesh.updateMatrixWorld(true);
+                
+                // === ОПТИМИЗАЦИЯ: Запрещаем движку пересчитывать матрицы каждый кадр ===
+                mesh.matrixAutoUpdate = false;
+                // ================================================================
                 
                 mesh.userData.isLadder = isLadder;
                 mesh.userData.type = prim.type;
