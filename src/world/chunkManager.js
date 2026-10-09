@@ -223,8 +223,7 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // === РЕШЕНИЕ 3: Отключаем коллизии для дальних чанков ===
-        // Вычисляем центр чанка
+        // === ИЗМЕНЕНО: Увеличиваем радиус физической зоны ===
         const chunkCenterX = (cx + 0.5) * config.chunkSize;
         const chunkCenterY = (cy + 0.5) * config.chunkSize;
         const chunkCenterZ = (cz + 0.5) * config.chunkSize;
@@ -233,8 +232,9 @@ class ChunkManager {
                        Math.pow(chunkCenterY - cameraPos.y, 2) +
                        Math.pow(chunkCenterZ - cameraPos.z, 2);
         
-        // Если чанк дальше 150 единиц, не создаем для него физику
-        if (distSq < 22500) { 
+        // Было 22500 (150^2), стало 160000 (400^2). 
+        // Физика будет работать далеко внизу, даже если визуально там туман.
+        if (distSq < 160000) { 
             const collisionGroup = this.createCollisionChunk(chunkData, config);
             collisionGroup.name = `Collision_${key}`;
             
@@ -244,17 +244,15 @@ class ChunkManager {
             
             group.userData.collisionGroup = collisionGroup; 
         } else {
-            // Для дальних чанков оставляем поле пустым или ставим флаг
             group.userData.collisionGroup = null;
         }
         // =========================================================
 
-        // 3. Экраны (анимированные текстуры)
+        // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
     }
-
     /**
      * Создает физические коллайдеры для чанка.
      * === РЕШЕНИЕ 4: Упрощение до предела ===
