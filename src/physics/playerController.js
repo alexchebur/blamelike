@@ -65,6 +65,8 @@ class PlayerController {
         }
     }
 
+// src/physics/playerController.js
+
     update(deltaTime, camera) {
         if (!camera) return;
         const dt = Math.min(deltaTime, 0.05);
@@ -89,19 +91,56 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола
-        this.checkGroundWithOffsets(nextX, nextZ);
-
-        // 3. Логика высоты
+        // 2. Логика вертикального движения
         let targetY = this.position.y;
-        if (this.onGround) {
-            if (this.onLadder && (this.moveForward || this.moveBackward)) {
-                const climbDir = this.moveForward ? 1 : -1;
-                targetY += climbDir * this.climbSpeed * dt;
-            }
-        } else {
-            this.isFalling = true;
+
+        if (this.isFalling) {
+            // === ОПТИМИЗАЦИЯ ПАДЕНИЯ ===
+            // Во время падения НЕ проверяем пол каждый кадр.
+            // Просто применяем гравитацию.
             targetY -= this.fallSpeed * dt;
+
+            // Проверяем, не достигли ли мы примерной высоты следующего этажа
+            // Используем HeightMap для быстрого поиска опоры БЕЗ Raycasting
+            const cm = this.sceneManager.chunkManager;
+            if (cm && cm.heightMap) {
+                const cellSize = cm.config.chunkSize / cm.config.gridSize;
+                const gridX = Math.floor(nextX / cellSize);
+                const gridZ = Math.floor(nextZ / cellSize);
+                const key = `${gridX},${gridZ}`;
+                const floorData = cm.heightMap.get(key);
+
+                // Если есть данные о полу и мы упали НИЖЕ его уровня (+ небольшой допуск)
+                if (floorData && targetY <= floorData.y + 0.1) {
+                    // ПРИЗЕМЛЕНИЕ: Включаем точную проверку один раз
+                    this.checkGroundWithOffsets(nextX, nextZ);
+                    
+                    // Если после проверки мы все еще в воздухе (например, heightMap ошибся),
+                    // продолжаем падать. Но обычно здесь isFalling станет false.
+                }
+            } else {
+                // Fallback: если heightMap недоступен, проверяем редко (раз в N кадров)
+                // или просто надеемся на удачу. Для надежности лучше проверить раз в 10 кадров.
+                if (Math.random() < 0.1) { 
+                    this.checkGroundWithOffsets(nextX, nextZ);
+                }
+            }
+            // ============================
+
+        } else {
+            // Обычное состояние: стоим или идем
+            this.checkGroundWithOffsets(nextX, nextZ);
+
+            if (this.onGround) {
+                if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                    const climbDir = this.moveForward ? 1 : -1;
+                    targetY += climbDir * this.climbSpeed * dt;
+                }
+            } else {
+                // Только что потеряли опору -> начинаем падение
+                this.isFalling = true;
+                targetY -= this.fallSpeed * dt;
+            }
         }
 
         this.position.set(nextX, targetY, nextZ);
@@ -110,7 +149,6 @@ class PlayerController {
         camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
-
     checkGroundWithOffsets(x, z) {
         this.onGround = false;
         this.onLadder = false;
