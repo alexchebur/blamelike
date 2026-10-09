@@ -123,57 +123,69 @@ class PlayerController {
      * @param {number} startY - позиция в начале кадра
      * @param {number} endY - позиция в конце кадра (до коррекции)
      */
-    checkGroundWithOffsets(x, z, startY, endY) {
+    /**
+     * Проверяет наличие пола через плотную сетку из 9 лучей.
+     * Это решает проблему проваливания в узкие щели и между ступеньками.
+     */
+    checkGroundWithOffsets(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
-        if (this.localColliders.length === 0) return;
+        const collisionLayer = this.sceneManager.collisionLayer;
+        if (!collisionLayer) return;
 
-        // Длина луча = пройденное расстояние вниз + небольшой запас
-        // Если мы идем вверх (лестница), длина все равно должна быть достаточной
-        const dist = Math.abs(startY - endY) + 0.5; 
-        
+        // === ПЛОТНАЯ СЕТКА ИЗ 9 ЛУЧЕЙ ===
+        // Центр + 8 точек вокруг (квадрат 3x3)
+        const r = this.footRadius * 0.8; // Немного уменьшаем радиус, чтобы лучи не уходили слишком далеко от тела
         const offsets = [
-            { x: 0, z: 0 },
-            { x: this.footRadius, z: this.footRadius },
-            { x: -this.footRadius, z: -this.footRadius }
+            { x: 0, z: 0 },          // Центр
+            { x: r, z: 0 },          // Право
+            { x: -r, z: 0 },         // Лево
+            { x: 0, z: r },          // Вперед
+            { x: 0, z: -r },         // Назад
+            { x: r, z: r },          // Правый передний угол
+            { x: -r, z: r },         // Левый передний угол
+            { x: r, z: -r },         // Правый задний угол
+            { x: -r, z: -r }         // Левый задний угол
         ];
 
         let highestHitY = -Infinity;
         let isLadderFound = false;
+        const maxCheckDist = this.playerHeight + 0.5; // Запас для проверки
 
         for (const offset of offsets) {
-            // Луч пускаем ИЗ СТАРОЙ ПОЗИЦИИ (startY) вниз
-            // Добавляем 0.2 к Y, чтобы луч начинался чуть выше ног, избегая самопересечений
-            const rayOrigin = new THREE.Vector3(x + offset.x, startY + 0.2, z + offset.z);
+            // Луч пускаем чуть выше текущей позиции ног
+            const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.2, z + offset.z);
             
             this.raycaster.set(rayOrigin, this.downVector);
-            this.raycaster.far = dist; // Сканируем только пройденный путь
+            this.raycaster.far = maxCheckDist;
 
-            const intersects = this.raycaster.intersectObjects(this.localColliders, false);
+            // recursive: true важен, так как коллайдеры внутри групп чанков
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
-                // hit.point.y - это точка столкновения в мире
-                if (hit.point.y > highestHitY) {
-                    highestHitY = hit.point.y;
-                    isLadderFound = hit.object.userData.isLadder || false;
+                // Проверяем, что это пол под ногами, а не стена сбоку
+                if (hit.distance < this.playerHeight * 0.9) {
+                    const hitY = hit.point.y;
+                    // Ищем самую высокую точку (ближайший пол)
+                    if (hitY > highestHitY) {
+                        highestHitY = hitY;
+                        isLadderFound = hit.object.userData.isLadder || false;
+                    }
                 }
             }
         }
 
-        // Если нашли землю
+        // Если хоть один луч нашел землю
         if (highestHitY > -Infinity) {
-            // Проверяем, что земля действительно ниже нас (защита от ударов головой)
-            // Но при падении startY всегда выше highestHitY
-            if (highestHitY < startY) {
-                this.onGround = true;
-                this.isFalling = false;
-                this.onLadder = isLadderFound;
-                
-                // Ставим игрока НА поверхность + половина роста
-                this.position.y = highestHitY + (this.playerHeight * 0.5);
-            }
+            this.onGround = true;
+            this.isFalling = false;
+            this.onLadder = isLadderFound;
+            
+            // Жестко ставим игрока на поверхность + половина роста
+            this.position.y = highestHitY + (this.playerHeight * 0.5);
+            this.velocity.y = 0;
         }
     }
 
