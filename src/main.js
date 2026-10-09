@@ -104,13 +104,22 @@ class App {
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager) return;
         
-        // Используем позицию игрока, если он есть, иначе позицию камеры
         const pos = this.sceneManager.playerController 
             ? this.sceneManager.playerController.position 
             : this.sceneManager.camera.position;
             
         const config = this.controlPanel.getConfig();
         this.chunkManager.update(pos, config);
+
+        // === НОВОЕ: Обновляем кэш коллизий для игрока ===
+        if (this.sceneManager.playerController) {
+            this.sceneManager.playerController.updateCollisionCache(
+                this.chunkManager.activeChunks,
+                pos,
+                config.chunkSize
+            );
+        }
+        // ==============================================
     }
 
     /**
