@@ -205,7 +205,12 @@ class ChunkManager {
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
-        
+        // В loadChunk():
+        const distToChunk = cameraPos.distanceTo(chunkCenter);
+        if (distToChunk > 100) {
+            // Пропускаем создание коллизий для дальних чанков
+            return;
+        }        
         if (!chunkData) {
             chunkData = generateChunk(cx, cy, cz, config.seed, config);
             this.cache.set(key, chunkData);
