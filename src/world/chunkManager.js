@@ -255,12 +255,29 @@ class ChunkManager {
 
     /**
      * Создает физические коллайдеры для чанка.
-     * ВАЖНО: mesh.matrixAutoUpdate = false для повышения FPS.
+     * Оптимизировано: Лестницы заменены на простые рампы для ускорения Raycasting.
      */
     createCollisionChunk(primitives, config) {
         const group = new THREE.Group();
-        const debugMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }); 
+        const debugMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xff0000, 
+            visible: false,
+            side: THREE.DoubleSide
+        }); 
         
+        // Вспомогательная функция для создания рампы (наклонного бокса)
+        const createRampGeometry = (length, height, width) => {
+            // Создаем бокс длиной в лестницу
+            const geo = new THREE.BoxGeometry(length, 0.5, width);
+            // Вычисляем угол наклона
+            const angle = Math.atan2(height, length);
+            // Поворачиваем геометрию так, чтобы она легла "горкой"
+            geo.rotateX(-angle);
+            // Сдвигаем центр вверх на половину высоты подъема, чтобы низ был на уровне пола
+            geo.translate(0, height / 2, 0);
+            return geo;
+        };
+
         for (const prim of primitives) {
             if (!isWalkablePrimitive(prim)) continue;
             
@@ -273,47 +290,56 @@ class ChunkManager {
                 case 'mega_block':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
+
                 case 'cylinder':
                 case 'cone':
                 case 'obelisk':
                 case 'spire':
                 case 'capsule':
-                    geometry = new THREE.CylinderGeometry(prim.scale.x, prim.scale.x, prim.scale.y, 8);
+                    // Для pierce-фигур используем упрощенный цилиндр
+                    geometry = new THREE.CylinderGeometry(
+                        prim.scale.x * 0.8, 
+                        prim.scale.x * 0.8, 
+                        prim.scale.y, 
+                        8
+                    );
                     break;
+                
                 case 'stair_north': 
                 case 'stair_south': 
                 case 'stair_east': 
                 case 'stair_west':
-                    if (typeof getStairGeometry === 'function') {
-                        const p = prim.params || {};
-                        geometry = getStairGeometry(
-                            prim.type, 
-                            p.platformThickness || config.platformThickness, 
-                            p.levelHeight || config.levelHeight
-                        );
-                        isLadder = true;
-                    } else {
-                        geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
-                    }
+                    // === ОПТИМИЗАЦИЯ: Вместо 21 ступеньки создаем одну рампу ===
+                    const p = prim.params || {};
+                    const levelH = p.levelHeight || config.levelHeight;
+                    const cellS = prim.scale.x; // Длина лестницы равна размеру клетки
+                    
+                    // Создаем рампу, покрывающую всю клетку по высоте
+                    geometry = createRampGeometry(cellS, levelH, cellS * 0.8);
+                    isLadder = true;
                     break;
+                
                 case 'bridge_ns': 
                 case 'bridge_ew':
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
+
                 case 'arch':
-                     if (typeof getStairGeometry === 'function') {
+                    if (typeof getStairGeometry === 'function') {
                         geometry = getStairGeometry('arch');
                     } else {
                         geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     }
                     break;
+                    
                 default: 
-                    // Для любых других walkable-типов создаем бокс по габаритам
+                    // Fallback для любых других walkable объектов
                     geometry = new THREE.BoxGeometry(prim.scale.x, prim.scale.y, prim.scale.z);
                     break;
             }
 
             if (geometry) {
+                // КРИТИЧНО: Вычисляем bounding box ДО трансформаций
                 geometry.computeBoundingBox();
 
                 const mesh = new THREE.Mesh(geometry, debugMaterial);
