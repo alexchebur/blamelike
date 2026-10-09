@@ -156,7 +156,8 @@ class SceneManager {
         }
 
         if (this.screenManager) {
-            this.screenManager.update();
+            // Передаем позицию камеры и саму камеру
+            this.screenManager.update(delta, this.camera.position, this.camera);
         }
 
         this.renderer.render(this.scene, this.camera);
