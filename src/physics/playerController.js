@@ -6,12 +6,13 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         this.position = new THREE.Vector3(0, 50, 0); 
+        this.previousPosition = new THREE.Vector3(0, 50, 0); // Для расчета пути падения
         this.velocity = new THREE.Vector3();
         this.onGround = false;
         this.isFalling = false;
         this.onLadder = false;
         
-        // Управление движением
+        // Управление
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
@@ -24,31 +25,28 @@ class PlayerController {
         this.raycaster = new THREE.Raycaster();
         this.downVector = new THREE.Vector3(0, -1, 0);
         
-        // Параметры игрока
+        // Параметры
         this.footRadius = 0.35; 
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = 15.0; 
-        this.fallSpeed = config.fallSpeed || 25; // Увеличил скорость падения для динамики
+        this.fallSpeed = config.fallSpeed || 25; 
         this.climbSpeed = config.ladderClimbSpeed || 6;
 
-        // Локальный кэш коллизий (только ближайшие чанки)
+        // Локальный кэш коллизий
         this.localColliders = []; 
     }
 
     updateCollisionCache(activeChunksMap, cameraPos, chunkSize) {
         this.localColliders = [];
-        
         const cx = Math.floor(this.position.x / chunkSize);
         const cy = Math.floor(this.position.y / chunkSize);
         const cz = Math.floor(this.position.z / chunkSize);
 
-        // Берем радиус 1 вокруг игрока
         for (let dx = -1; dx <= 1; dx++) {
             for (let dy = -1; dy <= 1; dy++) {
                 for (let dz = -1; dz <= 1; dz++) {
                     const key = `${cx + dx},${cy + dy},${cz + dz}`;
                     const chunk = activeChunksMap.get(key);
-                    
                     if (chunk && chunk.userData.collisionGroup) {
                         this.localColliders.push(...chunk.userData.collisionGroup.children);
                     }
@@ -60,6 +58,9 @@ class PlayerController {
     update(deltaTime, camera) {
         if (!camera) return;
         const dt = Math.min(deltaTime, 0.05);
+
+        // Сохраняем позицию ДО движения для расчета сканирования
+        this.previousPosition.copy(this.position);
 
         // 1. Горизонтальное движение
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
@@ -81,40 +82,57 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола (единая точка входа)
-        // Мы вызываем проверку ВСЕГДА, но внутри она оптимизирована
-        this.checkGroundWithOffsets(nextX, nextZ);
-
+        // 2. Вертикальное движение
         let targetY = this.position.y;
-
-        if (this.onGround) {
+        if (!this.onGround) {
+            this.isFalling = true;
+            targetY -= this.fallSpeed * dt;
+        } else {
             this.isFalling = false;
             // Логика лестниц
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
             }
-        } else {
-            // Если мы не на земле -> падаем
-            this.isFalling = true;
-            targetY -= this.fallSpeed * dt;
         }
 
-        this.position.set(nextX, targetY, nextZ);
+        // Временно обновляем Y для проверки коллизий
+        const tempY = this.position.y;
+        this.position.y = targetY;
 
-        // 3. Камера
+        // 3. Проверка пола (SCANNING RAYCAST)
+        // Мы проверяем не просто "под ногами", а ВЕСЬ путь от previousPosition до targetY
+        this.checkGroundWithOffsets(nextX, nextZ, tempY, targetY);
+
+        // Если мы приземлились, checkGroundWithOffsets уже скорректировал this.position.y
+        // Если нет, оставляем targetY (падение продолжается)
+
+        // Обновляем X и Z окончательно
+        this.position.x = nextX;
+        this.position.z = nextZ;
+
+        // 4. Камера
         camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    checkGroundWithOffsets(x, z) {
+    /**
+     * Сканирует пол по всему пути падения
+     * @param {number} x - новая X
+     * @param {number} z - новая Z
+     * @param {number} startY - позиция в начале кадра
+     * @param {number} endY - позиция в конце кадра (до коррекции)
+     */
+    checkGroundWithOffsets(x, z, startY, endY) {
         this.onGround = false;
         this.onLadder = false;
 
-        // Если коллайдеров нет (игрок в пустоте), сразу выходим
         if (this.localColliders.length === 0) return;
 
-        // Оптимизация: проверяем только 3 точки (центр и две диагонали) вместо 5
+        // Длина луча = пройденное расстояние вниз + небольшой запас
+        // Если мы идем вверх (лестница), длина все равно должна быть достаточной
+        const dist = Math.abs(startY - endY) + 0.5; 
+        
         const offsets = [
             { x: 0, z: 0 },
             { x: this.footRadius, z: this.footRadius },
@@ -123,44 +141,37 @@ class PlayerController {
 
         let highestHitY = -Infinity;
         let isLadderFound = false;
-        
-        // Ограничиваем дальность луча высотой игрока + небольшой запас
-        // Это критично для производительности: луч не будет сканировать всю глубину мира
-        const maxCheckDist = this.playerHeight + 1.0; 
 
         for (const offset of offsets) {
-            // Луч пускаем чуть выше текущей позиции ног, чтобы не застревать в полу
-            const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.2, z + offset.z);
+            // Луч пускаем ИЗ СТАРОЙ ПОЗИЦИИ (startY) вниз
+            // Добавляем 0.2 к Y, чтобы луч начинался чуть выше ног, избегая самопересечений
+            const rayOrigin = new THREE.Vector3(x + offset.x, startY + 0.2, z + offset.z);
             
             this.raycaster.set(rayOrigin, this.downVector);
-            this.raycaster.far = maxCheckDist;
+            this.raycaster.far = dist; // Сканируем только пройденный путь
 
-            // recursive: false, так как мы уже развернули детей в localColliders
             const intersects = this.raycaster.intersectObjects(this.localColliders, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
-                // Проверяем, что пересечение произошло ниже нас, но в пределах досягаемости
-                if (hit.distance < maxCheckDist) {
-                    const hitY = hit.point.y;
-                    // Ищем самую высокую точку опоры (ближайшую к ногам снизу)
-                    if (hitY > highestHitY) {
-                        highestHitY = hitY;
-                        isLadderFound = hit.object.userData.isLadder || false;
-                    }
+                // hit.point.y - это точка столкновения в мире
+                if (hit.point.y > highestHitY) {
+                    highestHitY = hit.point.y;
+                    isLadderFound = hit.object.userData.isLadder || false;
                 }
             }
         }
 
         // Если нашли землю
         if (highestHitY > -Infinity) {
-            // Проверяем, что земля действительно под нами, а не над головой (баг при прыжке вверх)
-            if (highestHitY < this.position.y + 0.5) {
+            // Проверяем, что земля действительно ниже нас (защита от ударов головой)
+            // Но при падении startY всегда выше highestHitY
+            if (highestHitY < startY) {
                 this.onGround = true;
+                this.isFalling = false;
                 this.onLadder = isLadderFound;
                 
-                // Корректируем позицию, чтобы ноги стояли на поверхности
-                // Добавляем половину высоты игрока, чтобы камера была на уровне глаз
+                // Ставим игрока НА поверхность + половина роста
                 this.position.y = highestHitY + (this.playerHeight * 0.5);
             }
         }
