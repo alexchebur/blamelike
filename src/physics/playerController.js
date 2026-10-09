@@ -91,18 +91,16 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Логика вертикального движения
+        // 2. Логика вертикального движения и падения
         let targetY = this.position.y;
+        const cm = this.sceneManager.chunkManager;
 
         if (this.isFalling) {
-            // === ОПТИМИЗАЦИЯ ПАДЕНИЯ ===
-            // Во время падения НЕ проверяем пол каждый кадр.
-            // Просто применяем гравитацию.
+            // Применяем гравитацию
             targetY -= this.fallSpeed * dt;
 
-            // Проверяем, не достигли ли мы примерной высоты следующего этажа
-            // Используем HeightMap для быстрого поиска опоры БЕЗ Raycasting
-            const cm = this.sceneManager.chunkManager;
+            // === УМНОЕ ПАДЕНИЕ ===
+            // Проверяем пол только если у нас есть доступ к карте высот
             if (cm && cm.heightMap) {
                 const cellSize = cm.config.chunkSize / cm.config.gridSize;
                 const gridX = Math.floor(nextX / cellSize);
@@ -110,22 +108,22 @@ class PlayerController {
                 const key = `${gridX},${gridZ}`;
                 const floorData = cm.heightMap.get(key);
 
-                // Если есть данные о полу и мы упали НИЖЕ его уровня (+ небольшой допуск)
-                if (floorData && targetY <= floorData.y + 0.1) {
-                    // ПРИЗЕМЛЕНИЕ: Включаем точную проверку один раз
+                // Если мы знаем, где пол, и мы близко к нему (в пределах 2 единиц)
+                if (floorData && targetY <= floorData.y + 2.0) {
+                    // Включаем точную проверку Raycast'ом для финального приземления
                     this.checkGroundWithOffsets(nextX, nextZ);
                     
-                    // Если после проверки мы все еще в воздухе (например, heightMap ошибся),
+                    // Если после проверки мы все еще падаем (например, heightMap неточен), 
                     // продолжаем падать. Но обычно здесь isFalling станет false.
                 }
+                // Если до пола еще далеко — просто летим вниз без проверок (максимальный FPS)
             } else {
-                // Fallback: если heightMap недоступен, проверяем редко (раз в N кадров)
-                // или просто надеемся на удачу. Для надежности лучше проверить раз в 10 кадров.
+                // Fallback: если heightMap недоступен, проверяем редко (раз в 10 кадров)
                 if (Math.random() < 0.1) { 
                     this.checkGroundWithOffsets(nextX, nextZ);
                 }
             }
-            // ============================
+            // ==================
 
         } else {
             // Обычное состояние: стоим или идем
