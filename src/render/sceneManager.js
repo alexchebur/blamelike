@@ -1,10 +1,9 @@
-
 // @ts-check
 import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
 import ScreenManager from './screenManager.js';
 import PlayerController from '../physics/playerController.js';
-import PhysicsManager from '../physics/physicsManager.js'; // Import PhysicsManager
+import PhysicsManager from '../physics/physicsManager.js';
 
 class SceneManager {
     constructor(container) {
@@ -25,12 +24,10 @@ class SceneManager {
         this.axisHelper = null;
 
         this.screenManager = null;
-        this.physicsManager = null; // Initialize PhysicsManager field
+        this.physicsManager = null;
         
-        // Keep collisionLayer for backwards compatibility or debug visuals if needed, 
-        // but primary physics is now handled by Cannon-es
-        this.collisionLayer = new THREE.Group();
-        this.collisionLayer.name = "CollisionLayer";
+        // УДАЛЕНО: collisionLayer больше не нужен для физики (Rapier работает в WASM)
+        // Если нужен визуальный дебаг коллайдеров, это делается иначе
         
         this.playerController = null; 
 
@@ -47,22 +44,24 @@ class SceneManager {
     }
 
     onKeyDown(event) {
+        if (!this.playerController) return;
         switch (event.code) {
-            case 'KeyW': if (this.playerController) this.playerController.moveForward = true; break;
-            case 'KeyA': if (this.playerController) this.playerController.moveLeft = true; break;
-            case 'KeyS': if (this.playerController) this.playerController.moveBackward = true; break;
-            case 'KeyD': if (this.playerController) this.playerController.moveRight = true; break;
-            case 'Space': if (this.playerController) this.playerController.jump = true; break;
+            case 'KeyW': this.playerController.moveForward = true; break;
+            case 'KeyA': this.playerController.moveLeft = true; break;
+            case 'KeyS': this.playerController.moveBackward = true; break;
+            case 'KeyD': this.playerController.moveRight = true; break;
+            case 'Space': this.playerController.jump = true; break;
         }
     }
 
     onKeyUp(event) {
+        if (!this.playerController) return;
         switch (event.code) {
-            case 'KeyW': if (this.playerController) this.playerController.moveForward = false; break;
-            case 'KeyA': if (this.playerController) this.playerController.moveLeft = false; break;
-            case 'KeyS': if (this.playerController) this.playerController.moveBackward = false; break;
-            case 'KeyD': if (this.playerController) this.playerController.moveRight = false; break;
-            case 'Space': if (this.playerController) this.playerController.jump = false; break;
+            case 'KeyW': this.playerController.moveForward = false; break;
+            case 'KeyA': this.playerController.moveLeft = false; break;
+            case 'KeyS': this.playerController.moveBackward = false; break;
+            case 'KeyD': this.playerController.moveRight = false; break;
+            case 'Space': this.playerController.jump = false; break;
         }
     }
 
@@ -79,7 +78,7 @@ class SceneManager {
     }
 
     init() {
-        // 1. Three.js Scene Setup (Synchronous)
+        // 1. Three.js Scene Setup
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
@@ -101,23 +100,19 @@ class SceneManager {
         this.axisHelper = new THREE.AxesHelper(30);
         this.scene.add(this.axisHelper);
         
-        // Collision layer is no longer needed for physics (Rapier handles it), 
-        // but keep if you want debug visuals later
-        this.scene.add(this.collisionLayer);
+        // УДАЛЕНО: this.scene.add(this.collisionLayer);
 
         this.setupLighting();
         
-        // 2. Initialize Physics Manager (Asynchronous start)
-        // Rapier requires WASM loading, so this returns a promise internally
+        // 2. Initialize Physics Manager (Rapier)
+        // Конструктор запускает асинхронную инициализацию WASM
         this.physicsManager = new PhysicsManager();
         
         // 3. Screen Manager
         this.screenManager = new ScreenManager(this.scene);
         
         // 4. Player Controller
-        // Note: PlayerController constructor should handle waiting for physics ready
-        // Or we create it after physics is ready in main.js. 
-        // For now, we pass the manager, and PC will wait internally.
+        // PlayerController должен уметь ждать готовности физики внутри себя
         this.playerController = new PlayerController(this, this.config, this.physicsManager);
         
         window.addEventListener('resize', () => this.onWindowResize());
@@ -163,9 +158,9 @@ class SceneManager {
         this.prevTime = time;
 
         // === PHYSICS STEP ===
-        // Update physical world BEFORE updating player controller
+        // Rapier step() не требует delta времени (использует фиксированный шаг internally)
         if (this.physicsManager) {
-            this.physicsManager.step(delta);
+            this.physicsManager.step();
         }
         // ====================
 
@@ -181,7 +176,6 @@ class SceneManager {
         }
 
         if (this.screenManager) {
-            // Pass camera position and camera object for LOD/visibility checks
             this.screenManager.update(delta, this.camera.position, this.camera);
         }
 
