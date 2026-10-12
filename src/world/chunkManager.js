@@ -225,7 +225,7 @@ class ChunkManager {
         }
         
         // Отладочный вывод (можно убрать в продакшене)
-        // console.log(`📊 HeightMap обновлена: +${recordsUpdated} записей. Всего: ${this.heightMap.size}`);
+        console.log(`📊 HeightMap обновлена: +${recordsUpdated} записей. Всего: ${this.heightMap.size}`);
     }
 
     loadChunk(cx, cy, cz, config, cameraPos) {
