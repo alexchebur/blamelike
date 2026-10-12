@@ -27,10 +27,8 @@ class PlayerController {
         this.climbSpeed = config.ladderClimbSpeed || 6;
     }
 
-    // Этот метод теперь пустой, но оставляем его для совместимости с main.js
-    updateCollisionCache() {
-        // Ничего не делаем, физика теперь основана на HeightMap
-    }
+    // Пустой метод для совместимости с main.js (физика теперь без кэша мешей)
+    updateCollisionCache() {}
 
     update(deltaTime, camera) {
         if (!camera) return;
@@ -80,15 +78,16 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-     checkGroundViaHeightMap(x, z) {
+    /**
+     * Проверяет пол, запрашивая данные из логической карты высот ChunkManager.
+     * Работает мгновенно, без нагрузки на CPU.
+     */
+    checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
         const cm = this.sceneManager.chunkManager;
-        if (!cm || !cm.heightMap) {
-            console.warn("ChunkManager or HeightMap missing!");
-            return;
-        }
+        if (!cm || !cm.heightMap) return;
 
         // Получаем размер клетки сетки
         const cellSize = cm.config ? (cm.config.chunkSize / cm.config.gridSize) : 10;
@@ -98,34 +97,38 @@ class PlayerController {
         
         const floorData = cm.heightMap.get(key);
 
-        // === ОТЛАДКА ===
-        if (!floorData) {
-            // Раскомментируй эту строку, чтобы видеть в консоли, где именно нет пола
-            // console.log(`No floor at key: ${key} (Player Y: ${this.position.y.toFixed(1)})`);
+        // Если под нами есть платформа в карте высот
+        if (floorData) {
+            const floorY = floorData.y;
             
-            // === СТРАХОВКА: Если HeightMap пуста, используем базовую логику ярусов ===
-            // Предполагаем, что уровни идут с шагом Level Height (обычно 20)
+            // Если мы близко к полу (в пределах 1.5 единиц), считаем что стоим на нем
+            if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
+                this.onGround = true;
+                this.onLadder = floorData.isLadder || false;
+                
+                // Корректируем высоту, чтобы ноги стояли ровно на платформе
+                this.position.y = floorY + (this.playerHeight * 0.5);
+            }
+        } else {
+            // === СТРАХОВКА ОТ ВЕЧНОГО ПАДЕНИЯ ===
+            // Если HeightMap пуста (чанк не загружен или пуст), используем базовую логику ярусов
             const levelHeight = cm.config?.levelHeight || 20;
-            // Находим ближайший уровень НИЖЕ игрока
             const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
             
-            // Если мы очень близко к этому уровню (в пределах 1.5 ед.), считаем что стоим
+            // Если мы очень близко к этому уровню, считаем что стоим
             if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
             }
-            return;
-        }
-        // =================
-
-        const floorY = floorData.y;
-        
-        // Логика приземления
-        if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
-            this.onGround = true;
-            this.onLadder = floorData.isLadder || false;
-            this.position.y = floorY + (this.playerHeight * 0.5);
         }
     }
+
+    onMouseMove(movementX, movementY) {
+        const sensitivity = 0.002;
+        this.cameraEuler.y -= movementX * sensitivity;
+        this.cameraEuler.x -= movementY * sensitivity;
+        this.cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraEuler.x));
+    }
+}
 
 export default PlayerController;
