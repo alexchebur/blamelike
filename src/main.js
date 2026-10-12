@@ -198,11 +198,8 @@ class App {
         // Cell Size
         const hudCell = document.getElementById('hud-cell');
         if (hudCell) hudCell.textContent = pc.debugCellSize || '...';
-
-        // Добавим новую строку для статуса чанка (опционально, если есть элемент в HTML)
-        // const hudChunk = document.getElementById('hud-chunk');
-        // if (hudChunk) hudChunk.textContent = pc.debugChunkLoaded ? '✅ Loaded' : '❌ Missing';
     }
+} // <--- ЭТА СКОБКА ЗАКРЫВАЕТ КЛАСС App. ОНА БЫЛА ПРОПУЩЕНА!
 
 // Запускаем приложение когда DOM готов
 document.addEventListener('DOMContentLoaded', () => {
