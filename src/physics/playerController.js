@@ -42,7 +42,18 @@ class PlayerController {
     update(deltaTime, camera) {
         if (!camera) return;
         const dt = Math.min(deltaTime, 0.05);
-
+        // === АВАРИЙНЫЙ ПОЛ (SAFETY NET) ===
+        // Если игрок упал ниже -500, телепортируем его обратно на безопасную высоту
+        // Это предотвращает бесконечное падение в пустоту при багах генерации
+        if (this.position.y < -500) {
+            console.warn("⚠️ SAFETY NET: Игрок упал слишком низко! Телепортация на Y=100");
+            this.position.set(0, 100, 0);
+            this.velocity.set(0, 0, 0);
+            this.isFalling = false;
+            this.onGround = true;
+            return; // Пропускаем остальную логику в этом кадре
+        }
+        // ==================================
         // 1. Горизонтальное движение
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
