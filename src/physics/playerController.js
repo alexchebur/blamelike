@@ -6,7 +6,6 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         this.position = new THREE.Vector3(0, 50, 0); 
-        this.previousPosition = new THREE.Vector3(0, 50, 0);
         this.velocity = new THREE.Vector3();
         this.onGround = false;
         this.isFalling = false;
@@ -21,54 +20,21 @@ class PlayerController {
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Raycaster
-        this.raycaster = new THREE.Raycaster();
-        this.downVector = new THREE.Vector3(0, -1, 0);
-        
         // Параметры
-        this.footRadius = 0.35; 
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = 15.0; 
         this.fallSpeed = config.fallSpeed || 25; 
         this.climbSpeed = config.ladderClimbSpeed || 6;
-
-        // Локальный кэш коллизий
-        this.localColliders = []; 
     }
 
-    /**
-     * Обновляет список коллайдеров.
-     * РАДИУС 1 ЧАНК (27 чанков всего) для максимальной скорости.
-     */
-    updateCollisionCache(activeChunksMap, cameraPos, chunkSize) {
-        this.localColliders = [];
-        
-        const cx = Math.floor(this.position.x / chunkSize);
-        const cy = Math.floor(this.position.y / chunkSize);
-        const cz = Math.floor(this.position.z / chunkSize);
-
-        // === РАДИУС 1 ===
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dz = -1; dz <= 1; dz++) {
-                    const key = `${cx + dx},${cy + dy},${cz + dz}`;
-                    const chunk = activeChunksMap.get(key);
-                    
-                    if (chunk && chunk.userData.collisionGroup) {
-                        // Добавляем детей напрямую. 
-                        // ВАЖНО: В chunkManager мы должны убедиться, что collisionGroup.children - это меши, а не вложенные группы.
-                        this.localColliders.push(...chunk.userData.collisionGroup.children);
-                    }
-                }
-            }
-        }
+    // Этот метод теперь пустой, но оставляем его для совместимости с main.js
+    updateCollisionCache() {
+        // Ничего не делаем, физика теперь основана на HeightMap
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
         const dt = Math.min(deltaTime, 0.05);
-
-        this.previousPosition.copy(this.position);
 
         // 1. Горизонтальное движение
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
@@ -90,80 +56,62 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Вертикальное движение
+        // 2. Проверка пола через HeightMap (БЕЗ RAYCASTING)
+        this.checkGroundViaHeightMap(nextX, nextZ);
+
+        // 3. Вертикальное движение
         let targetY = this.position.y;
-        if (!this.onGround) {
-            this.isFalling = true;
-            targetY -= this.fallSpeed * dt;
-        } else {
+        if (this.onGround) {
             this.isFalling = false;
+            // Логика лестниц
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
             }
+        } else {
+            this.isFalling = true;
+            targetY -= this.fallSpeed * dt;
         }
 
-        // Временно обновляем Y для проверки
-        const tempY = this.position.y;
-        this.position.y = targetY;
-
-        // 3. Проверка пола (SCANNING RAYCAST)
-        this.checkGroundWithOffsets(nextX, nextZ, tempY, targetY);
-
-        // Обновляем X и Z окончательно
-        this.position.x = nextX;
-        this.position.z = nextZ;
+        this.position.set(nextX, targetY, nextZ);
 
         // 4. Камера
         camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    checkGroundWithOffsets(x, z, startY, endY) {
+    /**
+     * Проверяет пол, запрашивая данные из логической карты высот ChunkManager.
+     * Это работает мгновенно, без нагрузки на CPU.
+     */
+    checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
-        if (this.localColliders.length === 0) return;
+        const cm = this.sceneManager.chunkManager;
+        if (!cm || !cm.heightMap) return;
 
-        // Длина луча = пройденное расстояние + запас
-        const dist = Math.abs(startY - endY) + 1.0; 
+        // Получаем размер клетки сетки
+        const cellSize = cm.config.chunkSize / cm.config.gridSize;
+        const gridX = Math.floor(x / cellSize);
+        const gridZ = Math.floor(z / cellSize);
+        const key = `${gridX},${gridZ}`;
         
-        // Сетка из 5 лучей (центр + углы)
-        const r = this.footRadius * 0.8;
-        const offsets = [
-            { x: 0, z: 0 },
-            { x: r, z: r }, { x: -r, z: r },
-            { x: r, z: -r }, { x: -r, z: -r }
-        ];
+        const floorData = cm.heightMap.get(key);
 
-        let highestHitY = -Infinity;
-        let isLadderFound = false;
-
-        for (const offset of offsets) {
-            const rayOrigin = new THREE.Vector3(x + offset.x, startY + 0.2, z + offset.z);
+        // Если под нами есть платформа в карте высот
+        if (floorData) {
+            const floorY = floorData.y;
             
-            this.raycaster.set(rayOrigin, this.downVector);
-            this.raycaster.far = dist; 
-
-            // === КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ ===
-            // recursive: false, так как localColliders уже содержит плоский список мешей
-            const intersects = this.raycaster.intersectObjects(this.localColliders, false);
-
-            if (intersects.length > 0) {
-                const hit = intersects[0];
-                if (hit.point.y > highestHitY) {
-                    highestHitY = hit.point.y;
-                    isLadderFound = hit.object.userData.isLadder || false;
-                }
-            }
-        }
-
-        if (highestHitY > -Infinity) {
-            if (highestHitY < startY) {
+            // Если мы близко к полу (в пределах 1.5 единиц), считаем что стоим на нем
+            // Это позволяет "прилипать" к полу при падении
+            if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
                 this.onGround = true;
-                this.isFalling = false;
-                this.onLadder = isLadderFound;
-                this.position.y = highestHitY + (this.playerHeight * 0.5);
+                this.onLadder = floorData.isLadder;
+                
+                // Корректируем высоту, чтобы ноги стояли ровно на платформе
+                // Добавляем половину роста, чтобы камера была на уровне глаз
+                this.position.y = floorY + (this.playerHeight * 0.5);
             }
         }
     }
