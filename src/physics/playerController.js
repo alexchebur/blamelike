@@ -69,18 +69,22 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола через HeightMap
+        // 2. СТРОГАЯ ПРИВЯЗКА К ВЫСОТЕ ЧЕРЕЗ HEIGHTMAP
         this.checkGroundViaHeightMap(nextX, nextZ);
 
         // 3. Вертикальное движение
         let targetY = this.position.y;
+        
         if (this.onGround) {
             this.isFalling = false;
+            // Логика лестниц: если стоим на лестнице и движемся вперед/назад
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
             }
+            // Иначе Y остается жестко привязанным к полу (уже установлено в checkGroundViaHeightMap)
         } else {
+            // Нет пола под ногами — применяем гравитацию
             this.isFalling = true;
             targetY -= this.fallSpeed * dt;
         }
@@ -92,6 +96,11 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
+    /**
+     * СТРОГАЯ ПРИВЯЗКА К HEIGHTMAP
+     * Если пол найден — жестко устанавливаем Y. Никаких условий "если близко".
+     * Если пол не найден — ничего не делаем (гравитация применится в update).
+     */
     checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
@@ -117,77 +126,50 @@ class PlayerController {
         const key = `${gridX},${gridZ}`;
         this.debugGridKey = key;
         
-        // === ИСПРАВЛЕНИЕ 1: Правильный поиск чанка и данных ===
+        // Проверяем наличие чанка под ногами
         const chunkX = Math.floor(x / cm.config.chunkSize);
         const chunkZ = Math.floor(z / cm.config.chunkSize);
-        
-        let activeChunk = null;
-        let bestChunkY = null;
-        let floorData = null;
-        
-        // Проверяем текущий уровень и соседние вниз/вверх
-        // При падении важно проверить и чанки выше, так как heightMap может быть заполнена для них
-        const currentChunkY = Math.floor(this.position.y / cm.config.chunkSize);
-        for (let dy = 2; dy >= -3; dy--) { 
-            const testChunkY = currentChunkY + dy;
-            const testKey = `${chunkX},${testChunkY},${chunkZ}`;
-            const testChunk = cm.activeChunks.get(testKey);
-            
-            if (testChunk && !activeChunk) {
-                activeChunk = testChunk;
-                bestChunkY = testChunkY;
-            }
-            
-            // Пытаемся найти данные о поле в этом чанке
-            // Важно: heightMap глобальная, но мы должны убедиться, что данные актуальны для текущего уровня
-            if (!floorData) {
-                 const testData = cm.heightMap.get(key);
-                 // Проверяем, что найденный пол находится в разумных пределах по Y относительно игрока
-                 // или что это действительно пол из текущего/соседнего чанка
-                 if (testData) {
-                     floorData = testData;
-                 }
-            }
-        }
+        const chunkY = Math.floor(this.position.y / cm.config.chunkSize); 
+        const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
+        const activeChunk = cm.activeChunks.get(chunkKey);
         
         this.debugChunkLoaded = !!activeChunk;
 
-        // === ИСПРАВЛЕНИЕ 2: Агрессивная, но безопасная логика приземления ===
+        // Запрашиваем высоту пола из HeightMap
+        const floorData = cm.heightMap.get(key);
+
         if (floorData) {
+            // === ПОЛ НАЙДЕН: ЖЕСТКАЯ ПРИВЯЗКА ===
             const floorY = floorData.y;
             this.debugFloorY = floorY.toFixed(1);
             
-            const distToFloor = this.position.y - floorY;
-            
-            // Условие приземления:
-            // 1. Пол ниже игрока (distToFloor > 0) ИЛИ игрок чуть провалился (до -2.0)
-            // 2. Пол не слишком далеко внизу (до 10.0 единиц), чтобы не прилипать к дну мира
-            // 3. Пол не над головой (distToFloor < 5.0)
-            if (distToFloor > -2.0 && distToFloor < 10.0) {
+            // Проверяем, что пол действительно ниже или на уровне игрока
+            // (чтобы не притягивать к потолку)
+            if (this.position.y >= floorY - 0.5) {
                 this.onGround = true;
-                this.isFalling = false;
                 this.onLadder = floorData.isLadder || false;
                 
-                // Жесткая коррекция позиции
+                // ЖЕСТКО устанавливаем Y
                 this.position.y = floorY + (this.playerHeight * 0.5);
                 
-                if (distToFloor < -1.0 && performance.now() % 2000 < 20) {
-                    console.log(`✅ Tunneling fixed! Dist: ${distToFloor.toFixed(1)}, FloorY: ${floorY.toFixed(1)}, ChunkY: ${bestChunkY}`);
+                // Логируем только при туннелировании (игрок был глубоко под полом)
+                if (this.position.y - floorY < -2.0 && performance.now() % 2000 < 20) {
+                    console.log(`✅ Tunneling fixed! Player was below floor. FloorY: ${floorY.toFixed(1)}`);
                 }
             }
         } else {
-            // Если данных нет, используем страховку
+            // === ПОЛ НЕ НАЙДЕН ===
             if (activeChunk) {
                 this.debugFloorY = 'Empty Cell';
             } else {
                 this.debugFloorY = 'No Chunk';
             }
             
+            // Fallback: математическая страховка (если HeightMap пуста)
             const levelHeight = cm.config.levelHeight || 20;
             const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
             
-            // Страховка срабатывает ТОЛЬКО если мы очень близко к математическому уровню
-            // и НЕТ данных в heightMap (значит, это реальная пропасть или баг генерации)
+            // Приземляемся только если очень близко к математическому уровню
             if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
@@ -202,6 +184,6 @@ class PlayerController {
         this.cameraEuler.x -= movementY * sensitivity;
         this.cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraEuler.x));
     }
-} // <--- ЗАКРЫВАЮЩАЯ СКОБКА КЛАССА PlayerController
+}
 
 export default PlayerController;
