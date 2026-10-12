@@ -79,6 +79,7 @@ class SceneManager {
     }
 
     init() {
+        // 1. Three.js Scene Setup (Synchronous)
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
@@ -100,18 +101,23 @@ class SceneManager {
         this.axisHelper = new THREE.AxesHelper(30);
         this.scene.add(this.axisHelper);
         
-        // Add collision layer to scene (optional, for debug visuals if material visible is true)
+        // Collision layer is no longer needed for physics (Rapier handles it), 
+        // but keep if you want debug visuals later
         this.scene.add(this.collisionLayer);
 
         this.setupLighting();
         
-        // === INITIALIZE PHYSICS MANAGER ===
+        // 2. Initialize Physics Manager (Asynchronous start)
+        // Rapier requires WASM loading, so this returns a promise internally
         this.physicsManager = new PhysicsManager();
-        // ==================================
-
+        
+        // 3. Screen Manager
         this.screenManager = new ScreenManager(this.scene);
         
-        // Pass physicsManager to PlayerController
+        // 4. Player Controller
+        // Note: PlayerController constructor should handle waiting for physics ready
+        // Or we create it after physics is ready in main.js. 
+        // For now, we pass the manager, and PC will wait internally.
         this.playerController = new PlayerController(this, this.config, this.physicsManager);
         
         window.addEventListener('resize', () => this.onWindowResize());
