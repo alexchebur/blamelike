@@ -185,11 +185,15 @@ export function generateChunk(cx, cy, cz, seed, config) {
 function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
+    
+    // === ИЗМЕНЕНО: Динамический расчет уровней на основе границ чанка ===
+    // Это позволяет генерировать платформы на любой высоте, а не только в фиксированном диапазоне
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
     for (let level = startLevel; level <= endLevel; level++) {
         const yBase = level * levelHeight; 
+        
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
@@ -199,6 +203,8 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
                 let stairType = null;
+                
+                // Проверяем возможность создания лестницы только если есть следующий уровень
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
                     const directions = [
@@ -214,7 +220,11 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         const targetX = gx + dir.dx * 2;
                         const targetY = gy + dir.dy * 2;
 
-                        if (targetX >= 0 && targetX < gridSize && targetY >= 0 && targetY < gridSize) {
+                        // === ДОБАВЛЕНО: Проверка границ сетки ===
+                        // Предотвращает выход за пределы массива и ошибки генерации на краях
+                        if (targetX >= 0 && targetX < gridSize && targetY >= 0 && targetY < gridSize &&
+                            midX >= 0 && midX < gridSize && midY >= 0 && midY < gridSize) {
+                            
                             const midEmpty = hash3D(cx * gridSize + midX, cy * gridSize + midY, targetLevel, seed) >= roomDensity;
                             const targetOccupied = hash3D(cx * gridSize + targetX, cy * gridSize + targetY, targetLevel, seed) < roomDensity;
                             
