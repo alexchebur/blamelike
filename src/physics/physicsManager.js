@@ -6,11 +6,7 @@ class PhysicsManager {
     constructor() {
         this.world = new CANNON.World();
         this.world.gravity.set(0, -25, 0);
-        
-        // === ИСПРАВЛЕНИЕ 1: Используем NaiveBroadphase вместо SAP ===
-        // SAPBroadphase может вызывать ошибки "Invalid array length" при массовой загрузке статики
-        this.world.broadphase = new CANNON.NaiveBroadphase();
-        
+        this.world.broadphase = new CANNON.SAPBroadphase(this.world);
         this.world.allowSleep = true;
         
         this.defaultMaterial = new CANNON.Material('default');
@@ -38,47 +34,57 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // === АБСОЛЮТНАЯ ЗАЩИТА ДАННЫХ ДЛЯ CANNON-ES ===
+                // Валидация данных
+                const sx = Math.max(0.01, Math.abs(Number(prim.scale?.x) || 1));
+                const sy = Math.max(0.01, Math.abs(Number(prim.scale?.y) || 1));
+                const sz = Math.max(0.01, Math.abs(Number(prim.scale?.z) || 1));
+                const px = Number(prim.position?.x) || 0;
+                const py = Number(prim.position?.y) || 0;
+                const pz = Number(prim.position?.z) || 0;
                 
-                // 1. Безопасное извлечение и приведение к числу
-                const rawSx = Number(prim.scale?.x);
-                const rawSy = Number(prim.scale?.y);
-                const rawSz = Number(prim.scale?.z);
-                const rawPx = Number(prim.position?.x);
-                const rawPy = Number(prim.position?.y);
-                const rawPz = Number(prim.position?.z);
-                const rawRx = Number(prim.rotation?.tiltX) || 0;
-                const rawRy = Number(prim.rotation?.tiltY) || 0;
-                const rawRz = Number(prim.rotation?.twistZ) || 0;
+                if (!isFinite(sx) || !isFinite(sy) || !isFinite(sz)) continue;
+                if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
 
-                // 2. Жесткая фильтрация невалидных значений
-                // isFinite отсекает NaN и Infinity
-                // Math.max(0.01, ...) гарантирует строго положительное значение и минимальный размер
-                if (!isFinite(rawSx) || !isFinite(rawSy) || !isFinite(rawSz)) continue;
-                if (!isFinite(rawPx) || !isFinite(rawPy) || !isFinite(rawPz)) continue;
-                if (!isFinite(rawRx) || !isFinite(rawRy) || !isFinite(rawRz)) continue;
+                const hx = sx / 2, hy = sy / 2, hz = sz / 2;
+                let shape;
 
-                const sx = Math.max(0.01, Math.abs(rawSx));
-                const sy = Math.max(0.01, Math.abs(rawSy));
-                const sz = Math.max(0.01, Math.abs(rawSz));
+                try {
+                    // Пытаемся создать стандартный Box
+                    shape = new CANNON.Box(new CANNON.Vec3(hx, hy, hz));
+                } catch (boxError) {
+                    // === FALLBACK: Создаем Box через Trimesh (обход бага конструктора) ===
+                    // Вершины куба
+                    const vertices = [
+                        -hx, -hy, -hz,   hx, -hy, -hz,   hx,  hy, -hz,  -hx,  hy, -hz,
+                        -hx, -hy,  hz,   hx, -hy,  hz,   hx,  hy,  hz,  -hx,  hy,  hz
+                    ];
+                    // Индексы треугольников (12 треугольников для 6 граней)
+                    const indices = [
+                        0, 1, 2,  0, 2, 3, // front
+                        4, 6, 5,  4, 7, 6, // back
+                        0, 4, 5,  0, 5, 1, // bottom
+                        2, 6, 7,  2, 7, 3, // top
+                        0, 3, 7,  0, 7, 4, // left
+                        1, 5, 6,  1, 6, 2  // right
+                    ];
+                    shape = new CANNON.Trimesh(vertices, indices);
+                }
 
-                // 3. Создание формы с гарантированно валидными halfExtents
-                const halfExtents = new CANNON.Vec3(sx / 2, sy / 2, sz / 2);
-                const shape = new CANNON.Box(halfExtents);
-
-                // 4. Создание тела с гарантированно валидной позицией
                 const body = new CANNON.Body({ 
                     mass: 0, 
                     material: this.defaultMaterial
                 });
-                body.position.set(rawPx, rawPy, rawPz);
+                body.position.set(px, py, pz);
                 
-                // 5. Безопасная установка вращения
+                const rx = Number(prim.rotation?.tiltX) || 0;
+                const ry = Number(prim.rotation?.tiltY) || 0;
+                const rz = Number(prim.rotation?.twistZ) || 0;
+                
                 const q = new CANNON.Quaternion();
                 q.setFromEuler(
-                    THREE.MathUtils.degToRad(rawRx),
-                    THREE.MathUtils.degToRad(rawRy),
-                    THREE.MathUtils.degToRad(rawRz)
+                    THREE.MathUtils.degToRad(rx),
+                    THREE.MathUtils.degToRad(ry),
+                    THREE.MathUtils.degToRad(rz)
                 );
                 body.quaternion.copy(q);
                 
@@ -89,7 +95,6 @@ class PhysicsManager {
             } catch (e) {
                 if (errorCount < 3) {
                     console.error(`❌ Physics error for prim ${prim.type}:`, e.message);
-                    console.log('Problematic prim:', JSON.stringify(prim, null, 2));
                 }
                 errorCount++;
             }
@@ -98,7 +103,7 @@ class PhysicsManager {
         this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
         this.totalBodies += count;
         
-        if (errorCount > 0) {
+        if (errorCount > 0 && errorCount < 10) {
             console.warn(`⚠️ Chunk ${cx},${cy},${cz}: ${errorCount} physics errors skipped.`);
         }
     }
