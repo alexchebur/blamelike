@@ -25,6 +25,15 @@ class PlayerController {
         this.speed = 15.0; 
         this.fallSpeed = config.fallSpeed || 25; 
         this.climbSpeed = config.ladderClimbSpeed || 6;
+
+        // === DEBUG VARIABLES FOR UI ===
+        // Эти значения будут отображаться в Physics Debug HUD
+        this.debugFloorY = '...';
+        this.debugGridKey = '...';
+        this.debugCellSize = '...';
+        this.debugHmSize = 0;
+        this.debugChunkLoaded = false;
+        // ==============================
     }
 
     // Этот метод теперь пустой, так как мы больше не используем кэш мешей
@@ -84,7 +93,14 @@ class PlayerController {
 
         const cm = this.sceneManager.chunkManager;
         
-        // === ОТЛАДКА: Проверяем наличие менеджера и карты ===
+        // Сброс debug-значений по умолчанию
+        this.debugFloorY = '...';
+        this.debugGridKey = '...';
+        this.debugCellSize = '...';
+        this.debugHmSize = cm?.heightMap?.size || 0;
+        this.debugChunkLoaded = false;
+
+        // === ПРОВЕРКА НАЛИЧИЯ МЕНЕДЖЕРА И КАРТЫ ===
         if (!cm) {
             console.warn("❌ ChunkManager отсутствует!");
             return;
@@ -93,25 +109,37 @@ class PlayerController {
             console.warn("❌ HeightMap отсутствует!");
             return;
         }
-        if (!cm.config) {
-            console.warn("❌ Config в ChunkManager отсутствует! cellSize не может быть рассчитан.");
+        if (!cm.config || !cm.config.chunkSize || !cm.config.gridSize) {
+            console.warn("❌ Config в ChunkManager неполный! cellSize не может быть рассчитан.");
             return;
         }
         // ==========================================
 
         const cellSize = cm.config.chunkSize / cm.config.gridSize;
+        this.debugCellSize = cellSize.toFixed(2);
+
         const gridX = Math.floor(x / cellSize);
         const gridZ = Math.floor(z / cellSize);
         const key = `${gridX},${gridZ}`;
+        this.debugGridKey = key;
         
-        // === ОТЛАДКА: Проверяем ключ и наличие данных ===
-        // console.log(`🔍 Проверка пола: key="${key}", playerY=${this.position.y.toFixed(1)}`);
+        // === ПРОВЕРКА НАЛИЧИЯ ЧАНКА ПОД НОГАМИ ===
+        // Определяем координаты чанка, в котором находится игрок
+        const chunkX = Math.floor(x / cm.config.chunkSize);
+        const chunkZ = Math.floor(z / cm.config.chunkSize);
+        // Для Y используем текущую позицию, так как чанки могут быть на разных высотах
+        const chunkY = Math.floor(this.position.y / cm.config.chunkSize); 
         
-        const floorData = cm.heightMap.get(key);
+        // Формируем ключ чанка (предполагаем, что createChunkKey использует формат "x,y,z")
+        // Если формат другой, адаптируй эту строку под свою реализацию createChunkKey
+        const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
+        const activeChunk = cm.activeChunks.get(chunkKey);
+        
+        this.debugChunkLoaded = !!activeChunk;
 
-        if (!floorData) {
-            // === ОТЛАДКА: Если данных нет, проверим размер карты ===
-            // console.warn(`⚠️ Нет данных в heightMap для ключа "${key}". Размер карты: ${cm.heightMap.size}`);
+        if (!activeChunk) {
+            // Если чанк не загружен, heightMap точно будет пустой для этой зоны
+            console.warn(`⚠️ Чанк ${chunkKey} не загружен! Игрок в пустоте.`);
             
             // СТРАХОВКА: Используем математические уровни
             const levelHeight = cm.config.levelHeight || 20;
@@ -120,19 +148,42 @@ class PlayerController {
             if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
-                 // console.log(`✅ Страховка сработала: приземление на уровень Y=${nearestLevelY + 1}`);
+                 this.debugFloorY = `Fallback:${nearestLevelY + 1}`;
+            }
+            return;
+        }
+        // ==========================================
+        
+        const floorData = cm.heightMap.get(key);
+
+        if (!floorData) {
+            // Чанк загружен, но в heightMap нет данных для конкретной ячейки
+            // Это значит, что под ногами игрока либо пропасть, либо объект, 
+            // который не прошел фильтр isWalkablePrimitive
+            
+            // СТРАХОВКА: Используем математические уровни
+            const levelHeight = cm.config.levelHeight || 20;
+            const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
+            
+            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
+                 this.onGround = true;
+                 this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
+                 this.debugFloorY = `Fallback:${nearestLevelY + 1}`;
+            } else {
+                this.debugFloorY = 'Empty Cell';
             }
             return;
         }
         // ==========================================
 
         const floorY = floorData.y;
+        this.debugFloorY = floorY.toFixed(1);
         
+        // Проверяем, находится ли игрок в зоне приземления
         if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
             this.onGround = true;
             this.onLadder = floorData.isLadder || false;
             this.position.y = floorY + (this.playerHeight * 0.5);
-            // console.log(`✅ Приземление на heightMap: Y=${floorY}`);
         }
     }
 
