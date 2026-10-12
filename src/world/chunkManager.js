@@ -56,17 +56,20 @@ class ChunkManager {
     }
 
     updateVisibleChunks(centerChunk, config, cameraPos) {
-        // 1. СНАЧАЛА вычисляем константы
         const { viewChunksXY, viewChunksZ, chunkSize, maxRenderDistance = 300 } = config;
         const maxDistSq = maxRenderDistance * maxRenderDistance;
         
         const desiredChunks = new Set();
 
+        // === ИЗМЕНЕНО: Динамический расчет диапазона чанков по Y ===
+        // Вместо фиксированных yMin/yMax, берем радиус вокруг текущего чанка игрока
+        const viewChunksY = Math.max(2, viewChunksZ); // Минимум 2 чанка вверх/вниз
+        
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
-            for (let dy = -viewChunksXY; dy <= viewChunksXY; dy++) {
+            for (let dy = -viewChunksY; dy <= viewChunksY; dy++) { // <-- Используем динамический dy
                 for (let dz = -viewChunksZ; dz <= viewChunksZ; dz++) {
                     const cx = centerChunk.cx + dx;
-                    const cy = centerChunk.cy + dy;
+                    const cy = centerChunk.cy + dy; // <-- Теперь cy зависит от позиции игрока
                     const cz = centerChunk.cz + dz;
                     
                     const chunkCenterX = (cx + 0.5) * chunkSize;
