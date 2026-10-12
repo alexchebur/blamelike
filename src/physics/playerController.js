@@ -1,6 +1,5 @@
 // src/physics/playerController.js
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 
 class PlayerController {
     constructor(sceneManager, config, physicsManager) {
@@ -8,37 +7,9 @@ class PlayerController {
         this.config = config;
         this.physicsManager = physicsManager;
         
-        // === PHYSICAL BODY INITIALIZATION ===
-        const radius = config.playerRadius || 0.4;
-        const height = config.playerHeight || 1.8;
-        
-        // Cylinder shape
-        const shape = new CANNON.Cylinder(radius, radius, height, 8);
-        
-        // Rotate cylinder to stand vertically (Y-axis)
-        const q = new CANNON.Quaternion();
-        q.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-        shape.transformAllPoints(new CANNON.Vec3(), q);
-
-        this.body = new CANNON.Body({
-            mass: 70,
-            fixedRotation: true,
-            material: physicsManager.defaultMaterial,
-            position: new CANNON.Vec3(0, 50, 0)
-        });
-        
-        this.body.addShape(shape);
-        this.body.linearDamping = 0.9; // Air resistance
-        physicsManager.world.addBody(this.body);
-
-        // Ground check variables
-        this.upAxis = new CANNON.Vec3(0, 1, 0);
+        this.position = new THREE.Vector3(0, 50, 0);
         this.onGround = false;
         
-        // Reference for rendering
-        this.position = new THREE.Vector3(0, 50, 0); 
-        
-        // Controls
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
@@ -46,41 +17,22 @@ class PlayerController {
         
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-        
         this.speed = config.moveSpeed || 10;
-        this.climbSpeed = config.ladderClimbSpeed || 6;
+        
+        // Инициализация тела после готовности физики
+        this.physicsManager.waitForReady().then(() => {
+            this.physicsManager.createPlayerBody(this.position);
+        });
     }
 
     update(deltaTime, camera) {
-        if (!camera || !this.body) return;
+        if (!camera) return;
         
-        // === SAFE GROUND CHECK VIA RAYCAST ===
-        this.onGround = false;
-        
-        // Ray from center of body down to half height + margin
-        const rayFrom = this.body.position.clone();
-        const rayTo = new CANNON.Vec3(
-            rayFrom.x, 
-            rayFrom.y - (this.config.playerHeight / 2 + 0.2), 
-            rayFrom.z
-        );
-        
-        const rayResult = new CANNON.RaycastResult();
-        // Check if raycast hits anything
-        const hasHit = this.physicsManager.world.raycastClosest(rayFrom, rayTo, {}, rayResult);
-        
-        if (hasHit && rayResult.normal) {
-            // If normal points up (angle with Y axis < ~60 degrees), we are on ground
-            if (rayResult.normal.dot(this.upAxis) > 0.5) {
-                this.onGround = true;
-            }
-        }
-        // =================================================
+        // Синхронизация позиции из физики
+        this.position.copy(this.physicsManager.getPlayerPosition());
+        this.onGround = this.physicsManager.isPlayerOnGround();
 
-        // Sync Three.js position with physical body
-        this.position.copy(this.body.position);
-
-        // 1. Horizontal Movement
+        // Горизонтальное движение
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
@@ -96,17 +48,13 @@ class PlayerController {
         if (this.direction.z !== 0) moveVec.addScaledVector(camDir, this.direction.z);
         if (this.direction.x !== 0) moveVec.addScaledVector(camRight, this.direction.x);
         
-        // Apply velocity to physical body
         if (moveVec.lengthSq() > 0) {
-            this.body.velocity.x = moveVec.x * this.speed;
-            this.body.velocity.z = moveVec.z * this.speed;
+            this.physicsManager.setPlayerVelocity(moveVec.x * this.speed, moveVec.z * this.speed);
         } else {
-            // Smooth braking
-            this.body.velocity.x *= 0.8;
-            this.body.velocity.z *= 0.8;
+            this.physicsManager.setPlayerVelocity(0, 0);
         }
 
-        // 2. Camera follows player
+        // Камера
         camera.position.set(
             this.position.x, 
             this.position.y + this.config.playerHeight * 0.9, 
