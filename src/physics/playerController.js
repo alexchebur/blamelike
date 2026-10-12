@@ -27,7 +27,7 @@ class PlayerController {
         this.climbSpeed = config.ladderClimbSpeed || 6;
     }
 
-    // Пустой метод для совместимости с main.js (физика теперь без кэша мешей)
+    // Заглушка для совместимости с main.js
     updateCollisionCache() {}
 
     update(deltaTime, camera) {
@@ -54,14 +54,13 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола через HeightMap (БЕЗ RAYCASTING)
+        // 2. Проверка пола через HeightMap
         this.checkGroundViaHeightMap(nextX, nextZ);
 
         // 3. Вертикальное движение
         let targetY = this.position.y;
         if (this.onGround) {
             this.isFalling = false;
-            // Логика лестниц
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
@@ -79,43 +78,48 @@ class PlayerController {
     }
 
     /**
-     * Проверяет пол, запрашивая данные из логической карты высот ChunkManager.
-     * Работает мгновенно, без нагрузки на CPU.
+     * Проверяет пол через HeightMap + Страховка на случай пустой карты
      */
     checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
         const cm = this.sceneManager.chunkManager;
-        if (!cm || !cm.heightMap) return;
+        
+        // === СТРАХОВКА: Если ChunkManager или HeightMap недоступны ===
+        if (!cm || !cm.heightMap || !cm.config) {
+            // Используем простую математику ярусов как fallback
+            const levelHeight = 20; // Стандартная высота яруса
+            const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
+            
+            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
+                 this.onGround = true;
+                 this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
+            }
+            return;
+        }
 
-        // Получаем размер клетки сетки
-        const cellSize = cm.config ? (cm.config.chunkSize / cm.config.gridSize) : 10;
+        // Основная логика через HeightMap
+        const cellSize = cm.config.chunkSize / cm.config.gridSize;
         const gridX = Math.floor(x / cellSize);
         const gridZ = Math.floor(z / cellSize);
         const key = `${gridX},${gridZ}`;
         
         const floorData = cm.heightMap.get(key);
 
-        // Если под нами есть платформа в карте высот
         if (floorData) {
             const floorY = floorData.y;
-            
-            // Если мы близко к полу (в пределах 1.5 единиц), считаем что стоим на нем
+            // Если мы близко к полу (в пределах 1.5 единиц сверху и 0.5 снизу)
             if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
                 this.onGround = true;
                 this.onLadder = floorData.isLadder || false;
-                
-                // Корректируем высоту, чтобы ноги стояли ровно на платформе
                 this.position.y = floorY + (this.playerHeight * 0.5);
             }
         } else {
-            // === СТРАХОВКА ОТ ВЕЧНОГО ПАДЕНИЯ ===
-            // Если HeightMap пуста (чанк не загружен или пуст), используем базовую логику ярусов
-            const levelHeight = cm.config?.levelHeight || 20;
+            // Fallback, если в конкретной клетке HeightMap пусто
+            const levelHeight = cm.config.levelHeight || 20;
             const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
             
-            // Если мы очень близко к этому уровню, считаем что стоим
             if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
@@ -129,6 +133,6 @@ class PlayerController {
         this.cameraEuler.x -= movementY * sensitivity;
         this.cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraEuler.x));
     }
-}
+} // <-- ЗАКРЫВАЮЩАЯ СКОБКА КЛАССА
 
 export default PlayerController;
