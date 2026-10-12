@@ -161,12 +161,12 @@ class App {
     updateDebugHUD() {
         const pc = this.sceneManager?.playerController;
         const cm = this.chunkManager;
+        
         if (!pc || !cm) return;
+
+        // === ОБНОВЛЕНИЕ DEBUG HUD НА ОСНОВЕ НОВЫХ СВОЙСТВ КОНТРОЛЛЕРА ===
         
-        // Теперь мы не можем легко получить Floor Y без дублирования логики Raycast,
-        // поэтому просто покажем состояние.
-        // Или можно добавить метод getPlayerFloorHeight() в контроллер.
-        
+        // State
         let stateText = '❓ UNKNOWN';
         let statusClass = '';
         if (pc.onLadder) { stateText = '🪜 ON LADDER'; statusClass = 'status-warn'; }
@@ -178,16 +178,31 @@ class App {
             hudState.textContent = stateText;
             hudState.className = `hud-value ${statusClass}`;
         }
-        
-        // Остальные поля можно оставить, но Floor Y теперь неактуален в старом виде
+
+        // Position
         const hudPos = document.getElementById('hud-pos');
         if (hudPos) hudPos.textContent = `${pc.position.x.toFixed(1)}, ${pc.position.y.toFixed(1)}, ${pc.position.z.toFixed(1)}`;
-        
-        // HeightMap size все еще полезен для отладки генерации
+
+        // Floor Y (теперь берем из debug-свойства контроллера)
+        const hudFloor = document.getElementById('hud-floor');
+        if (hudFloor) hudFloor.textContent = pc.debugFloorY || '...';
+
+        // Grid Cell
+        const hudGrid = document.getElementById('hud-grid');
+        if (hudGrid) hudGrid.textContent = pc.debugGridKey || '...';
+
+        // HeightMap Size
         const hudMap = document.getElementById('hud-map');
         if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
+
+        // Cell Size
+        const hudCell = document.getElementById('hud-cell');
+        if (hudCell) hudCell.textContent = pc.debugCellSize || '...';
+
+        // Добавим новую строку для статуса чанка (опционально, если есть элемент в HTML)
+        // const hudChunk = document.getElementById('hud-chunk');
+        // if (hudChunk) hudChunk.textContent = pc.debugChunkLoaded ? '✅ Loaded' : '❌ Missing';
     }
-}
 
 // Запускаем приложение когда DOM готов
 document.addEventListener('DOMContentLoaded', () => {
