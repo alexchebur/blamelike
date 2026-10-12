@@ -73,10 +73,14 @@ class App {
                 if (this.sceneManager.playerController.body) {
                     this.sceneManager.playerController.body.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
                     this.sceneManager.playerController.body.velocity.set(0, 0, 0);
+                    // Сбрасываем угловую скорость на всякий случай
+                    this.sceneManager.playerController.body.angularVelocity.set(0, 0, 0);
                 } else {
                     // Fallback для старого контроллера (если вдруг используется)
                     this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-                    this.sceneManager.playerController.velocity.set(0, 0, 0);
+                    if (this.sceneManager.playerController.velocity) {
+                        this.sceneManager.playerController.velocity.set(0, 0, 0);
+                    }
                 }
             } else {
                 console.warn('⚠️ No spawn point found! Keeping default position.');
@@ -125,11 +129,6 @@ class App {
             
         const config = this.controlPanel.getConfig();
         this.chunkManager.update(pos, config);
-
-        // === УДАЛЕНО: Вызов updateCollisionCache ===
-        // В новой архитектуре с Cannon-es физика обновляется внутри physicsManager.step()
-        // и коллайдеры добавляются напрямую в ChunkManager.loadChunk()
-        // ==============================================
     }
 
     /**
@@ -176,6 +175,7 @@ class App {
     updateDebugHUD() {
         const pc = this.sceneManager?.playerController;
         const cm = this.chunkManager;
+        const pm = this.sceneManager?.physicsManager;
         
         if (!pc || !cm) return;
 
@@ -183,7 +183,7 @@ class App {
         let stateText = '❓ UNKNOWN';
         let statusClass = '';
         
-        // Для Cannon-es проверяем контакты или просто скорость
+        // Для Cannon-es проверяем onGround флаг из контроллера
         if (pc.onGround) { 
             stateText = '✅ ON GROUND'; 
             statusClass = 'status-ok'; 
@@ -208,6 +208,12 @@ class App {
         // HeightMap Size
         const hudMap = document.getElementById('hud-map');
         if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
+        
+        // Physics Bodies Count (для отладки)
+        const hudFloor = document.getElementById('hud-floor');
+        if (hudFloor && pm) {
+            hudFloor.textContent = `Bodies: ${pm.totalBodies || 0}`;
+        }
     }
 }
 
