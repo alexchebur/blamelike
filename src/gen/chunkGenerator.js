@@ -85,6 +85,7 @@ function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const { gridSize, levelHeight, roomDensity } = config;
     const archChance = config.decorDensity?.antennas ? config.decorDensity.antennas * 2 : 0.1; 
 
+    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
@@ -96,7 +97,11 @@ function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (currentHash < roomDensity && rng() < archChance) {
                     primitives.push({
                         type: 'arch',
-                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: yBase + (config.platformThickness || 0.5), z: bounds.min.z + (gy + 0.5) * cellSize },
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: yBase + (config.platformThickness || 0.5), 
+                            z: bounds.min.z + (gy + 0.5) * cellSize 
+                        },
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize * 0.8, y: levelHeight * 0.6, z: cellSize * 0.8 },
                         paletteSlot: 'glow',
@@ -265,10 +270,13 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
+    
+    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
+        // Пропускаем уровень, если на нем нет комнат (экономия ресурсов)
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const yBase = level * levelHeight;
@@ -280,6 +288,7 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wz = bounds.min.z + (gy + 0.5) * cellSize;
                 const isRoom = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity;
                 
+                // Стены
                 if (isRoom && hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed) < wallDensity) {
                     primitives.push({
                         type: 'box',
@@ -291,6 +300,7 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     });
                 }
                 
+                // Колонны
                 if (isRoom && hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed) < pillarDensity) {
                     primitives.push({
                         type: 'cylinder',
@@ -306,10 +316,11 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
+    
+    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
@@ -317,15 +328,17 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         const currentYBase = level * levelHeight;
         const gridMap = new Map(); 
         
+        // Строим карту занятости для текущего уровня
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 gridMap.set(`${gx},${gy}`, hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity);
             }
         }
 
+        // Ищем места для мостов между комнатами
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                if (gridMap.get(`${gx},${gy}`)) continue;
+                if (gridMap.get(`${gx},${gy}`)) continue; // Пропускаем сами комнаты
 
                 const hasWest = gridMap.get(`${gx-1},${gy}`);
                 const hasEast = gridMap.get(`${gx+1},${gy}`);
@@ -343,7 +356,11 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 if (bridgeType) {
                     primitives.push({
                         type: bridgeType,
-                        position: { x: bounds.min.x + (gx + 0.5) * cellSize, y: currentYBase + (config.platformThickness || 0.5) + 0.05, z: bounds.min.z + (gy + 0.5) * cellSize }, 
+                        position: { 
+                            x: bounds.min.x + (gx + 0.5) * cellSize, 
+                            y: currentYBase + (config.platformThickness || 0.5) + 0.05, 
+                            z: bounds.min.z + (gy + 0.5) * cellSize 
+                        }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: 1, z: cellSize }, 
                         paletteSlot: 'accent',
@@ -355,7 +372,6 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
@@ -413,14 +429,16 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const d = bounds.max.z - bounds.min.z;
     const h = bounds.max.y - bounds.min.y;
     const cellSize = config.chunkSize / gridSize;
+    
+    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
-    // 1. Антенны
+    // 1. Антенны (распределяем по всему объему)
     for (let i = 0; i < Math.floor(w * (decorDensity.antennas || 0)); i++) {
         primitives.push({
             type: 'cylinder',
-            position: { x: bounds.min.x + rng() * w, y: bounds.min.y + 10, z: bounds.min.z + rng() * d },
+            position: { x: bounds.min.x + rng() * w, y: bounds.min.y + rng() * h, z: bounds.min.z + rng() * d },
             rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
             scale: { x: 0.5, y: 10 + rng() * 20, z: 0.5 },
             paletteSlot: 'baseLight', role: 'decor'
@@ -485,32 +503,23 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         while (!placed && attempts < 15) {
             const gx = Math.floor(rng() * gridSize);
             const gy = Math.floor(rng() * gridSize);
+            // === ИЗМЕНЕНО: Уровень выбирается из динамического диапазона ===
             const level = startLevel + Math.floor(rng() * Math.max(1, endLevel - startLevel + 1));
             
             if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
                 const yBase = level * levelHeight;
                 const attachY = yBase - (config.platformThickness || 0.5);
                 
-                // === ЯВНОЕ ОПРЕДЕЛЕНИЕ ПАРАМЕТРОВ ===
-                
-                // 1. Длина уголка (масштаб по X)
                 const r = rng() * ((lCableWeights?.short || 0.4) + (lCableWeights?.medium || 0.4) + (lCableWeights?.long || 0.2));
                 let lengthRatio = 0.5;
                 if (r < (lCableWeights?.short || 0.4)) lengthRatio = 0.4 + rng() * 0.3;
                 else if (r < (lCableWeights?.short || 0.4) + (lCableWeights?.medium || 0.4)) lengthRatio = 0.7 + rng() * 0.4;
                 else lengthRatio = 1.1 + rng() * 0.6;
                 
-                // 2. Толщина кабеля (нормализованная к базовой толщине геометрии 0.1)
                 const thickness = 0.08 + rng() * 0.12;
                 const thicknessScale = thickness / 0.1;
-                
-                // 3. Направление свисания (азимут вокруг вертикальной оси Y)
                 const azimuthDeg = rng() * 360;
-                
-                // 4. Угол изгиба нижнего сегмента относительно вертикали (twistZ)
                 const bendAngle = 20 + rng() * 50; 
-                
-                // 5. Случайное смещение точки крепления внутри клетки
                 const offsetX = (rng() - 0.5) * cellSize * 0.6;
                 const offsetZ = (rng() - 0.5) * cellSize * 0.6;
 
@@ -522,14 +531,14 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
                         z: bounds.min.z + (gy + 0.5) * cellSize + offsetZ 
                     },
                     rotation: { 
-                        tiltX: 0,           // Без наклона вперед/назад
-                        tiltY: azimuthDeg,  // Направление свисания
-                        twistZ: bendAngle   // Угол изгиба "уголка"
+                        tiltX: 0,           
+                        tiltY: azimuthDeg,  
+                        twistZ: bendAngle   
                     }, 
                     scale: { 
-                        x: lengthRatio,     // Масштабирует длину нижнего сегмента
-                        y: thicknessScale,  // Толщина по Y
-                        z: thicknessScale   // Толщина по Z
+                        x: lengthRatio,     
+                        y: thicknessScale,  
+                        z: thicknessScale   
                     },
                     paletteSlot: rng() > 0.6 ? 'accent' : 'shadow',
                     role: 'decor'
