@@ -30,7 +30,7 @@ class App {
         try {
             console.log('🚀 Initializing Blame! Generator...');
             
-            // 1. Создаем менеджер сцены (Three.js)
+            // 1. Создаем менеджер сцены (Three.js + Physics)
             this.sceneManager = new SceneManager(this.container);
             console.log('✅ SceneManager initialized');
             
@@ -68,10 +68,16 @@ class App {
             if (spawnPos && this.sceneManager.playerController) {
                 console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
                 
-                // Телепортируем игрока
-                this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-                // Сбрасываем скорость, чтобы не было инерции падения при старте
-                this.sceneManager.playerController.velocity.set(0, 0, 0);
+                // Телепортируем игрока (физическое тело)
+                // В Cannon-es позиция задается через body.position
+                if (this.sceneManager.playerController.body) {
+                    this.sceneManager.playerController.body.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+                    this.sceneManager.playerController.body.velocity.set(0, 0, 0);
+                } else {
+                    // Fallback для старого контроллера (если вдруг используется)
+                    this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+                    this.sceneManager.playerController.velocity.set(0, 0, 0);
+                }
             } else {
                 console.warn('⚠️ No spawn point found! Keeping default position.');
             }
@@ -98,28 +104,34 @@ class App {
         }
     }
 
+    /**
+     * Обновление чанков вокруг камеры
+     */
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager) return;
         
-        const pos = this.sceneManager.playerController 
-            ? this.sceneManager.playerController.position 
-            : this.sceneManager.camera.position;
+        // Используем позицию игрока, если он есть, иначе позицию камеры
+        let pos;
+        if (this.sceneManager.playerController) {
+            // Для Cannon-es берем позицию из физического тела
+            if (this.sceneManager.playerController.body) {
+                pos = new THREE.Vector3().copy(this.sceneManager.playerController.body.position);
+            } else {
+                pos = this.sceneManager.playerController.position;
+            }
+        } else {
+            pos = this.sceneManager.camera.position;
+        }
             
         const config = this.controlPanel.getConfig();
-        
-        // ВАЖНО: Передаем конфиг в chunkManager КАЖДЫЙ кадр, 
-        // чтобы updateHeightMapForChunk всегда имел актуальный cellSize
         this.chunkManager.update(pos, config);
 
-        // Обновляем кэш коллизий (теперь пустой, но вызов нужен для совместимости)
-        if (this.sceneManager.playerController) {
-            this.sceneManager.playerController.updateCollisionCache(
-                this.chunkManager.activeChunks,
-                pos,
-                config.chunkSize
-            );
-        }
+        // === УДАЛЕНО: Вызов updateCollisionCache ===
+        // В новой архитектуре с Cannon-es физика обновляется внутри physicsManager.step()
+        // и коллайдеры добавляются напрямую в ChunkManager.loadChunk()
+        // ==============================================
     }
+
     /**
      * Обработчик изменения конфигурации из панели
      * @param {Object} config 
@@ -134,20 +146,27 @@ class App {
             enableShadows: config.enableShadows
         });
         
+        // Очищаем физический мир перед перегенерацией
+        if (this.sceneManager.clearPhysics) {
+            this.sceneManager.clearPhysics();
+        }
+
         // Пересоздаем все чанки с новыми параметрами
         this.chunkManager.clear();
         this.updateChunks();
     }
 
+    /**
+     * Цикл анимации и рендеринга
+     */
     animate() {
         requestAnimationFrame(() => this.animate());
+        
         if (this.isInitialized) {
-            // 1. Сначала обновляем чанки вокруг игрока
             this.updateChunks();
-            // 2. Потом обновляем HUD
-            this.updateDebugHUD(); 
+            this.updateDebugHUD(); // Обновляем HUD каждый кадр
         }
-        // 3. Рендер (внутри него обновляется физика игрока)
+        
         this.sceneManager.render();
     }
 
@@ -160,14 +179,18 @@ class App {
         
         if (!pc || !cm) return;
 
-        // === ОБНОВЛЕНИЕ DEBUG HUD НА ОСНОВЕ НОВЫХ СВОЙСТВ КОНТРОЛЛЕРА ===
-        
         // State
         let stateText = '❓ UNKNOWN';
         let statusClass = '';
-        if (pc.onLadder) { stateText = '🪜 ON LADDER'; statusClass = 'status-warn'; }
-        else if (pc.onGround) { stateText = '✅ ON GROUND'; statusClass = 'status-ok'; }
-        else { stateText = '⬇️ FALLING'; statusClass = 'status-error'; }
+        
+        // Для Cannon-es проверяем контакты или просто скорость
+        if (pc.onGround) { 
+            stateText = '✅ ON GROUND'; 
+            statusClass = 'status-ok'; 
+        } else {
+            stateText = '⬇️ FALLING'; 
+            statusClass = 'status-error';
+        }
         
         const hudState = document.getElementById('hud-state');
         if (hudState) {
@@ -175,27 +198,18 @@ class App {
             hudState.className = `hud-value ${statusClass}`;
         }
 
-        // Position
+        // Position (берем из физического тела)
         const hudPos = document.getElementById('hud-pos');
-        if (hudPos) hudPos.textContent = `${pc.position.x.toFixed(1)}, ${pc.position.y.toFixed(1)}, ${pc.position.z.toFixed(1)}`;
-
-        // Floor Y (теперь берем из debug-свойства контроллера)
-        const hudFloor = document.getElementById('hud-floor');
-        if (hudFloor) hudFloor.textContent = pc.debugFloorY || '...';
-
-        // Grid Cell
-        const hudGrid = document.getElementById('hud-grid');
-        if (hudGrid) hudGrid.textContent = pc.debugGridKey || '...';
+        if (hudPos) {
+            const p = pc.body ? pc.body.position : pc.position;
+            hudPos.textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
+        }
 
         // HeightMap Size
         const hudMap = document.getElementById('hud-map');
         if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
-
-        // Cell Size
-        const hudCell = document.getElementById('hud-cell');
-        if (hudCell) hudCell.textContent = pc.debugCellSize || '...';
     }
-} // <--- ЭТА СКОБКА ЗАКРЫВАЕТ КЛАСС App. ОНА БЫЛА ПРОПУЩЕНА!
+}
 
 // Запускаем приложение когда DOM готов
 document.addEventListener('DOMContentLoaded', () => {
