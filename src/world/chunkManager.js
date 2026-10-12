@@ -196,15 +196,42 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой (Cannon-es)
-        // Добавляем примитивы в физический мир
-        if (this.sceneManager.physicsManager) {
-            this.sceneManager.physicsManager.addChunkPrimitives(cx, cy, cz, chunkData, config);
+        // 2. Физический слой (RAPIER)
+        // === КРИТИЧЕСКОЕ ДОБАВЛЕНИЕ ===
+        if (this.sceneManager.physicsManager && this.sceneManager.physicsManager.isReady) {
+            this.sceneManager.physicsManager.addChunkPrimitives(cx, cy, cz, chunkData);
+            console.log(`✅ Physics chunk ${cx},${cy},${cz} added to Rapier`);
+        } else {
+            console.warn(`⚠️ Physics not ready for chunk ${cx},${cy},${cz}`);
         }
+        // ==============================
 
         // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
+        }
+    }
+
+    unloadUnusedChunks(desiredKeys) {
+        for (const [key, chunk] of this.activeChunks) {
+            if (!desiredKeys.has(key)) {
+                this.sceneManager.scene.remove(chunk);
+                this.disposeChunk(chunk);
+                
+                // Удаляем физические тела из Rapier
+                // === КРИТИЧЕСКОЕ УДАЛЕНИЕ ===
+                if (this.sceneManager.physicsManager) {
+                    const { cx, cy, cz } = parseChunkKey(key);
+                    this.sceneManager.physicsManager.removeChunk(cx, cy, cz);
+                }
+                // ============================
+                
+                if (this.sceneManager.screenManager) {
+                    this.unregisterScreens(key);
+                }
+                
+                this.activeChunks.delete(key);
+            }
         }
     }
 
@@ -355,26 +382,7 @@ class ChunkManager {
         }
     }
 
-    unloadUnusedChunks(desiredKeys) {
-        for (const [key, chunk] of this.activeChunks) {
-            if (!desiredKeys.has(key)) {
-                this.sceneManager.scene.remove(chunk);
-                this.disposeChunk(chunk);
-                
-                // Удаляем физические тела из Cannon-es
-                if (this.sceneManager.physicsManager) {
-                    const { cx, cy, cz } = parseChunkKey(key);
-                    this.sceneManager.physicsManager.removeChunk(cx, cy, cz);
-                }
-                
-                if (this.sceneManager.screenManager) {
-                    this.unregisterScreens(key);
-                }
-                
-                this.activeChunks.delete(key);
-            }
-        }
-    }
+
 
     unregisterScreens(chunkKey) {
         const screenManager = this.sceneManager.screenManager;
