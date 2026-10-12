@@ -16,10 +16,14 @@ class PhysicsManager {
         this.world.addContactMaterial(contactMat);
         
         this.chunkBodies = new Map();
+        this.totalBodies = 0;
     }
 
     addChunkPrimitives(cx, cy, cz, primitives, config) {
         const bodies = [];
+        let count = 0;
+        let errorCount = 0;
+
         for (const prim of primitives) {
             // Фильтруем только проходимые объекты
             if (prim.role === 'decor' || prim.role === 'micro') continue;
@@ -31,14 +35,32 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                const shape = new CANNON.Box(new CANNON.Vec3(
-                    Math.abs(prim.scale.x) / 2,
-                    Math.abs(prim.scale.y) / 2,
-                    Math.abs(prim.scale.z) / 2
-                ));
+                // === ЗАЩИТА ОТ НЕВАЛИДНЫХ ДАННЫХ ===
+                const sx = Math.abs(prim.scale?.x || 1);
+                const sy = Math.abs(prim.scale?.y || 1);
+                const sz = Math.abs(prim.scale?.z || 1);
+                
+                // Пропускаем объекты с нулевыми или слишком маленькими размерами
+                if (sx < 0.01 || sy < 0.01 || sz < 0.01) {
+                    continue;
+                }
+
+                const px = prim.position?.x ?? 0;
+                const py = prim.position?.y ?? 0;
+                const pz = prim.position?.z ?? 0;
+
+                // Пропускаем объекты с NaN координатами
+                if (isNaN(px) || isNaN(py) || isNaN(pz)) {
+                    if (errorCount < 5) console.warn(`⚠️ NaN position in prim ${prim.type}`);
+                    errorCount++;
+                    continue;
+                }
+
+                // Создаем Box shape для всех проходимых примитивов
+                const shape = new CANNON.Box(new CANNON.Vec3(sx / 2, sy / 2, sz / 2));
 
                 const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
-                body.position.set(prim.position.x, prim.position.y, prim.position.z);
+                body.position.set(px, py, pz);
                 
                 const q = new CANNON.Quaternion();
                 q.setFromEuler(
@@ -51,12 +73,22 @@ class PhysicsManager {
                 
                 this.world.addBody(body);
                 bodies.push(body);
+                count++;
             } catch (e) {
-                console.warn(`⚠️ Physics error for prim ${prim.type}:`, e);
+                if (errorCount < 5) {
+                    console.error(`❌ Physics error for prim ${prim.type}:`, e.message);
+                    console.log('Prim data:', prim);
+                }
+                errorCount++;
             }
         }
+        
         this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
-        console.log(`✅ Physics chunk ${cx},${cy},${cz} loaded: ${bodies.length} bodies`);
+        this.totalBodies += count;
+        
+        if (errorCount > 0) {
+            console.warn(`⚠️ Chunk ${cx},${cy},${cz}: ${errorCount} physics errors skipped.`);
+        }
     }
 
     removeChunk(cx, cy, cz) {
@@ -64,8 +96,8 @@ class PhysicsManager {
         const bodies = this.chunkBodies.get(key);
         if (bodies) {
             bodies.forEach(b => this.world.removeBody(b));
+            this.totalBodies -= bodies.length;
             this.chunkBodies.delete(key);
-            console.log(`️ Physics chunk ${key} removed`);
         }
     }
 
@@ -78,6 +110,7 @@ class PhysicsManager {
             bodies.forEach(b => this.world.removeBody(b));
         }
         this.chunkBodies.clear();
+        this.totalBodies = 0;
     }
 }
 export default PhysicsManager;
