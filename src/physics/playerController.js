@@ -8,14 +8,14 @@ class PlayerController {
         this.config = config;
         this.physicsManager = physicsManager;
         
-        // === ИНИЦИАЛИЗАЦИЯ ФИЗИЧЕСКОГО ТЕЛА ===
+        // === PHYSICAL BODY INITIALIZATION ===
         const radius = config.playerRadius || 0.4;
         const height = config.playerHeight || 1.8;
         
-        // Создаем форму цилиндра
+        // Cylinder shape
         const shape = new CANNON.Cylinder(radius, radius, height, 8);
         
-        // Поворачиваем цилиндр, чтобы он стоял вертикально (по оси Y)
+        // Rotate cylinder to stand vertically (Y-axis)
         const q = new CANNON.Quaternion();
         q.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
         shape.transformAllPoints(new CANNON.Vec3(), q);
@@ -28,17 +28,17 @@ class PlayerController {
         });
         
         this.body.addShape(shape);
-        this.body.linearDamping = 0.9;
+        this.body.linearDamping = 0.9; // Air resistance
         physicsManager.world.addBody(this.body);
 
-        // Переменные для проверки земли
+        // Ground check variables
         this.upAxis = new CANNON.Vec3(0, 1, 0);
         this.onGround = false;
         
-        // Ссылка на позицию для рендера
+        // Reference for rendering
         this.position = new THREE.Vector3(0, 50, 0); 
         
-        // Управление
+        // Controls
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
@@ -54,10 +54,10 @@ class PlayerController {
     update(deltaTime, camera) {
         if (!camera || !this.body) return;
         
-        // === БЕЗОПАСНАЯ ПРОВЕРКА ЗЕМЛИ ЧЕРЕЗ RAYCAST ===
+        // === SAFE GROUND CHECK VIA RAYCAST ===
         this.onGround = false;
         
-        // Луч пускаем из центра тела вниз на половину высоты + небольшой запас
+        // Ray from center of body down to half height + margin
         const rayFrom = this.body.position.clone();
         const rayTo = new CANNON.Vec3(
             rayFrom.x, 
@@ -66,21 +66,21 @@ class PlayerController {
         );
         
         const rayResult = new CANNON.RaycastResult();
-        this.physicsManager.world.raycastClosest(rayFrom, rayTo, {}, rayResult);
+        // Check if raycast hits anything
+        const hasHit = this.physicsManager.world.raycastClosest(rayFrom, rayTo, {}, rayResult);
         
-        // КРИТИЧНО: Проверяем hasHit ПЕРЕД обращением к normal
-        if (rayResult.hasHit && rayResult.normal) {
-            // Если нормаль смотрит вверх (угол с осью Y < ~60 градусов), значит мы на земле
+        if (hasHit && rayResult.normal) {
+            // If normal points up (angle with Y axis < ~60 degrees), we are on ground
             if (rayResult.normal.dot(this.upAxis) > 0.5) {
                 this.onGround = true;
             }
         }
         // =================================================
 
-        // Синхронизируем позицию Three.js с физическим телом
+        // Sync Three.js position with physical body
         this.position.copy(this.body.position);
 
-        // 1. Горизонтальное движение
+        // 1. Horizontal Movement
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
@@ -96,17 +96,17 @@ class PlayerController {
         if (this.direction.z !== 0) moveVec.addScaledVector(camDir, this.direction.z);
         if (this.direction.x !== 0) moveVec.addScaledVector(camRight, this.direction.x);
         
-        // Применяем скорость к физическому телу
+        // Apply velocity to physical body
         if (moveVec.lengthSq() > 0) {
             this.body.velocity.x = moveVec.x * this.speed;
             this.body.velocity.z = moveVec.z * this.speed;
         } else {
-            // Плавное торможение
+            // Smooth braking
             this.body.velocity.x *= 0.8;
             this.body.velocity.z *= 0.8;
         }
 
-        // 2. Камера следует за игроком
+        // 2. Camera follows player
         camera.position.set(
             this.position.x, 
             this.position.y + this.config.playerHeight * 0.9, 
