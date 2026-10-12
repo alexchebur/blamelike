@@ -44,11 +44,16 @@ class PhysicsManager {
     }
 
     addChunkPrimitives(cx, cy, cz, primitives) {
-        if (!this.isReady) return;
+        if (!this.isReady || !this.world) {
+            console.error("❌ PhysicsManager not ready!");
+            return;
+        }
         
         const colliders = [];
-        
+        let count = 0;
+
         for (const prim of primitives) {
+            // Фильтрация (только проходимые)
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen' || prim.type === 'torus') continue;
             if (prim.type.includes('cable')) continue;
@@ -64,20 +69,18 @@ class PhysicsManager {
                 const px = Number(prim.position?.x) || 0;
                 const py = Number(prim.position?.y) || 0;
                 const pz = Number(prim.position?.z) || 0;
-                
-                if (!isFinite(sx) || !isFinite(sy) || !isFinite(sz)) continue;
-                if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
 
-                // Создаем статичный куб
+                // Создаем статичное тело
                 const bodyDesc = RAPIER.RigidBodyDesc.fixed()
                     .setTranslation(px, py, pz);
                 const body = this.world.createRigidBody(bodyDesc);
                 
+                // Создаем коллайдер (куб)
                 const hx = sx / 2, hy = sy / 2, hz = sz / 2;
                 const colliderDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
                     .setFriction(0.0);
                     
-                // Применяем вращение
+                // Вращение
                 const euler = new THREE.Euler(
                     THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
                     THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
@@ -88,13 +91,14 @@ class PhysicsManager {
                 
                 const collider = this.world.createCollider(colliderDesc, body);
                 colliders.push({ body, collider });
+                count++;
             } catch (e) {
-                // Rapier гораздо стабильнее, но на всякий случай
                 console.warn(`⚠️ Rapier skip prim ${prim.type}:`, e.message);
             }
         }
         
         this.chunkColliders.set(`${cx},${cy},${cz}`, colliders);
+        // console.log(`📦 Chunk ${cx},${cy},${cz}: ${count} colliders created`);
     }
 
     removeChunk(cx, cy, cz) {
