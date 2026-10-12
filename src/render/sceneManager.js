@@ -1,9 +1,10 @@
+
 // @ts-check
 import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
 import ScreenManager from './screenManager.js';
 import PlayerController from '../physics/playerController.js';
-import PhysicsManager from '../physics/physicsManager.js'; // <--- НОВЫЙ ИМПОРТ
+import PhysicsManager from '../physics/physicsManager.js'; // Import PhysicsManager
 
 class SceneManager {
     constructor(container) {
@@ -24,8 +25,10 @@ class SceneManager {
         this.axisHelper = null;
 
         this.screenManager = null;
-        this.physicsManager = null; // <--- НОВОЕ ПОЛЕ
+        this.physicsManager = null; // Initialize PhysicsManager field
         
+        // Keep collisionLayer for backwards compatibility or debug visuals if needed, 
+        // but primary physics is now handled by Cannon-es
         this.collisionLayer = new THREE.Group();
         this.collisionLayer.name = "CollisionLayer";
         
@@ -97,17 +100,18 @@ class SceneManager {
         this.axisHelper = new THREE.AxesHelper(30);
         this.scene.add(this.axisHelper);
         
+        // Add collision layer to scene (optional, for debug visuals if material visible is true)
         this.scene.add(this.collisionLayer);
 
         this.setupLighting();
         
-        // === ИНИЦИАЛИЗАЦИЯ ФИЗИКИ ===
+        // === INITIALIZE PHYSICS MANAGER ===
         this.physicsManager = new PhysicsManager();
-        // ============================
+        // ==================================
 
         this.screenManager = new ScreenManager(this.scene);
         
-        // Передаем physicsManager в контроллер игрока
+        // Pass physicsManager to PlayerController
         this.playerController = new PlayerController(this, this.config, this.physicsManager);
         
         window.addEventListener('resize', () => this.onWindowResize());
@@ -152,12 +156,12 @@ class SceneManager {
         const delta = (time - this.prevTime) / 1000;
         this.prevTime = time;
 
-        // === ШАГ ФИЗИКИ ===
-        // Обновляем физический мир ПЕРЕД обновлением контроллера игрока
+        // === PHYSICS STEP ===
+        // Update physical world BEFORE updating player controller
         if (this.physicsManager) {
             this.physicsManager.step(delta);
         }
-        // ==================
+        // ====================
 
         if (this.playerController && this.camera) {
             this.playerController.update(delta, this.camera);
@@ -171,7 +175,7 @@ class SceneManager {
         }
 
         if (this.screenManager) {
-            // Передаем позицию камеры и саму камеру
+            // Pass camera position and camera object for LOD/visibility checks
             this.screenManager.update(delta, this.camera.position, this.camera);
         }
 
@@ -179,7 +183,7 @@ class SceneManager {
     }
     
     /**
-     * Очищает физический мир (вызывается при регенерации мира)
+     * Clears the physics world (called during world regeneration)
      */
     clearPhysics() {
         if (this.physicsManager) {
