@@ -38,55 +38,58 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // === ЖЕСТКАЯ ВАЛИДАЦИЯ ===
-                const sx = Number(prim.scale?.x);
-                const sy = Number(prim.scale?.y);
-                const sz = Number(prim.scale?.z);
+                // === АБСОЛЮТНАЯ ЗАЩИТА ДАННЫХ ДЛЯ CANNON-ES ===
                 
-                // Пропускаем NaN, Infinity и слишком маленькие объекты
-                if (!isFinite(sx) || !isFinite(sy) || !isFinite(sz)) continue;
-                if (sx < 0.05 || sy < 0.05 || sz < 0.05) continue; // Увеличили порог до 0.05
+                // 1. Безопасное извлечение и приведение к числу
+                const rawSx = Number(prim.scale?.x);
+                const rawSy = Number(prim.scale?.y);
+                const rawSz = Number(prim.scale?.z);
+                const rawPx = Number(prim.position?.x);
+                const rawPy = Number(prim.position?.y);
+                const rawPz = Number(prim.position?.z);
+                const rawRx = Number(prim.rotation?.tiltX) || 0;
+                const rawRy = Number(prim.rotation?.tiltY) || 0;
+                const rawRz = Number(prim.rotation?.twistZ) || 0;
 
-                const px = Number(prim.position?.x);
-                const py = Number(prim.position?.y);
-                const pz = Number(prim.position?.z);
-                
-                if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
+                // 2. Жесткая фильтрация невалидных значений
+                // isFinite отсекает NaN и Infinity
+                // Math.max(0.01, ...) гарантирует строго положительное значение и минимальный размер
+                if (!isFinite(rawSx) || !isFinite(rawSy) || !isFinite(rawSz)) continue;
+                if (!isFinite(rawPx) || !isFinite(rawPy) || !isFinite(rawPz)) continue;
+                if (!isFinite(rawRx) || !isFinite(rawRy) || !isFinite(rawRz)) continue;
 
-                const rx = Number(prim.rotation?.tiltX) || 0;
-                const ry = Number(prim.rotation?.tiltY) || 0;
-                const rz = Number(prim.rotation?.twistZ) || 0;
-                
-                if (!isFinite(rx) || !isFinite(ry) || !isFinite(rz)) continue;
+                const sx = Math.max(0.01, Math.abs(rawSx));
+                const sy = Math.max(0.01, Math.abs(rawSy));
+                const sz = Math.max(0.01, Math.abs(rawSz));
 
-                // Создаем форму
+                // 3. Создание формы с гарантированно валидными halfExtents
                 const halfExtents = new CANNON.Vec3(sx / 2, sy / 2, sz / 2);
                 const shape = new CANNON.Box(halfExtents);
 
-                // === ИСПРАВЛЕНИЕ 2: Явное создание тела с позицией ===
+                // 4. Создание тела с гарантированно валидной позицией
                 const body = new CANNON.Body({ 
                     mass: 0, 
-                    material: this.defaultMaterial,
-                    position: new CANNON.Vec3(px, py, pz),
-                    quaternion: new CANNON.Quaternion().setFromEuler(
-                        THREE.MathUtils.degToRad(rx),
-                        THREE.MathUtils.degToRad(ry),
-                        THREE.MathUtils.degToRad(rz)
-                    )
+                    material: this.defaultMaterial
                 });
+                body.position.set(rawPx, rawPy, rawPz);
+                
+                // 5. Безопасная установка вращения
+                const q = new CANNON.Quaternion();
+                q.setFromEuler(
+                    THREE.MathUtils.degToRad(rawRx),
+                    THREE.MathUtils.degToRad(rawRy),
+                    THREE.MathUtils.degToRad(rawRz)
+                );
+                body.quaternion.copy(q);
                 
                 body.addShape(shape);
-                
-                // === ИСПРАВЛЕНИЕ 3: Принудительное обновление свойств массы ===
-                // Это предотвращает внутренние ошибки массивов в Cannon при добавлении статики
-                body.updateMassProperties();
-                
                 this.world.addBody(body);
                 bodies.push(body);
                 count++;
             } catch (e) {
                 if (errorCount < 3) {
                     console.error(`❌ Physics error for prim ${prim.type}:`, e.message);
+                    console.log('Problematic prim:', JSON.stringify(prim, null, 2));
                 }
                 errorCount++;
             }
