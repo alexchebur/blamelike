@@ -117,37 +117,34 @@ class PlayerController {
         const key = `${gridX},${gridZ}`;
         this.debugGridKey = key;
         
-        // === ИСПРАВЛЕНИЕ: Правильный расчет координат чанка ===
-        // В системе Y-up, чанки строятся по X, Y, Z.
-        // Но для проверки пола нам важен только чанк по X и Z на ТЕКУЩЕЙ высоте игрока.
-        // Однако, если игрок падает, он может быть между чанками по Y.
-        // Лучший способ: искать чанк, который содержит точку (x, position.y, z)
+        // === ИСПРАВЛЕНИЕ: Правильный поиск чанка ===
+        // Вместо жесткого расчета chunkY, ищем ближайший загруженный чанк по вертикали
         const chunkX = Math.floor(x / cm.config.chunkSize);
-        const chunkY = Math.floor(this.position.y / cm.config.chunkSize); 
-        const chunkZ = Math.floor(z / cm.config.chunkSize); 
+        const chunkZ = Math.floor(z / cm.config.chunkSize);
         
-        const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
-        const activeChunk = cm.activeChunks.get(chunkKey);
+        let activeChunk = null;
+        let bestChunkY = null;
+        
+        // Проверяем текущий уровень и соседние вниз (т.к. игрок может падать)
+        const currentChunkY = Math.floor(this.position.y / cm.config.chunkSize);
+        for (let dy = 0; dy >= -3; dy--) { // Проверяем 4 уровня вниз
+            const testChunkY = currentChunkY + dy;
+            const testKey = `${chunkX},${testChunkY},${chunkZ}`;
+            const testChunk = cm.activeChunks.get(testKey);
+            
+            if (testChunk) {
+                activeChunk = testChunk;
+                bestChunkY = testChunkY;
+                break; // Берем первый найденный сверху вниз
+            }
+        }
         
         this.debugChunkLoaded = !!activeChunk;
 
-        // === ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Ищем чанк НИЖЕ, если текущий пуст ===
-        // Это критично при падении, когда игрок уже вышел из текущего чанка по Y
-        let floorData = cm.heightMap.get(key);
-        
-        if (!floorData && activeChunk) {
-            // Чанк есть, но ячейка пуста. Возможно, мы на краю или в дыре.
-            // Попробуем проверить соседние чанки по Y (вниз)
-            const lowerChunkKey = `${chunkX},${chunkY - 1},${chunkZ}`;
-            const lowerChunk = cm.activeChunks.get(lowerChunkKey);
-            if (lowerChunk) {
-                // Если нижний чанк загружен, возможно, пол там
-                // Но heightMap глобальная, так что просто пробуем найти пол в радиусе
-            }
-        }
-
         // === АГРЕССИВНАЯ ЛОГИКА ПРИЗЕМЛЕНИЯ ===
-        if (floorData) {
+        const floorData = cm.heightMap.get(key);
+        
+        if (floorData && activeChunk) {
             const floorY = floorData.y;
             this.debugFloorY = floorY.toFixed(1);
             
@@ -165,17 +162,15 @@ class PlayerController {
                 
                 // Логируем только редкие случаи туннелирования
                 if (distToFloor < -2.0 && performance.now() % 2000 < 20) {
-                    console.log(`✅ Tunneling fixed! Dist: ${distToFloor.toFixed(1)}, FloorY: ${floorY.toFixed(1)}`);
+                    console.log(`✅ Tunneling fixed! Dist: ${distToFloor.toFixed(1)}, FloorY: ${floorY.toFixed(1)}, ChunkY: ${bestChunkY}`);
                 }
             }
         } else {
-            // Если в heightMap пусто, используем математическую страховку
+            // Если в heightMap пусто или чанка нет, используем математическую страховку
             if (activeChunk) {
                 this.debugFloorY = 'Empty Cell';
             } else {
                 this.debugFloorY = 'No Chunk';
-                // === ВАЖНО: Если чанка нет, значит игрок в пустоте ===
-                // Нужно либо ждать загрузки, либо использовать fallback
             }
             
             const levelHeight = cm.config.levelHeight || 20;
@@ -189,7 +184,6 @@ class PlayerController {
             }
         }
     }
-
     onMouseMove(movementX, movementY) {
         const sensitivity = 0.002;
         this.cameraEuler.y -= movementX * sensitivity;
