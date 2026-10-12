@@ -1,29 +1,53 @@
 // src/physics/physicsManager.js
-import * as CANNON from 'cannon-es';
+import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 
 class PhysicsManager {
     constructor() {
-        this.world = new CANNON.World();
-        this.world.gravity.set(0, -25, 0);
-        this.world.broadphase = new CANNON.SAPBroadphase(this.world);
-        this.world.allowSleep = true;
-        
-        this.defaultMaterial = new CANNON.Material('default');
-        const contactMat = new CANNON.ContactMaterial(this.defaultMaterial, this.defaultMaterial, {
-            friction: 0.0, restitution: 0.0
-        });
-        this.world.addContactMaterial(contactMat);
-        
-        this.chunkBodies = new Map();
-        this.totalBodies = 0;
+        this.world = null;
+        this.playerBody = null;
+        this.chunkColliders = new Map(); // key: "cx,cy,cz", value: array of colliders
+        this.isReady = false;
+        this.initPromise = this.init();
     }
 
-    addChunkPrimitives(cx, cy, cz, primitives, config) {
-        const bodies = [];
-        let count = 0;
-        let errorCount = 0;
+    async init() {
+        await RAPIER.init();
+        const gravity = { x: 0.0, y: -25.0, z: 0.0 };
+        this.world = new RAPIER.World(gravity);
+        this.isReady = true;
+        console.log('✅ Rapier Physics initialized');
+    }
 
+    async waitForReady() {
+        if (!this.isReady) await this.initPromise;
+    }
+
+    createPlayerBody(position) {
+        if (!this.isReady) return null;
+        
+        const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+            .setTranslation(position.x, position.y, position.z)
+            .setCcdEnabled(true) // Включаем Continuous Collision Detection (защита от проваливания)
+            .setLinearDamping(0.9); // Сопротивление воздуха
+            
+        const body = this.world.createRigidBody(bodyDesc);
+        
+        // Капсула для игрока (радиус 0.4, высота 1.8)
+        const colliderDesc = RAPIER.ColliderDesc.capsule(0.9, 0.4) // halfHeight, radius
+            .setFriction(0.0)
+            .setRestitution(0.0);
+            
+        this.world.createCollider(colliderDesc, body);
+        this.playerBody = body;
+        return body;
+    }
+
+    addChunkPrimitives(cx, cy, cz, primitives) {
+        if (!this.isReady) return;
+        
+        const colliders = [];
+        
         for (const prim of primitives) {
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen' || prim.type === 'torus') continue;
@@ -34,7 +58,6 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // Валидация данных
                 const sx = Math.max(0.01, Math.abs(Number(prim.scale?.x) || 1));
                 const sy = Math.max(0.01, Math.abs(Number(prim.scale?.y) || 1));
                 const sz = Math.max(0.01, Math.abs(Number(prim.scale?.z) || 1));
@@ -45,90 +68,85 @@ class PhysicsManager {
                 if (!isFinite(sx) || !isFinite(sy) || !isFinite(sz)) continue;
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
 
+                // Создаем статичный куб
+                const bodyDesc = RAPIER.RigidBodyDesc.fixed()
+                    .setTranslation(px, py, pz);
+                const body = this.world.createRigidBody(bodyDesc);
+                
                 const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-                let shape;
-
-                try {
-                    // Пытаемся создать стандартный Box
-                    shape = new CANNON.Box(new CANNON.Vec3(hx, hy, hz));
-                } catch (boxError) {
-                    // === FALLBACK: Создаем Box через Trimesh (обход бага конструктора) ===
-                    // Вершины куба
-                    const vertices = [
-                        -hx, -hy, -hz,   hx, -hy, -hz,   hx,  hy, -hz,  -hx,  hy, -hz,
-                        -hx, -hy,  hz,   hx, -hy,  hz,   hx,  hy,  hz,  -hx,  hy,  hz
-                    ];
-                    // Индексы треугольников (12 треугольников для 6 граней)
-                    const indices = [
-                        0, 1, 2,  0, 2, 3, // front
-                        4, 6, 5,  4, 7, 6, // back
-                        0, 4, 5,  0, 5, 1, // bottom
-                        2, 6, 7,  2, 7, 3, // top
-                        0, 3, 7,  0, 7, 4, // left
-                        1, 5, 6,  1, 6, 2  // right
-                    ];
-                    shape = new CANNON.Trimesh(vertices, indices);
-                }
-
-                const body = new CANNON.Body({ 
-                    mass: 0, 
-                    material: this.defaultMaterial
-                });
-                body.position.set(px, py, pz);
-                
-                const rx = Number(prim.rotation?.tiltX) || 0;
-                const ry = Number(prim.rotation?.tiltY) || 0;
-                const rz = Number(prim.rotation?.twistZ) || 0;
-                
-                const q = new CANNON.Quaternion();
-                q.setFromEuler(
-                    THREE.MathUtils.degToRad(rx),
-                    THREE.MathUtils.degToRad(ry),
-                    THREE.MathUtils.degToRad(rz)
+                const colliderDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+                    .setFriction(0.0);
+                    
+                // Применяем вращение
+                const euler = new THREE.Euler(
+                    THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
+                    THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
+                    THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
                 );
-                body.quaternion.copy(q);
+                const quat = new THREE.Quaternion().setFromEuler(euler);
+                colliderDesc.setRotation({ x: quat.x, y: quat.y, z: quat.z, w: quat.w });
                 
-                body.addShape(shape);
-                this.world.addBody(body);
-                bodies.push(body);
-                count++;
+                const collider = this.world.createCollider(colliderDesc, body);
+                colliders.push({ body, collider });
             } catch (e) {
-                if (errorCount < 3) {
-                    console.error(`❌ Physics error for prim ${prim.type}:`, e.message);
-                }
-                errorCount++;
+                // Rapier гораздо стабильнее, но на всякий случай
+                console.warn(`⚠️ Rapier skip prim ${prim.type}:`, e.message);
             }
         }
         
-        this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
-        this.totalBodies += count;
-        
-        if (errorCount > 0 && errorCount < 10) {
-            console.warn(`⚠️ Chunk ${cx},${cy},${cz}: ${errorCount} physics errors skipped.`);
-        }
+        this.chunkColliders.set(`${cx},${cy},${cz}`, colliders);
     }
 
     removeChunk(cx, cy, cz) {
         const key = `${cx},${cy},${cz}`;
-        const bodies = this.chunkBodies.get(key);
-        if (bodies) {
-            bodies.forEach(b => this.world.removeBody(b));
-            this.totalBodies -= bodies.length;
-            this.chunkBodies.delete(key);
+        const colliders = this.chunkColliders.get(key);
+        if (colliders && this.isReady) {
+            colliders.forEach(({ body }) => {
+                this.world.removeRigidBody(body);
+            });
+            this.chunkColliders.delete(key);
         }
     }
 
-    step(dt) {
-        const safeDt = Math.min(dt, 0.1);
-        this.world.step(1/60, safeDt, 3);
+    step() {
+        if (this.isReady && this.world) {
+            this.world.step();
+        }
     }
 
     clear() {
-        for (const [, bodies] of this.chunkBodies) {
-            bodies.forEach(b => this.world.removeBody(b));
+        if (!this.isReady) return;
+        for (const [, colliders] of this.chunkColliders) {
+            colliders.forEach(({ body }) => this.world.removeRigidBody(body));
         }
-        this.chunkBodies.clear();
-        this.totalBodies = 0;
+        this.chunkColliders.clear();
+        if (this.playerBody) {
+            this.world.removeRigidBody(this.playerBody);
+            this.playerBody = null;
+        }
+    }
+    
+    getPlayerPosition() {
+        if (this.playerBody) {
+            const t = this.playerBody.translation();
+            return new THREE.Vector3(t.x, t.y, t.z);
+        }
+        return new THREE.Vector3(0, 50, 0);
+    }
+    
+    setPlayerVelocity(x, z) {
+        if (this.playerBody) {
+            const vel = this.playerBody.linvel();
+            this.playerBody.setLinvel({ x: x, y: vel.y, z: z }, true);
+        }
+    }
+    
+    isPlayerOnGround() {
+        if (!this.playerBody || !this.isReady) return false;
+        // Простая проверка: если вертикальная скорость близка к 0 и тело не движется вниз быстро
+        const vel = this.playerBody.linvel();
+        return Math.abs(vel.y) < 0.5;
     }
 }
+
 export default PhysicsManager;
