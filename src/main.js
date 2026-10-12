@@ -98,9 +98,6 @@ class App {
         }
     }
 
-    /**
-     * Обновление чанков вокруг камеры
-     */
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager) return;
         
@@ -109,9 +106,12 @@ class App {
             : this.sceneManager.camera.position;
             
         const config = this.controlPanel.getConfig();
+        
+        // ВАЖНО: Передаем конфиг в chunkManager КАЖДЫЙ кадр, 
+        // чтобы updateHeightMapForChunk всегда имел актуальный cellSize
         this.chunkManager.update(pos, config);
 
-        // === НОВОЕ: Обновляем кэш коллизий для игрока ===
+        // Обновляем кэш коллизий (теперь пустой, но вызов нужен для совместимости)
         if (this.sceneManager.playerController) {
             this.sceneManager.playerController.updateCollisionCache(
                 this.chunkManager.activeChunks,
@@ -119,7 +119,6 @@ class App {
                 config.chunkSize
             );
         }
-        // ==============================================
     }
 
     /**
