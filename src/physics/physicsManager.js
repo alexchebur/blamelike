@@ -6,7 +6,11 @@ class PhysicsManager {
     constructor() {
         this.world = new CANNON.World();
         this.world.gravity.set(0, -25, 0);
-        this.world.broadphase = new CANNON.SAPBroadphase(this.world);
+        
+        // === ИСПРАВЛЕНИЕ 1: Используем NaiveBroadphase вместо SAP ===
+        // SAPBroadphase может вызывать ошибки "Invalid array length" при массовой загрузке статики
+        this.world.broadphase = new CANNON.NaiveBroadphase();
+        
         this.world.allowSleep = true;
         
         this.defaultMaterial = new CANNON.Material('default');
@@ -25,7 +29,6 @@ class PhysicsManager {
         let errorCount = 0;
 
         for (const prim of primitives) {
-            // Фильтруем только проходимые объекты
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen' || prim.type === 'torus') continue;
             if (prim.type.includes('cable')) continue;
@@ -35,62 +38,55 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // === ЖЕСТКАЯ ВАЛИДАЦИЯ ДАННЫХ ===
-                
-                // 1. Проверка scale
+                // === ЖЕСТКАЯ ВАЛИДАЦИЯ ===
                 const sx = Number(prim.scale?.x);
                 const sy = Number(prim.scale?.y);
                 const sz = Number(prim.scale?.z);
                 
+                // Пропускаем NaN, Infinity и слишком маленькие объекты
                 if (!isFinite(sx) || !isFinite(sy) || !isFinite(sz)) continue;
-                if (sx <= 0.01 || sy <= 0.01 || sz <= 0.01) continue; // Пропускаем слишком мелкие
+                if (sx < 0.05 || sy < 0.05 || sz < 0.05) continue; // Увеличили порог до 0.05
 
-                // 2. Проверка position
                 const px = Number(prim.position?.x);
                 const py = Number(prim.position?.y);
                 const pz = Number(prim.position?.z);
                 
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
 
-                // 3. Проверка rotation (на всякий случай)
                 const rx = Number(prim.rotation?.tiltX) || 0;
                 const ry = Number(prim.rotation?.tiltY) || 0;
                 const rz = Number(prim.rotation?.twistZ) || 0;
                 
                 if (!isFinite(rx) || !isFinite(ry) || !isFinite(rz)) continue;
 
-                // Создаем Box shape (Cannon-es требует положительные halfExtents)
+                // Создаем форму
                 const halfExtents = new CANNON.Vec3(sx / 2, sy / 2, sz / 2);
-                
-                // Дополнительная проверка на NaN внутри Vec3
-                if (isNaN(halfExtents.x) || isNaN(halfExtents.y) || isNaN(halfExtents.z)) {
-                    throw new Error("Invalid halfExtents");
-                }
-
                 const shape = new CANNON.Box(halfExtents);
 
+                // === ИСПРАВЛЕНИЕ 2: Явное создание тела с позицией ===
                 const body = new CANNON.Body({ 
                     mass: 0, 
                     material: this.defaultMaterial,
-                    position: new CANNON.Vec3(px, py, pz)
+                    position: new CANNON.Vec3(px, py, pz),
+                    quaternion: new CANNON.Quaternion().setFromEuler(
+                        THREE.MathUtils.degToRad(rx),
+                        THREE.MathUtils.degToRad(ry),
+                        THREE.MathUtils.degToRad(rz)
+                    )
                 });
                 
-                const q = new CANNON.Quaternion();
-                q.setFromEuler(
-                    THREE.MathUtils.degToRad(rx),
-                    THREE.MathUtils.degToRad(ry),
-                    THREE.MathUtils.degToRad(rz)
-                );
-                body.quaternion.copy(q);
                 body.addShape(shape);
+                
+                // === ИСПРАВЛЕНИЕ 3: Принудительное обновление свойств массы ===
+                // Это предотвращает внутренние ошибки массивов в Cannon при добавлении статики
+                body.updateMassProperties();
                 
                 this.world.addBody(body);
                 bodies.push(body);
                 count++;
             } catch (e) {
-                if (errorCount < 3) { // Логируем только первые 3 ошибки, чтобы не спамить
+                if (errorCount < 3) {
                     console.error(`❌ Physics error for prim ${prim.type}:`, e.message);
-                    // console.log('Prim data:', prim); // Раскомментируй для глубокой отладки
                 }
                 errorCount++;
             }
@@ -115,7 +111,6 @@ class PhysicsManager {
     }
 
     step(dt) {
-        // Ограничиваем dt, чтобы физика не "взорвалась" при лагах
         const safeDt = Math.min(dt, 0.1);
         this.world.step(1/60, safeDt, 3);
     }
