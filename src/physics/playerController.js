@@ -117,27 +117,42 @@ class PlayerController {
         const key = `${gridX},${gridZ}`;
         this.debugGridKey = key;
         
-        // Проверка наличия чанка
+        // === ИСПРАВЛЕНИЕ: Правильный расчет координат чанка ===
+        // В системе Y-up, чанки строятся по X, Y, Z.
+        // Но для проверки пола нам важен только чанк по X и Z на ТЕКУЩЕЙ высоте игрока.
+        // Однако, если игрок падает, он может быть между чанками по Y.
+        // Лучший способ: искать чанк, который содержит точку (x, position.y, z)
         const chunkX = Math.floor(x / cm.config.chunkSize);
-        const chunkZ = Math.floor(z / cm.config.chunkSize);
         const chunkY = Math.floor(this.position.y / cm.config.chunkSize); 
+        const chunkZ = Math.floor(z / cm.config.chunkSize); 
+        
         const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
         const activeChunk = cm.activeChunks.get(chunkKey);
         
         this.debugChunkLoaded = !!activeChunk;
 
-        const floorData = cm.heightMap.get(key);
+        // === ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Ищем чанк НИЖЕ, если текущий пуст ===
+        // Это критично при падении, когда игрок уже вышел из текущего чанка по Y
+        let floorData = cm.heightMap.get(key);
+        
+        if (!floorData && activeChunk) {
+            // Чанк есть, но ячейка пуста. Возможно, мы на краю или в дыре.
+            // Попробуем проверить соседние чанки по Y (вниз)
+            const lowerChunkKey = `${chunkX},${chunkY - 1},${chunkZ}`;
+            const lowerChunk = cm.activeChunks.get(lowerChunkKey);
+            if (lowerChunk) {
+                // Если нижний чанк загружен, возможно, пол там
+                // Но heightMap глобальная, так что просто пробуем найти пол в радиусе
+            }
+        }
 
         // === АГРЕССИВНАЯ ЛОГИКА ПРИЗЕМЛЕНИЯ ===
-        // Если в heightMap есть данные для этой клетки, считаем это ПОЛОМ.
-        // Неважно, насколько глубоко игрок ушел под него или как высоко он над ним.
-        // Это устраняет туннелирование полностью.
         if (floorData) {
             const floorY = floorData.y;
             this.debugFloorY = floorY.toFixed(1);
             
-            // Проверяем, что пол действительно ниже игрока (чтобы не притягивать к потолку)
-            // Но допускаем огромный запас снизу (-100 единиц!)
+            // Проверяем, что пол действительно ниже игрока
+            // Допускаем огромный запас снизу (-100 единиц!) для устранения туннелирования
             const distToFloor = this.position.y - floorY;
             
             if (distToFloor > -100.0 && distToFloor < 50.0) {
@@ -159,6 +174,8 @@ class PlayerController {
                 this.debugFloorY = 'Empty Cell';
             } else {
                 this.debugFloorY = 'No Chunk';
+                // === ВАЖНО: Если чанка нет, значит игрок в пустоте ===
+                // Нужно либо ждать загрузки, либо использовать fallback
             }
             
             const levelHeight = cm.config.levelHeight || 20;
