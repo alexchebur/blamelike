@@ -104,27 +104,17 @@ class PlayerController {
 
         const cm = this.sceneManager.chunkManager;
         
-        // Сброс debug-значений по умолчанию
+        // Сброс debug-значений
         this.debugFloorY = '...';
         this.debugGridKey = '...';
         this.debugCellSize = '...';
         this.debugHmSize = cm?.heightMap?.size || 0;
         this.debugChunkLoaded = false;
 
-        // === ПРОВЕРКА НАЛИЧИЯ МЕНЕДЖЕРА И КАРТЫ ===
-        if (!cm) {
-            console.warn("❌ ChunkManager отсутствует!");
+        if (!cm || !cm.heightMap || !cm.config || !cm.config.chunkSize || !cm.config.gridSize) {
+            console.warn("❌ ChunkManager/Config/HeightMap отсутствуют!");
             return;
         }
-        if (!cm.heightMap) {
-            console.warn("❌ HeightMap отсутствует!");
-            return;
-        }
-        if (!cm.config || !cm.config.chunkSize || !cm.config.gridSize) {
-            console.warn("❌ Config в ChunkManager неполный! cellSize не может быть рассчитан.");
-            return;
-        }
-        // ==========================================
 
         const cellSize = cm.config.chunkSize / cm.config.gridSize;
         this.debugCellSize = cellSize.toFixed(2);
@@ -134,68 +124,67 @@ class PlayerController {
         const key = `${gridX},${gridZ}`;
         this.debugGridKey = key;
         
-        // === ПРОВЕРКА НАЛИЧИЯ ЧАНКА ПОД НОГАМИ ===
-        // Определяем координаты чанка, в котором находится игрок
+        // Проверка наличия чанка
         const chunkX = Math.floor(x / cm.config.chunkSize);
         const chunkZ = Math.floor(z / cm.config.chunkSize);
-        // Для Y используем текущую позицию, так как чанки могут быть на разных высотах
         const chunkY = Math.floor(this.position.y / cm.config.chunkSize); 
-        
-        // Формируем ключ чанка (предполагаем, что createChunkKey использует формат "x,y,z")
-        // Если формат другой, адаптируй эту строку под свою реализацию createChunkKey
         const chunkKey = `${chunkX},${chunkY},${chunkZ}`;
         const activeChunk = cm.activeChunks.get(chunkKey);
         
         this.debugChunkLoaded = !!activeChunk;
 
-        if (!activeChunk) {
-            // Если чанк не загружен, heightMap точно будет пустой для этой зоны
-            console.warn(`⚠️ Чанк ${chunkKey} не загружен! Игрок в пустоте.`);
-            
-            // СТРАХОВКА: Используем математические уровни
-            const levelHeight = cm.config.levelHeight || 20;
-            const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
-            
-            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
-                 this.onGround = true;
-                 this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
-                 this.debugFloorY = `Fallback:${nearestLevelY + 1}`;
-            }
-            return;
-        }
-        // ==========================================
-        
+        // === ИСПРАВЛЕННАЯ ЛОГИКА: Ищем пол НИЖЕ игрока ===
         const floorData = cm.heightMap.get(key);
 
         if (!floorData) {
-            // Чанк загружен, но в heightMap нет данных для конкретной ячейки
-            // Это значит, что под ногами игрока либо пропасть, либо объект, 
-            // который не прошел фильтр isWalkablePrimitive
+            // Чанк может быть загружен, но ячейка пуста (пропасть)
+            if (activeChunk) {
+                this.debugFloorY = 'Empty Cell (Gap)';
+            } else {
+                this.debugFloorY = 'No Chunk';
+                console.warn(`⚠️ Чанк ${chunkKey} не загружен! Player Y=${this.position.y.toFixed(1)}`);
+            }
             
-            // СТРАХОВКА: Используем математические уровни
+            // СТРАХОВКА: Математические уровни
             const levelHeight = cm.config.levelHeight || 20;
             const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
             
-            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
+            // Приземляемся, если близко к математическому уровню
+            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 2.0) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
                  this.debugFloorY = `Fallback:${nearestLevelY + 1}`;
-            } else {
-                this.debugFloorY = 'Empty Cell';
+                 console.log(`✅ Fallback catch at Y=${nearestLevelY + 1}`);
             }
             return;
         }
-        // ==========================================
 
         const floorY = floorData.y;
         this.debugFloorY = floorY.toFixed(1);
         
-        // Проверяем, находится ли игрок в зоне приземления
-        if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
+        // === КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ===
+        // Раньше было: this.position.y >= floorY - 0.5
+        // Теперь: Проверяем, что пол НИЖЕ игрока, но в пределах досягаемости
+        // Это позволяет приземлиться даже если игрок уже "под" полом из-за быстрого падения
+        const distToFloor = this.position.y - floorY;
+        
+        if (distToFloor >= -0.5 && distToFloor <= 2.0) {
             this.onGround = true;
             this.onLadder = floorData.isLadder || false;
             this.position.y = floorY + (this.playerHeight * 0.5);
+            console.log(`✅ Приземление на heightMap: FloorY=${floorY.toFixed(1)}, Dist=${distToFloor.toFixed(1)}`);
+        } else if (distToFloor < -0.5) {
+            // Игрок УЖЕ ниже пола (проскочил). Это баг туннелирования.
+            // Принудительно ставим на пол, если разница не слишком велика
+            if (distToFloor > -5.0) {
+                console.warn(`⚠️ Туннелирование! Игрок ниже пола на ${Math.abs(distToFloor).toFixed(1)}. Коррекция.`);
+                this.onGround = true;
+                this.position.y = floorY + (this.playerHeight * 0.5);
+            } else {
+                console.warn(`❌ Игрок слишком глубоко под полом (${distToFloor.toFixed(1)}). Продолжаем падение.`);
+            }
         }
+        // Если distToFloor > 2.0, игрок слишком высоко над полом — продолжаем падать
     }
 
     onMouseMove(movementX, movementY) {
