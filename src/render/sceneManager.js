@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
 import ScreenManager from './screenManager.js';
 import PlayerController from '../physics/playerController.js';
+import PhysicsManager from '../physics/physicsManager.js'; // <--- НОВЫЙ ИМПОРТ
 
 class SceneManager {
     constructor(container) {
@@ -23,6 +24,7 @@ class SceneManager {
         this.axisHelper = null;
 
         this.screenManager = null;
+        this.physicsManager = null; // <--- НОВОЕ ПОЛЕ
         
         this.collisionLayer = new THREE.Group();
         this.collisionLayer.name = "CollisionLayer";
@@ -99,8 +101,14 @@ class SceneManager {
 
         this.setupLighting();
         
+        // === ИНИЦИАЛИЗАЦИЯ ФИЗИКИ ===
+        this.physicsManager = new PhysicsManager();
+        // ============================
+
         this.screenManager = new ScreenManager(this.scene);
-        this.playerController = new PlayerController(this, this.config);
+        
+        // Передаем physicsManager в контроллер игрока
+        this.playerController = new PlayerController(this, this.config, this.physicsManager);
         
         window.addEventListener('resize', () => this.onWindowResize());
     }
@@ -144,6 +152,13 @@ class SceneManager {
         const delta = (time - this.prevTime) / 1000;
         this.prevTime = time;
 
+        // === ШАГ ФИЗИКИ ===
+        // Обновляем физический мир ПЕРЕД обновлением контроллера игрока
+        if (this.physicsManager) {
+            this.physicsManager.step(delta);
+        }
+        // ==================
+
         if (this.playerController && this.camera) {
             this.playerController.update(delta, this.camera);
         }
@@ -161,6 +176,15 @@ class SceneManager {
         }
 
         this.renderer.render(this.scene, this.camera);
+    }
+    
+    /**
+     * Очищает физический мир (вызывается при регенерации мира)
+     */
+    clearPhysics() {
+        if (this.physicsManager) {
+            this.physicsManager.clear();
+        }
     }
 }
 
