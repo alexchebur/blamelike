@@ -202,9 +202,6 @@ class ChunkManager {
         }
     }
 
-// src/world/chunkManager.js
-// ... (остальной код без изменений)
-
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
@@ -214,103 +211,27 @@ class ChunkManager {
             this.cache.set(key, chunkData);
         }
 
+        // === ГЛАВНОЕ: Обновляем ТОЛЬКО логическую карту высот ===
+        // Физические меши больше не нужны для игрока
         this.updateHeightMapForChunk(chunkData);
 
-        // 1. Визуальный слой
+        // 1. Визуальный слой (остается без изменений)
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // === ИЗМЕНЕНО: Увеличиваем радиус физической зоны ===
-        const chunkCenterX = (cx + 0.5) * config.chunkSize;
-        const chunkCenterY = (cy + 0.5) * config.chunkSize;
-        const chunkCenterZ = (cz + 0.5) * config.chunkSize;
+        // === УДАЛЕНО: Создание collisionGroup ===
+        // Раньше здесь был код createCollisionChunk, который грузил CPU/GPU
+        // Теперь физика работает исключительно через heightMap
         
-        const distSq = Math.pow(chunkCenterX - cameraPos.x, 2) +
-                       Math.pow(chunkCenterY - cameraPos.y, 2) +
-                       Math.pow(chunkCenterZ - cameraPos.z, 2);
-        
-        // Было 22500 (150^2), стало 160000 (400^2). 
-        // Физика будет работать далеко внизу, даже если визуально там туман.
-        if (distSq < 160000) { 
-            const collisionGroup = this.createCollisionChunk(chunkData, config);
-            collisionGroup.name = `Collision_${key}`;
-            
-            if (this.sceneManager.collisionLayer) {
-                this.sceneManager.collisionLayer.add(collisionGroup);
-            }
-            
-            group.userData.collisionGroup = collisionGroup; 
-        } else {
-            group.userData.collisionGroup = null;
-        }
-        // =========================================================
-
-        // 3. Экраны
+        // Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
     }
-    /**
-     * Создает физические коллайдеры для чанка.
-     * === РЕШЕНИЕ 4: Упрощение до предела ===
-     * Все объекты теперь представлены простыми боксами.
-     */
-    createCollisionChunk(primitives, config) {
-        const group = new THREE.Group();
-        const debugMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xff0000, 
-            visible: false,
-            side: THREE.DoubleSide
-        }); 
-        
-        for (const prim of primitives) {
-            // Используем ту же фильтрацию, что и раньше
-            if (prim.role === 'decor' || prim.role === 'micro') continue;
-            if (prim.type === 'screen') continue;
-            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
-            if (prim.type === 'torus') continue;
-            
-            // === УПРОЩЕНИЕ: Всегда создаем BoxGeometry по габаритам объекта ===
-            // Это избавляет от сложных вычислений mergeGeometries для лестниц
-            const geometry = new THREE.BoxGeometry(
-                Math.abs(prim.scale.x), 
-                Math.abs(prim.scale.y), 
-                Math.abs(prim.scale.z)
-            );
-            
-            // Определяем, является ли объект лестницей (для логики игрока)
-            const isLadder = prim.type.includes('stair');
 
-            if (geometry) {
-                geometry.computeBoundingBox();
-
-                const mesh = new THREE.Mesh(geometry, debugMaterial);
-                mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
-                
-                if (prim.rotation) {
-                    mesh.rotation.x = THREE.MathUtils.degToRad(prim.rotation.tiltX || 0);
-                    mesh.rotation.y = THREE.MathUtils.degToRad(prim.rotation.tiltY || 0);
-                    mesh.rotation.z = THREE.MathUtils.degToRad(prim.rotation.twistZ || 0);
-                }
-                
-                mesh.updateMatrix();
-                mesh.updateMatrixWorld(true);
-                
-                // КРИТИЧЕСКАЯ ОПТИМИЗАЦИЯ
-                mesh.matrixAutoUpdate = false;
-                
-                mesh.userData.isLadder = isLadder;
-                mesh.userData.type = prim.type;
-                group.add(mesh);
-            }
-        }
-        return group;
-    }
-
-// ... (остальной код без изменений)
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
         if (!screenManager) return;
@@ -327,7 +248,6 @@ class ChunkManager {
             }
         }
     }
-
 
     createChunkMesh(primitives, config) {
         const group = new THREE.Group();
@@ -437,7 +357,7 @@ class ChunkManager {
                 return new THREE.CapsuleGeometry(0.5, 1, 2, 8);
 
             case 'torus': 
-                return new THREE.TorusGeometry(0.5, 0.15, 6, 12);
+                return new THREE.TorusGeometry(0.5, 0.15, 6, 8);
 
             case 'octahedron': 
                 return new THREE.OctahedronGeometry(0.5);
@@ -489,17 +409,9 @@ class ChunkManager {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
                 
-                // Удаляем физическую группу
-                if (chunk.userData.collisionGroup) {
-                    if (this.sceneManager.collisionLayer) {
-                        this.sceneManager.collisionLayer.remove(chunk.userData.collisionGroup);
-                    }
-                    // Чистим геометрию коллайдеров
-                    chunk.userData.collisionGroup.traverse(child => {
-                        if (child.geometry) child.geometry.dispose();
-                        if (child.material) child.material.dispose();
-                    });
-                }
+                // === УДАЛЕНО: Очистка collisionGroup ===
+                // Так как мы больше не создаем физические меши, 
+                // удалять их из сцены и памяти не нужно
                 
                 if (this.sceneManager.screenManager) {
                     this.unregisterScreens(key);
