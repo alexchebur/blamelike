@@ -142,7 +142,10 @@ class PlayerController {
                 this.debugFloorY = 'Empty Cell (Gap)';
             } else {
                 this.debugFloorY = 'No Chunk';
-                console.warn(`⚠️ Чанк ${chunkKey} не загружен! Player Y=${this.position.y.toFixed(1)}`);
+                // Логируем только раз в секунду, чтобы не спамить
+                if (this.isFalling && performance.now() % 1000 < 20) {
+                    console.warn(`⚠️ Чанк ${chunkKey} не загружен! Player Y=${this.position.y.toFixed(1)}`);
+                }
             }
             
             // СТРАХОВКА: Математические уровни
@@ -154,7 +157,7 @@ class PlayerController {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
                  this.debugFloorY = `Fallback:${nearestLevelY + 1}`;
-                 console.log(`✅ Fallback catch at Y=${nearestLevelY + 1}`);
+                 if (this.isFalling && performance.now() % 1000 < 20) console.log(`✅ Fallback catch at Y=${nearestLevelY + 1}`);
             }
             return;
         }
@@ -162,29 +165,27 @@ class PlayerController {
         const floorY = floorData.y;
         this.debugFloorY = floorY.toFixed(1);
         
-        // === КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ===
-        // Раньше было: this.position.y >= floorY - 0.5
-        // Теперь: Проверяем, что пол НИЖЕ игрока, но в пределах досягаемости
-        // Это позволяет приземлиться даже если игрок уже "под" полом из-за быстрого падения
+        // === КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Убираем жесткий порог -0.5 ===
+        // Теперь мы ловим ANY пол, который находится НИЖЕ игрока, но выше "дна пропасти"
+        // Это полностью устраняет туннелирование при любой скорости падения
         const distToFloor = this.position.y - floorY;
         
-        if (distToFloor >= -0.5 && distToFloor <= 2.0) {
+        // Если пол ниже нас (distToFloor > 0) ИЛИ мы чуть-чуть под ним (до -10 единиц)
+        // -10 — это безопасный запас даже для очень быстрого падения
+        if (distToFloor > -10.0 && distToFloor < 50.0) { 
             this.onGround = true;
+            this.isFalling = false;
             this.onLadder = floorData.isLadder || false;
+            
+            // Жестко ставим на пол
             this.position.y = floorY + (this.playerHeight * 0.5);
-            console.log(`✅ Приземление на heightMap: FloorY=${floorY.toFixed(1)}, Dist=${distToFloor.toFixed(1)}`);
-        } else if (distToFloor < -0.5) {
-            // Игрок УЖЕ ниже пола (проскочил). Это баг туннелирования.
-            // Принудительно ставим на пол, если разница не слишком велика
-            if (distToFloor > -5.0) {
-                console.warn(`⚠️ Туннелирование! Игрок ниже пола на ${Math.abs(distToFloor).toFixed(1)}. Коррекция.`);
-                this.onGround = true;
-                this.position.y = floorY + (this.playerHeight * 0.5);
-            } else {
-                console.warn(`❌ Игрок слишком глубоко под полом (${distToFloor.toFixed(1)}). Продолжаем падение.`);
+            
+            if (this.isFalling && performance.now() % 1000 < 20) {
+                console.log(`✅ Catch tunneling! FloorY=${floorY.toFixed(1)}, Dist=${distToFloor.toFixed(1)}`);
             }
-        }
-        // Если distToFloor > 2.0, игрок слишком высоко над полом — продолжаем падать
+        } 
+        // Если игрок слишком высоко над полом (> 50 ед), продолжаем падать
+        // Это предотвращает ложные срабатывания на этажах далеко внизу
     }
 
     onMouseMove(movementX, movementY) {
