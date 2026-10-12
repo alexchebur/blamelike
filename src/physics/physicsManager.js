@@ -35,38 +35,51 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // === ЗАЩИТА ОТ НЕВАЛИДНЫХ ДАННЫХ ===
-                const sx = Math.abs(prim.scale?.x || 1);
-                const sy = Math.abs(prim.scale?.y || 1);
-                const sz = Math.abs(prim.scale?.z || 1);
+                // === ЖЕСТКАЯ ВАЛИДАЦИЯ ДАННЫХ ===
                 
-                // Пропускаем объекты с нулевыми или слишком маленькими размерами
-                if (sx < 0.01 || sy < 0.01 || sz < 0.01) {
-                    continue;
+                // 1. Проверка scale
+                const sx = Number(prim.scale?.x);
+                const sy = Number(prim.scale?.y);
+                const sz = Number(prim.scale?.z);
+                
+                if (!isFinite(sx) || !isFinite(sy) || !isFinite(sz)) continue;
+                if (sx <= 0.01 || sy <= 0.01 || sz <= 0.01) continue; // Пропускаем слишком мелкие
+
+                // 2. Проверка position
+                const px = Number(prim.position?.x);
+                const py = Number(prim.position?.y);
+                const pz = Number(prim.position?.z);
+                
+                if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
+
+                // 3. Проверка rotation (на всякий случай)
+                const rx = Number(prim.rotation?.tiltX) || 0;
+                const ry = Number(prim.rotation?.tiltY) || 0;
+                const rz = Number(prim.rotation?.twistZ) || 0;
+                
+                if (!isFinite(rx) || !isFinite(ry) || !isFinite(rz)) continue;
+
+                // Создаем Box shape (Cannon-es требует положительные halfExtents)
+                const halfExtents = new CANNON.Vec3(sx / 2, sy / 2, sz / 2);
+                
+                // Дополнительная проверка на NaN внутри Vec3
+                if (isNaN(halfExtents.x) || isNaN(halfExtents.y) || isNaN(halfExtents.z)) {
+                    throw new Error("Invalid halfExtents");
                 }
 
-                const px = prim.position?.x ?? 0;
-                const py = prim.position?.y ?? 0;
-                const pz = prim.position?.z ?? 0;
+                const shape = new CANNON.Box(halfExtents);
 
-                // Пропускаем объекты с NaN координатами
-                if (isNaN(px) || isNaN(py) || isNaN(pz)) {
-                    if (errorCount < 5) console.warn(`⚠️ NaN position in prim ${prim.type}`);
-                    errorCount++;
-                    continue;
-                }
-
-                // Создаем Box shape для всех проходимых примитивов
-                const shape = new CANNON.Box(new CANNON.Vec3(sx / 2, sy / 2, sz / 2));
-
-                const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
-                body.position.set(px, py, pz);
+                const body = new CANNON.Body({ 
+                    mass: 0, 
+                    material: this.defaultMaterial,
+                    position: new CANNON.Vec3(px, py, pz)
+                });
                 
                 const q = new CANNON.Quaternion();
                 q.setFromEuler(
-                    THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
-                    THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
-                    THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                    THREE.MathUtils.degToRad(rx),
+                    THREE.MathUtils.degToRad(ry),
+                    THREE.MathUtils.degToRad(rz)
                 );
                 body.quaternion.copy(q);
                 body.addShape(shape);
@@ -75,9 +88,9 @@ class PhysicsManager {
                 bodies.push(body);
                 count++;
             } catch (e) {
-                if (errorCount < 5) {
+                if (errorCount < 3) { // Логируем только первые 3 ошибки, чтобы не спамить
                     console.error(`❌ Physics error for prim ${prim.type}:`, e.message);
-                    console.log('Prim data:', prim);
+                    // console.log('Prim data:', prim); // Раскомментируй для глубокой отладки
                 }
                 errorCount++;
             }
@@ -102,7 +115,9 @@ class PhysicsManager {
     }
 
     step(dt) {
-        this.world.step(1/60, dt, 3);
+        // Ограничиваем dt, чтобы физика не "взорвалась" при лагах
+        const safeDt = Math.min(dt, 0.1);
+        this.world.step(1/60, safeDt, 3);
     }
 
     clear() {
