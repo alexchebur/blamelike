@@ -162,44 +162,70 @@ class ChunkManager {
 
     /**
      * Обновляет логическую карту высот данными из чанка.
-     * Использует единую функцию isWalkablePrimitive.
+     * Использует единую функцию isWalkablePrimitive для фильтрации.
+     * Заполняет heightMap только самыми высокими проходимыми объектами в каждой ячейке.
      */
     updateHeightMapForChunk(chunkData) {
-        if (!this.config) return;
-        const cellSize = this.config.chunkSize / this.config.gridSize;
+        // === ЗАЩИТА: Проверяем наличие конфига и валидность cellSize ===
+        if (!this.config || !this.config.chunkSize || !this.config.gridSize) {
+            console.warn("⚠️ ChunkManager: config или gridSize не установлены. HeightMap не обновлена.");
+            return;
+        }
         
+        const cellSize = this.config.chunkSize / this.config.gridSize;
+        if (cellSize <= 0) {
+            console.error("❌ ChunkManager: cellSize <= 0! Проверьте chunkSize и gridSize в конфиге.");
+            return;
+        }
+        
+        let recordsUpdated = 0;
+
         for (const prim of chunkData) {
+            // Фильтруем только проходимые объекты через единую функцию
             if (!isWalkablePrimitive(prim)) continue;
             
-            // Вычисляем AABB примитива в координатах сетки
+            // === УНИВЕРСАЛЬНЫЙ РАСЧЕТ AABB ===
+            // Используем Math.abs() для корректной работы с отрицательным масштабом
             const halfW = Math.abs(prim.scale.x) / 2;
             const halfD = Math.abs(prim.scale.z) / 2;
             
+            // Вычисляем границы примитива в координатах сетки
             const minX = Math.floor((prim.position.x - halfW) / cellSize);
             const maxX = Math.floor((prim.position.x + halfW) / cellSize);
             const minZ = Math.floor((prim.position.z - halfD) / cellSize);
             const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
             
-            // Верхняя грань объекта
+            // Верхняя грань объекта (работает для любых примитивов)
             const topY = prim.position.y + (Math.abs(prim.scale.y) / 2);
-            const isLadder = prim.type.includes('stair');
+            
+            // Определяем, является ли объект лестницей или мостом
+            const isLadder = 
+                prim.type.includes('stair') || 
+                prim.type === 'platform_stair' ||
+                prim.type.includes('bridge');
 
+            // Заполняем ячейки сетки, покрытые этим примитивом
             for (let x = minX; x <= maxX; x++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const key = `${x},${z}`;
                     const currentData = this.heightMap.get(key);
                     
-                    // Записываем если ячейка пуста ИЛИ новый объект выше
+                    // Записываем если ячейка пуста ИЛИ новый объект выше существующего
+                    // Это гарантирует, что heightMap всегда содержит самую верхнюю поверхность
                     if (!currentData || topY > currentData.y) {
                         this.heightMap.set(key, {
                             y: topY,
                             isLadder: isLadder,
                             type: prim.type
                         });
+                        recordsUpdated++;
                     }
                 }
             }
         }
+        
+        // Отладочный вывод (можно убрать в продакшене)
+        // console.log(`📊 HeightMap обновлена: +${recordsUpdated} записей. Всего: ${this.heightMap.size}`);
     }
 
     loadChunk(cx, cy, cz, config, cameraPos) {
