@@ -139,17 +139,15 @@ class App {
         this.updateChunks();
     }
 
-    /**
-     * Цикл анимации и рендеринга
-     */
     animate() {
         requestAnimationFrame(() => this.animate());
-        
         if (this.isInitialized) {
+            // 1. Сначала обновляем чанки вокруг игрока
             this.updateChunks();
-            this.updateDebugHUD(); // Обновляем HUD каждый кадр
+            // 2. Потом обновляем HUD
+            this.updateDebugHUD(); 
         }
-        
+        // 3. Рендер (внутри него обновляется физика игрока)
         this.sceneManager.render();
     }
 
