@@ -78,49 +78,61 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    /**
-     * Проверяет пол, запрашивая данные из логической карты высот ChunkManager.
-     * Работает за O(1), без нагрузки на CPU.
-     */
     checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
         const cm = this.sceneManager.chunkManager;
-        if (!cm || !cm.heightMap) return;
+        
+        // === ОТЛАДКА: Проверяем наличие менеджера и карты ===
+        if (!cm) {
+            console.warn("❌ ChunkManager отсутствует!");
+            return;
+        }
+        if (!cm.heightMap) {
+            console.warn("❌ HeightMap отсутствует!");
+            return;
+        }
+        if (!cm.config) {
+            console.warn("❌ Config в ChunkManager отсутствует! cellSize не может быть рассчитан.");
+            return;
+        }
+        // ==========================================
 
-        // Получаем размер клетки сетки
-        const cellSize = cm.config ? (cm.config.chunkSize / cm.config.gridSize) : 10;
+        const cellSize = cm.config.chunkSize / cm.config.gridSize;
         const gridX = Math.floor(x / cellSize);
         const gridZ = Math.floor(z / cellSize);
         const key = `${gridX},${gridZ}`;
         
+        // === ОТЛАДКА: Проверяем ключ и наличие данных ===
+        // console.log(`🔍 Проверка пола: key="${key}", playerY=${this.position.y.toFixed(1)}`);
+        
         const floorData = cm.heightMap.get(key);
 
-        // Если под нами есть платформа в карте высот
-        if (floorData) {
-            const floorY = floorData.y;
+        if (!floorData) {
+            // === ОТЛАДКА: Если данных нет, проверим размер карты ===
+            // console.warn(`⚠️ Нет данных в heightMap для ключа "${key}". Размер карты: ${cm.heightMap.size}`);
             
-            // Если мы близко к полу (в пределах 1.5 единиц), считаем что стоим на нем
-            // Это позволяет "прилипать" к полу при падении даже на высокой скорости
-            if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
-                this.onGround = true;
-                this.onLadder = floorData.isLadder || false;
-                
-                // Корректируем высоту, чтобы ноги стояли ровно на платформе
-                this.position.y = floorY + (this.playerHeight * 0.5);
-            }
-        } else {
-            // === СТРАХОВКА ОТ ВЕЧНОГО ПАДЕНИЯ ===
-            // Если HeightMap пуста (чанк не загружен или пуст), используем базовую логику ярусов
-            const levelHeight = cm.config?.levelHeight || 20;
+            // СТРАХОВКА: Используем математические уровни
+            const levelHeight = cm.config.levelHeight || 20;
             const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
             
-            // Если мы очень близко к этому уровню, считаем что стоим
             if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
+                 // console.log(`✅ Страховка сработала: приземление на уровень Y=${nearestLevelY + 1}`);
             }
+            return;
+        }
+        // ==========================================
+
+        const floorY = floorData.y;
+        
+        if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
+            this.onGround = true;
+            this.onLadder = floorData.isLadder || false;
+            this.position.y = floorY + (this.playerHeight * 0.5);
+            // console.log(`✅ Приземление на heightMap: Y=${floorY}`);
         }
     }
 
