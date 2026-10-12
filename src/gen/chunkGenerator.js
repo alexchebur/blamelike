@@ -2,7 +2,6 @@
 // @ts-check
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
-import { getBoundaryDecisions } from './edgeAgreement.js';
 
 /**
  * Генерирует экраны под платформами
@@ -85,7 +84,6 @@ function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const { gridSize, levelHeight, roomDensity } = config;
     const archChance = config.decorDensity?.antennas ? config.decorDensity.antennas * 2 : 0.1; 
 
-    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
@@ -119,6 +117,8 @@ export function generateChunk(cx, cy, cz, seed, config) {
     const chunkSeed = hash3D(cx, cy, cz, seed);
     const rng = createRNG(Math.floor(chunkSeed * 1000000));
     const bounds = chunkToBounds(cx, cy, cz, config.chunkSize);
+    
+    // === КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Явный расчет cellSize ===
     const cellSize = config.chunkSize / config.gridSize;
     
     let instanceCount = 0;
@@ -164,9 +164,9 @@ export function generateChunk(cx, cy, cz, seed, config) {
         instanceCount += arches.length;
     }
     
-    // === ЭТАП F: Декор (КАБЕЛИ ЗДЕСЬ) ===
+    // === ЭТАП F: Декор ===
     if (instanceCount < maxInstances) {
-        const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds);
+        const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds, cellSize);
         primitives.push(...decor);
         instanceCount += decor.length;
     }
@@ -191,8 +191,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { levelHeight, platformThickness, gridSize, roomDensity, stairsChance } = config;
     
-    // === ИЗМЕНЕНО: Динамический расчет уровней на основе границ чанка ===
-    // Это позволяет генерировать платформы на любой высоте, а не только в фиксированном диапазоне
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
@@ -204,12 +202,12 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const baseHash = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed);
                 if (baseHash >= roomDensity) continue;
 
+                // === ЗАЩИТА ОТ NaN ===
                 const wx = bounds.min.x + (gx + 0.5) * cellSize;
                 const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
                 let stairType = null;
                 
-                // Проверяем возможность создания лестницы только если есть следующий уровень
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
                     const directions = [
@@ -225,8 +223,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                         const targetX = gx + dir.dx * 2;
                         const targetY = gy + dir.dy * 2;
 
-                        // === ДОБАВЛЕНО: Проверка границ сетки ===
-                        // Предотвращает выход за пределы массива и ошибки генерации на краях
                         if (targetX >= 0 && targetX < gridSize && targetY >= 0 && targetY < gridSize &&
                             midX >= 0 && midX < gridSize && midY >= 0 && midY < gridSize) {
                             
@@ -271,12 +267,10 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
     
-    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
     
     for (let level = startLevel; level <= endLevel; level++) {
-        // Пропускаем уровень, если на нем нет комнат (экономия ресурсов)
         if (hash3D(cx, cy, level, seed) > roomDensity) continue;
         
         const yBase = level * levelHeight;
@@ -288,7 +282,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wz = bounds.min.z + (gy + 0.5) * cellSize;
                 const isRoom = hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity;
                 
-                // Стены
                 if (isRoom && hash3D(cx * gridSize + gx, cy * gridSize + gy, level + 0.5, seed) < wallDensity) {
                     primitives.push({
                         type: 'box',
@@ -300,7 +293,6 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                     });
                 }
                 
-                // Колонны
                 if (isRoom && hash3D(cx * gridSize + gx + 0.5, cy * gridSize + gy + 0.5, level, seed) < pillarDensity) {
                     primitives.push({
                         type: 'cylinder',
@@ -316,11 +308,11 @@ function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
+
 function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { gridSize, levelHeight, roomDensity, bridgeChance } = config;
     
-    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
@@ -328,17 +320,15 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
         const currentYBase = level * levelHeight;
         const gridMap = new Map(); 
         
-        // Строим карту занятости для текущего уровня
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
                 gridMap.set(`${gx},${gy}`, hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity);
             }
         }
 
-        // Ищем места для мостов между комнатами
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gy = 0; gy < gridSize; gy++) {
-                if (gridMap.get(`${gx},${gy}`)) continue; // Пропускаем сами комнаты
+                if (gridMap.get(`${gx},${gy}`)) continue;
 
                 const hasWest = gridMap.get(`${gx-1},${gy}`);
                 const hasEast = gridMap.get(`${gx+1},${gy}`);
@@ -372,6 +362,7 @@ function generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
+
 function generateMegaStructures(cx, cy, cz, seed, config, rng, bounds) {
     const primitives = [];
     const { megaBlockChance, megaBlockMinHeight, megaBlockMaxHeight, levelHeight } = config;
@@ -420,7 +411,7 @@ function generatePierce(cx, cy, cz, seed, config, rng, bounds) {
     return primitives;
 }
 
-function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
+function generateDecor(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { decorDensity, cableWeights, lCableWeights, levelHeight, gridSize, roomDensity } = config;
     if (!decorDensity) return primitives;
@@ -428,13 +419,11 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
     const w = bounds.max.x - bounds.min.x;
     const d = bounds.max.z - bounds.min.z;
     const h = bounds.max.y - bounds.min.y;
-    const cellSize = config.chunkSize / gridSize;
     
-    // === ИЗМЕНЕНО: Динамический расчет уровней ===
     const startLevel = Math.ceil(bounds.min.y / levelHeight);
     const endLevel = Math.floor(bounds.max.y / levelHeight);
 
-    // 1. Антенны (распределяем по всему объему)
+    // 1. Антенны
     for (let i = 0; i < Math.floor(w * (decorDensity.antennas || 0)); i++) {
         primitives.push({
             type: 'cylinder',
@@ -456,7 +445,7 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         });
     }
 
-    // 3. ПРЯМЫЕ КАБЕЛИ (Вертикальные боксы)
+    // 3. ПРЯМЫЕ КАБЕЛИ
     for (let level = startLevel; level <= endLevel; level++) {
         const yBase = level * levelHeight;
         for (let gx = 0; gx < gridSize; gx++) {
@@ -494,7 +483,7 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         }
     }
 
-    // 4. ИЗОГНУТЫЕ L-КАБЕЛИ (Уголки)
+    // 4. L-КАБЕЛИ
     const lCableCount = Math.floor(w * (decorDensity.lCables || 0));
     for (let i = 0; i < lCableCount; i++) {
         let placed = false;
@@ -503,7 +492,6 @@ function generateDecor(cx, cy, cz, seed, config, rng, bounds) {
         while (!placed && attempts < 15) {
             const gx = Math.floor(rng() * gridSize);
             const gy = Math.floor(rng() * gridSize);
-            // === ИЗМЕНЕНО: Уровень выбирается из динамического диапазона ===
             const level = startLevel + Math.floor(rng() * Math.max(1, endLevel - startLevel + 1));
             
             if (hash3D(cx * gridSize + gx, cy * gridSize + gy, level, seed) < roomDensity) {
