@@ -23,22 +23,24 @@ class App {
         this.init();
     }
 
-    /**
-     * Инициализация приложения
-     */
     async init() {
         try {
             console.log('🚀 Initializing Blame! Generator...');
             
-            // 1. Создаем менеджер сцены (Three.js + Physics)
+            // 1. Create SceneManager (starts Physics WASM loading)
             this.sceneManager = new SceneManager(this.container);
             console.log('✅ SceneManager initialized');
             
-            // 2. Создаем менеджер чанков (стриминг мира)
+            // === WAIT FOR PHYSICS (RAPIER WASM) TO LOAD ===
+            await this.sceneManager.physicsManager.waitForReady();
+            console.log('✅ Physics Engine (Rapier) ready');
+            // =================================================
+
+            // 2. Create ChunkManager
             this.chunkManager = new ChunkManager(this.sceneManager);
             console.log('✅ ChunkManager initialized');
 
-            // 3. Создаем панель управления
+            // 3. Create ControlPanel
             this.controlPanel = new ControlPanel(
                 this.sceneManager,
                 this.chunkManager,
@@ -46,59 +48,50 @@ class App {
             );
             console.log('✅ ControlPanel initialized');
 
-            // === ВАЖНО: Связываем ChunkManager с PlayerController ===
+            // Link ChunkManager
             if (this.sceneManager.playerController) {
-                // Передаем ссылку на chunkManager внутрь sceneManager, 
-                // чтобы playerController мог его видеть через sceneManager
                 this.sceneManager.chunkManager = this.chunkManager;
                 console.log('✅ PlayerController linked to ChunkManager');
             }
-            // =========================================================
             
-            // 4. Запускаем стриминг чанков вокруг начальной позиции камеры
-            // Это заполнит heightMap в chunkManager, необходимый для спавна
+            // 4. Initial Chunk Load
             this.updateChunks();
             
-            // Небольшая задержка, чтобы гарантировать обработку всех микрозадач генерации
+            // Small delay to ensure chunks are processed
             await new Promise(resolve => setTimeout(resolve, 0));
 
-            // 5. Находим точку спавна
+            // 5. Find Spawn Point & Teleport Player
             const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
             
-            if (spawnPos && this.sceneManager.playerController) {
+            if (spawnPos && this.sceneManager.physicsManager.playerBody) {
                 console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
                 
-                // Телепортируем игрока (физическое тело)
-                // В Cannon-es позиция задается через body.position
-                if (this.sceneManager.playerController.body) {
-                    this.sceneManager.playerController.body.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-                    this.sceneManager.playerController.body.velocity.set(0, 0, 0);
-                    // Сбрасываем угловую скорость на всякий случай
-                    this.sceneManager.playerController.body.angularVelocity.set(0, 0, 0);
-                } else {
-                    // Fallback для старого контроллера (если вдруг используется)
-                    this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-                    if (this.sceneManager.playerController.velocity) {
-                        this.sceneManager.playerController.velocity.set(0, 0, 0);
-                    }
-                }
+                // Teleport Rapier body
+                this.sceneManager.physicsManager.playerBody.setTranslation({
+                    x: spawnPos.x,
+                    y: spawnPos.y,
+                    z: spawnPos.z
+                }, true);
+                
+                // Reset velocity
+                this.sceneManager.physicsManager.playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
             } else {
-                console.warn('⚠️ No spawn point found! Keeping default position.');
+                console.warn('⚠️ No spawn point found or Physics not ready!');
             }
 
-            // 6. ВКЛЮЧАЕМ DEBUG HUD
+            // 6. Show Debug HUD
             const debugHud = document.getElementById('debug-hud');
             if (debugHud) {
                 debugHud.style.display = 'block';
             }
 
-            // 7. Скрываем индикатор загрузки
+            // 7. Hide Loading
             this.loading.style.display = 'none';
             this.isInitialized = true;
             
             console.log('✅ Blame! Generator ready!');
             
-            // 8. Запускаем цикл рендеринга
+            // 8. Start Loop
             this.animate();
             
         } catch (error) {
