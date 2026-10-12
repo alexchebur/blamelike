@@ -27,7 +27,7 @@ class PlayerController {
         this.climbSpeed = config.ladderClimbSpeed || 6;
     }
 
-    // Заглушка для совместимости с main.js
+    // Этот метод теперь пустой, так как мы больше не используем кэш мешей
     updateCollisionCache() {}
 
     update(deltaTime, camera) {
@@ -54,13 +54,14 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола через HeightMap
+        // 2. Проверка пола через HeightMap (МГНОВЕННО, БЕЗ RAYCASTING)
         this.checkGroundViaHeightMap(nextX, nextZ);
 
         // 3. Вертикальное движение
         let targetY = this.position.y;
         if (this.onGround) {
             this.isFalling = false;
+            // Логика лестниц
             if (this.onLadder && (this.moveForward || this.moveBackward)) {
                 const climbDir = this.moveForward ? 1 : -1;
                 targetY += climbDir * this.climbSpeed * dt;
@@ -78,48 +79,44 @@ class PlayerController {
     }
 
     /**
-     * Проверяет пол через HeightMap + Страховка на случай пустой карты
+     * Проверяет пол, запрашивая данные из логической карты высот ChunkManager.
+     * Работает за O(1), без нагрузки на CPU.
      */
     checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
         const cm = this.sceneManager.chunkManager;
-        
-        // === СТРАХОВКА: Если ChunkManager или HeightMap недоступны ===
-        if (!cm || !cm.heightMap || !cm.config) {
-            // Используем простую математику ярусов как fallback
-            const levelHeight = 20; // Стандартная высота яруса
-            const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
-            
-            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
-                 this.onGround = true;
-                 this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
-            }
-            return;
-        }
+        if (!cm || !cm.heightMap) return;
 
-        // Основная логика через HeightMap
-        const cellSize = cm.config.chunkSize / cm.config.gridSize;
+        // Получаем размер клетки сетки
+        const cellSize = cm.config ? (cm.config.chunkSize / cm.config.gridSize) : 10;
         const gridX = Math.floor(x / cellSize);
         const gridZ = Math.floor(z / cellSize);
         const key = `${gridX},${gridZ}`;
         
         const floorData = cm.heightMap.get(key);
 
+        // Если под нами есть платформа в карте высот
         if (floorData) {
             const floorY = floorData.y;
-            // Если мы близко к полу (в пределах 1.5 единиц сверху и 0.5 снизу)
+            
+            // Если мы близко к полу (в пределах 1.5 единиц), считаем что стоим на нем
+            // Это позволяет "прилипать" к полу при падении даже на высокой скорости
             if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
                 this.onGround = true;
                 this.onLadder = floorData.isLadder || false;
+                
+                // Корректируем высоту, чтобы ноги стояли ровно на платформе
                 this.position.y = floorY + (this.playerHeight * 0.5);
             }
         } else {
-            // Fallback, если в конкретной клетке HeightMap пусто
-            const levelHeight = cm.config.levelHeight || 20;
+            // === СТРАХОВКА ОТ ВЕЧНОГО ПАДЕНИЯ ===
+            // Если HeightMap пуста (чанк не загружен или пуст), используем базовую логику ярусов
+            const levelHeight = cm.config?.levelHeight || 20;
             const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
             
+            // Если мы очень близко к этому уровню, считаем что стоим
             if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
                  this.onGround = true;
                  this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
@@ -133,6 +130,6 @@ class PlayerController {
         this.cameraEuler.x -= movementY * sensitivity;
         this.cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraEuler.x));
     }
-} // <-- ЗАКРЫВАЮЩАЯ СКОБКА КЛАССА
+}
 
 export default PlayerController;
