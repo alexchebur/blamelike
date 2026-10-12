@@ -80,48 +80,52 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    /**
-     * Проверяет пол, запрашивая данные из логической карты высот ChunkManager.
-     * Это работает мгновенно, без нагрузки на CPU.
-     */
-    checkGroundViaHeightMap(x, z) {
+     checkGroundViaHeightMap(x, z) {
         this.onGround = false;
         this.onLadder = false;
 
         const cm = this.sceneManager.chunkManager;
-        if (!cm || !cm.heightMap) return;
+        if (!cm || !cm.heightMap) {
+            console.warn("ChunkManager or HeightMap missing!");
+            return;
+        }
 
         // Получаем размер клетки сетки
-        const cellSize = cm.config.chunkSize / cm.config.gridSize;
+        const cellSize = cm.config ? (cm.config.chunkSize / cm.config.gridSize) : 10;
         const gridX = Math.floor(x / cellSize);
         const gridZ = Math.floor(z / cellSize);
         const key = `${gridX},${gridZ}`;
         
         const floorData = cm.heightMap.get(key);
 
-        // Если под нами есть платформа в карте высот
-        if (floorData) {
-            const floorY = floorData.y;
+        // === ОТЛАДКА ===
+        if (!floorData) {
+            // Раскомментируй эту строку, чтобы видеть в консоли, где именно нет пола
+            // console.log(`No floor at key: ${key} (Player Y: ${this.position.y.toFixed(1)})`);
             
-            // Если мы близко к полу (в пределах 1.5 единиц), считаем что стоим на нем
-            // Это позволяет "прилипать" к полу при падении
-            if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
-                this.onGround = true;
-                this.onLadder = floorData.isLadder;
-                
-                // Корректируем высоту, чтобы ноги стояли ровно на платформе
-                // Добавляем половину роста, чтобы камера была на уровне глаз
-                this.position.y = floorY + (this.playerHeight * 0.5);
+            // === СТРАХОВКА: Если HeightMap пуста, используем базовую логику ярусов ===
+            // Предполагаем, что уровни идут с шагом Level Height (обычно 20)
+            const levelHeight = cm.config?.levelHeight || 20;
+            // Находим ближайший уровень НИЖЕ игрока
+            const nearestLevelY = Math.floor((this.position.y - 2) / levelHeight) * levelHeight;
+            
+            // Если мы очень близко к этому уровню (в пределах 1.5 ед.), считаем что стоим
+            if (Math.abs(this.position.y - (nearestLevelY + 1)) < 1.5) {
+                 this.onGround = true;
+                 this.position.y = nearestLevelY + 1 + (this.playerHeight * 0.5);
             }
+            return;
+        }
+        // =================
+
+        const floorY = floorData.y;
+        
+        // Логика приземления
+        if (this.position.y <= floorY + 1.5 && this.position.y >= floorY - 0.5) {
+            this.onGround = true;
+            this.onLadder = floorData.isLadder || false;
+            this.position.y = floorY + (this.playerHeight * 0.5);
         }
     }
-
-    onMouseMove(movementX, movementY) {
-        const sensitivity = 0.002;
-        this.cameraEuler.y -= movementX * sensitivity;
-        this.cameraEuler.x -= movementY * sensitivity;
-        this.cameraEuler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.cameraEuler.x));
-    }
-}
 
 export default PlayerController;
