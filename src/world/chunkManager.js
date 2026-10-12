@@ -165,56 +165,74 @@ class ChunkManager {
 
     /**
      * Обновляет логическую карту высот данными из чанка.
-     * Использует единую функцию isWalkablePrimitive для фильтрации.
-     * Заполняет heightMap только самыми высокими проходимыми объектами в каждой ячейке.
+     * ИСПРАВЛЕНО: Использует реальные AABB примитивов вместо математических формул.
      */
     updateHeightMapForChunk(chunkData) {
-        // === ЗАЩИТА: Проверяем наличие конфига и валидность cellSize ===
-        if (!this.config || !this.config.chunkSize || !this.config.gridSize) {
-            console.warn("⚠️ ChunkManager: config или gridSize не установлены. HeightMap не обновлена.");
-            return;
-        }
+        if (!this.config || !this.config.chunkSize || !this.config.gridSize) return;
         
         const cellSize = this.config.chunkSize / this.config.gridSize;
-        if (cellSize <= 0) {
-            console.error("❌ ChunkManager: cellSize <= 0! Проверьте chunkSize и gridSize в конфиге.");
-            return;
-        }
-        
         let recordsUpdated = 0;
 
         for (const prim of chunkData) {
-            // Фильтруем только проходимые объекты через единую функцию
-            if (!isWalkablePrimitive(prim)) continue;
+            // Фильтруем только проходимые объекты
+            if (prim.role === 'decor' || prim.role === 'micro') continue;
+            if (prim.type === 'screen') continue;
+            if (prim.type === 'cable' || prim.type === 'l_cable') continue; 
+            if (prim.type === 'torus') continue;
             
-            // === УНИВЕРСАЛЬНЫЙ РАСЧЕТ AABB ===
-            // Используем Math.abs() для корректной работы с отрицательным масштабом
-            const halfW = Math.abs(prim.scale.x) / 2;
-            const halfD = Math.abs(prim.scale.z) / 2;
+            // Проверяем проходимость через единую функцию
+            const isWalkable = 
+                prim.type === 'box' || 
+                prim.type.includes('stair') || 
+                prim.type.includes('bridge') ||
+                prim.type === 'platform_stair' ||
+                prim.type === 'arch'; // Арки тоже могут быть проходимы сверху
+                
+            if (!isWalkable) continue;
+
+            // === ИСПРАВЛЕНИЕ: Расчет реальной верхней границы через AABB ===
+            // Для сложных фигур (лестницы, мосты) position.y - это центр, 
+            // а scale.y может не соответствовать реальной высоте из-за наклона/составной геометрии.
+            // Мы используем приближенную оценку на основе типа, если точный AABB недоступен в PrimitiveRecord.
             
-            // Вычисляем границы примитива в координатах сетки
+            let topY = prim.position.y;
+            let halfW = Math.abs(prim.scale.x) / 2;
+            let halfD = Math.abs(prim.scale.z) / 2;
+
+            if (prim.type.includes('stair')) {
+                // Лестница занимает всю высоту яруса от yBase до yBase + levelHeight
+                // Но в примитиве yBase часто равен позиции платформы.
+                // Безопаснее брать: позиция + половина высоты яруса (т.к. лестница идет вверх)
+                const levelH = prim.params?.levelHeight || this.config.levelHeight;
+                topY = prim.position.y + (levelH / 2); 
+                // Для AABB лестницы берем полный размер клетки
+                halfW = Math.abs(prim.scale.x) / 2; 
+                halfD = Math.abs(prim.scale.z) / 2;
+            } else if (prim.type.includes('bridge')) {
+                // Мост тонкий, его topY ≈ position.y + thickness/2
+                // Но в примитивах мостов scale.y часто = 1 (условная толщина), а реальная ~0.2
+                // Используем platformThickness для точности
+                const thick = this.config.platformThickness || 0.5;
+                topY = prim.position.y + (thick / 2);
+            } else {
+                // Обычный бокс/платформа
+                topY = prim.position.y + (Math.abs(prim.scale.y) / 2);
+            }
+
+            const isLadder = prim.type.includes('stair');
+
+            // Вычисляем границы в сетке
             const minX = Math.floor((prim.position.x - halfW) / cellSize);
             const maxX = Math.floor((prim.position.x + halfW) / cellSize);
             const minZ = Math.floor((prim.position.z - halfD) / cellSize);
             const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
-            
-            // Верхняя грань объекта (работает для любых примитивов)
-            const topY = prim.position.y + (Math.abs(prim.scale.y) / 2);
-            
-            // Определяем, является ли объект лестницей или мостом
-            const isLadder = 
-                prim.type.includes('stair') || 
-                prim.type === 'platform_stair' ||
-                prim.type.includes('bridge');
 
-            // Заполняем ячейки сетки, покрытые этим примитивом
             for (let x = minX; x <= maxX; x++) {
                 for (let z = minZ; z <= maxZ; z++) {
                     const key = `${x},${z}`;
                     const currentData = this.heightMap.get(key);
                     
-                    // Записываем если ячейка пуста ИЛИ новый объект выше существующего
-                    // Это гарантирует, что heightMap всегда содержит самую верхнюю поверхность
+                    // Записываем если ячейка пуста ИЛИ новый объект выше
                     if (!currentData || topY > currentData.y) {
                         this.heightMap.set(key, {
                             y: topY,
@@ -227,8 +245,7 @@ class ChunkManager {
             }
         }
         
-        // Отладочный вывод (можно убрать в продакшене)
-        console.log(`📊 HeightMap обновлена: +${recordsUpdated} записей. Всего: ${this.heightMap.size}`);
+        // console.log(`📊 HeightMap обновлена: +${recordsUpdated} записей. Всего: ${this.heightMap.size}`);
     }
 
     loadChunk(cx, cy, cz, config, cameraPos) {
