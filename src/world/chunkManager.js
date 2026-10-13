@@ -19,6 +19,7 @@ function isWalkablePrimitive(prim) {
     if (prim.type === 'screen') return false;
     if (prim.type === 'cable' || prim.type === 'l_cable') return false;
     if (prim.type === 'torus') return false;
+    // box, stair_*, bridge_*, platform_stair, arch, cylinder, cone...
     return true;
 }
 
@@ -31,7 +32,7 @@ class ChunkManager {
         this.lastCameraChunk = null;
         this.config = null;
         
-        // Логическая карта высот (для спавна)
+        // Логическая карта высот (для спавна и быстрой проверки без raycast)
         this.heightMap = new Map(); 
     }
 
@@ -94,6 +95,7 @@ class ChunkManager {
         const gridX = Math.floor(center.x / cellSize);
         const gridZ = Math.floor(center.z / cellSize);
         
+        // Сначала ищем через heightMap (быстро)
         for (let dx = -3; dx <= 3; dx++) {
             for (let dz = -3; dz <= 3; dz++) {
                 const key = `${gridX + dx},${gridZ + dz}`;
@@ -109,6 +111,7 @@ class ChunkManager {
             }
         }
 
+        // Fallback: поиск через примитивы чанков
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
                 for (let dz = -radius; dz <= radius; dz++) {
@@ -196,15 +199,11 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой (RAPIER)
-        // === КРИТИЧЕСКОЕ ДОБАВЛЕНИЕ ===
-        if (this.sceneManager.physicsManager && this.sceneManager.physicsManager.isReady) {
+        // 2. Физический слой (CANNON-ES)
+        // Cannon-es синхронен, просто добавляем примитивы напрямую
+        if (this.sceneManager.physicsManager) {
             this.sceneManager.physicsManager.addChunkPrimitives(cx, cy, cz, chunkData);
-            console.log(`✅ Physics chunk ${cx},${cy},${cz} added to Rapier`);
-        } else {
-            console.warn(`⚠️ Physics not ready for chunk ${cx},${cy},${cz}`);
         }
-        // ==============================
 
         // 3. Экраны
         if (this.sceneManager.screenManager) {
@@ -218,13 +217,11 @@ class ChunkManager {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
                 
-                // Удаляем физические тела из Rapier
-                // === КРИТИЧЕСКОЕ УДАЛЕНИЕ ===
+                // Удаляем физические тела из Cannon-es
                 if (this.sceneManager.physicsManager) {
                     const { cx, cy, cz } = parseChunkKey(key);
                     this.sceneManager.physicsManager.removeChunk(cx, cy, cz);
                 }
-                // ============================
                 
                 if (this.sceneManager.screenManager) {
                     this.unregisterScreens(key);
@@ -273,13 +270,14 @@ class ChunkManager {
             const dz = item.position.z - cameraPos.z;
             const distSq = dx*dx + dy*dy + dz*dz;
 
-            if (distSq > 22500) {
+            // LOD фильтрация
+            if (distSq > 22500) { // 150^2
                 if (slot === 'decor' || slot === 'micro') continue;
                 if (fullType === 'cable' || fullType === 'l_cable') continue;
                 if (fullType === 'sphere' || fullType === 'torus') continue;
             }
 
-            if (distSq > 10000) {
+            if (distSq > 10000) { // 100^2
                 if (slot === 'micro') continue;
             }
 
@@ -382,8 +380,6 @@ class ChunkManager {
         }
     }
 
-
-
     unregisterScreens(chunkKey) {
         const screenManager = this.sceneManager.screenManager;
         if (!screenManager) return;
@@ -423,7 +419,7 @@ class ChunkManager {
         }
 
         if (this.sceneManager.screenManager) this.sceneManager.screenManager.clearAll();
-        console.log('🧹 All chunks cleared');
+        console.log(' All chunks cleared');
     }
 }
 
