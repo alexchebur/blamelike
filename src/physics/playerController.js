@@ -31,16 +31,14 @@ class PlayerController {
         
         // === БЕЗОПАСНАЯ ПРОВЕРКА ЗЕМЛИ ЧЕРЕЗ RAYCAST ===
         this.onGround = false;
-        
-        // Луч пускаем из центра тела вниз
         const rayFrom = body.position.clone();
         const rayTo = new CANNON.Vec3(rayFrom.x, rayFrom.y - 1.0, rayFrom.z);
         const result = new CANNON.RaycastResult();
         
         // hasHit возвращает boolean, если луч во что-то попал
         if (this.physicsManager.world.raycastClosest(rayFrom, rayTo, {}, result)) {
-            // Проверяем, что поверхность достаточно горизонтальна (нормаль смотрит вверх)
-            if (result.normal.dot(new CANNON.Vec3(0,1,0)) > 0.5) {
+            // === ИСПРАВЛЕНИЕ: Проверяем, что нормаль существует ===
+            if (result.normal && result.normal.dot(new CANNON.Vec3(0,1,0)) > 0.5) {
                 this.onGround = true;
             }
         }
