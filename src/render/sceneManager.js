@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
 import ScreenManager from './screenManager.js';
 import PlayerController from '../physics/playerController.js';
-import PhysicsManager from '../physics/physicsManager.js';
 
 class SceneManager {
     constructor(container) {
@@ -24,10 +23,10 @@ class SceneManager {
         this.axisHelper = null;
 
         this.screenManager = null;
-        this.physicsManager = null;
         
-        // УДАЛЕНО: collisionLayer больше не нужен для физики (Rapier работает в WASM)
-        // Если нужен визуальный дебаг коллайдеров, это делается иначе
+        // ВОССТАНОВЛЕНО: Слой коллизий для Raycast-физики
+        this.collisionLayer = new THREE.Group();
+        this.collisionLayer.name = "CollisionLayer";
         
         this.playerController = null; 
 
@@ -78,7 +77,7 @@ class SceneManager {
     }
 
     init() {
-        // 1. Three.js Scene Setup
+        // 1. Настройка сцены Three.js
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
@@ -100,20 +99,18 @@ class SceneManager {
         this.axisHelper = new THREE.AxesHelper(30);
         this.scene.add(this.axisHelper);
         
-        // УДАЛЕНО: this.scene.add(this.collisionLayer);
+        // ДОБАВЛЕНО: Добавляем слой коллизий в сцену
+        // Он невидим (материалы имеют visible: false), но участвует в Raycast
+        this.scene.add(this.collisionLayer);
 
         this.setupLighting();
         
-        // 2. Initialize Physics Manager (Rapier)
-        // Конструктор запускает асинхронную инициализацию WASM
-        this.physicsManager = new PhysicsManager();
-        
-        // 3. Screen Manager
+        // 2. Менеджер экранов
         this.screenManager = new ScreenManager(this.scene);
         
-        // 4. Player Controller
-        // PlayerController должен уметь ждать готовности физики внутри себя
-        this.playerController = new PlayerController(this, this.config, this.physicsManager);
+        // 3. Контроллер игрока (Raycast-based)
+        // Создается синхронно, без ожидания физических движков
+        this.playerController = new PlayerController(this, this.config);
         
         window.addEventListener('resize', () => this.onWindowResize());
     }
@@ -157,17 +154,12 @@ class SceneManager {
         const delta = (time - this.prevTime) / 1000;
         this.prevTime = time;
 
-        // === PHYSICS STEP ===
-        // Rapier step() не требует delta времени (использует фиксированный шаг internally)
-        if (this.physicsManager) {
-            this.physicsManager.step();
-        }
-        // ====================
-
+        // Обновление контроллера игрока (включает Raycast проверку пола)
         if (this.playerController && this.camera) {
             this.playerController.update(delta, this.camera);
         }
 
+        // Обновление оси координат (следует за камерой)
         if (this.axisHelper && this.camera) {
             const direction = new THREE.Vector3();
             this.camera.getWorldDirection(direction);
@@ -175,20 +167,12 @@ class SceneManager {
             this.axisHelper.position.copy(axisPos);
         }
 
+        // Обновление анимированных экранов
         if (this.screenManager) {
             this.screenManager.update(delta, this.camera.position, this.camera);
         }
 
         this.renderer.render(this.scene, this.camera);
-    }
-    
-    /**
-     * Clears the physics world (called during world regeneration)
-     */
-    clearPhysics() {
-        if (this.physicsManager) {
-            this.physicsManager.clear();
-        }
     }
 }
 
