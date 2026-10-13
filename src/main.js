@@ -175,12 +175,10 @@ class App {
         let stateText = '❓ UNKNOWN';
         let statusClass = '';
         
-        if (pc.onGround) { 
-            stateText = '✅ ON GROUND'; 
-            statusClass = 'status-ok'; 
-        } else {
-            stateText = '⬇️ FALLING'; 
-            statusClass = 'status-error';
+        // Проверяем onGround только если свойство существует
+        if (typeof pc.onGround === 'boolean') { 
+            stateText = pc.onGround ? '✅ ON GROUND' : '⬇️ FALLING'; 
+            statusClass = pc.onGround ? 'status-ok' : 'status-error';
         }
         
         const hudState = document.getElementById('hud-state');
@@ -192,24 +190,31 @@ class App {
         // Position
         const hudPos = document.getElementById('hud-pos');
         if (hudPos) {
-            // Безопасное получение позиции
-            let p = pc.position;
-            if (pc.body && pc.body.position) {
+            let p = null;
+            // Безопасное получение позиции из физического тела
+            if (pc.body && typeof pc.body.position !== 'undefined') {
                 p = pc.body.position;
+            } else if (pc.position) {
+                p = pc.position;
             }
-            if (p && typeof p.x === 'number') {
+            
+            if (p && typeof p.x === 'number' && typeof p.y === 'number' && typeof p.z === 'number') {
                 hudPos.textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
             }
         }
 
         // HeightMap Size
         const hudMap = document.getElementById('hud-map');
-        if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
+        if (hudMap && typeof cm.heightMap?.size === 'number') {
+            hudMap.textContent = cm.heightMap.size;
+        }
         
-        // Physics Bodies Count
+        // Physics Bodies Count - ЗАЩИТА ОТ ОШИБКИ .length
         const hudFloor = document.getElementById('hud-floor');
         if (hudFloor && pm) {
-            hudFloor.textContent = `Bodies: ${pm.totalBodies || 0}`;
+            // Проверяем, существует ли totalBodies и является ли числом
+            const count = (typeof pm.totalBodies === 'number') ? pm.totalBodies : 0;
+            hudFloor.textContent = `Bodies: ${count}`;
         }
     }
 }
