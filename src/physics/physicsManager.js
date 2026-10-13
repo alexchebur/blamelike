@@ -5,7 +5,7 @@ import * as THREE from 'three';
 class PhysicsManager {
     constructor() {
         this.world = new CANNON.World();
-        this.world.gravity.set(0, -25, 0); // Усиленная гравитация для отзывчивости
+        this.world.gravity.set(0, -25, 0);
         this.world.broadphase = new CANNON.SAPBroadphase(this.world);
         this.world.allowSleep = true;
         
@@ -32,7 +32,7 @@ class PhysicsManager {
             position: new CANNON.Vec3(position.x, position.y, position.z)
         });
         
-        // === КЛЮЧЕВОЕ: Включаем CCD для защиты от проваливания ===
+        // Включаем CCD для защиты от проваливания сквозь тонкие мосты
         this.playerBody.ccdSpeedThreshold = 0.1; 
         this.playerBody.ccdSweptSphereRadius = 0.4; 
         
@@ -65,9 +65,35 @@ class PhysicsManager {
 
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
 
-                const shape = new CANNON.Box(new CANNON.Vec3(sx/2, sy/2, sz/2));
-                const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
-                
+                const hx = sx / 2, hy = sy / 2, hz = sz / 2;
+                let shape;
+
+                try {
+                    // Пытаемся создать стандартный Box
+                    shape = new CANNON.Box(new CANNON.Vec3(hx, hy, hz));
+                } catch (boxError) {
+                    // === FALLBACK: Создаем Box через Trimesh (обход бага конструктора) ===
+                    // Вершины куба
+                    const vertices = [
+                        -hx, -hy, -hz,   hx, -hy, -hz,   hx,  hy, -hz,  -hx,  hy, -hz,
+                        -hx, -hy,  hz,   hx, -hy,  hz,   hx,  hy,  hz,  -hx,  hy,  hz
+                    ];
+                    // Индексы треугольников (12 треугольников для 6 граней)
+                    const indices = [
+                        0, 1, 2,  0, 2, 3, // front
+                        4, 6, 5,  4, 7, 6, // back
+                        0, 4, 5,  0, 5, 1, // bottom
+                        2, 6, 7,  2, 7, 3, // top
+                        0, 3, 7,  0, 7, 4, // left
+                        1, 5, 6,  1, 6, 2  // right
+                    ];
+                    shape = new CANNON.Trimesh(vertices, indices);
+                }
+
+                const body = new CANNON.Body({ 
+                    mass: 0, 
+                    material: this.defaultMaterial
+                });
                 body.position.set(px, py, pz);
                 
                 const q = new CANNON.Quaternion();
@@ -77,8 +103,8 @@ class PhysicsManager {
                     THREE.MathUtils.degToRad(Number(prim.rotation?.twistZ) || 0)
                 );
                 body.quaternion.copy(q);
-                body.addShape(shape);
                 
+                body.addShape(shape);
                 this.world.addBody(body);
                 bodies.push(body);
             } catch (e) {
