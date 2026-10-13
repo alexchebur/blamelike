@@ -27,7 +27,7 @@ class App {
         try {
             console.log('🚀 Initializing Blame! Generator...');
             
-            // 1. Инициализация менеджеров
+            // 1. Инициализация менеджеров (Cannon-es готов сразу после new)
             this.sceneManager = new SceneManager(this.container);
             console.log('✅ SceneManager initialized');
             
@@ -47,16 +47,17 @@ class App {
                 console.log('✅ PlayerController linked to ChunkManager');
             }
             
-            // 2. Первая загрузка чанков
+            // 2. Первая загрузка чанков (синхронно создает физические тела)
             this.updateChunks();
             
-            // Даем время на асинхронную обработку генерации
-            await new Promise(resolve => setTimeout(resolve, 50));
+            // Даем браузеру отрисовать первый кадр и обработать микрозадачи
+            await new Promise(resolve => requestAnimationFrame(() => resolve()));
 
             // 3. Спавн игрока
             const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
             const pm = this.sceneManager.physicsManager;
             
+            // Проверяем наличие физического тела перед телепортацией
             if (spawnPos && pm && pm.playerBody) {
                 console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
                 
@@ -65,7 +66,7 @@ class App {
                 pm.playerBody.velocity.set(0, 0, 0);
                 pm.playerBody.angularVelocity.set(0, 0, 0);
             } else {
-                console.warn('⚠️ No spawn point found or Physics not ready! Using default position.');
+                console.warn('⚠️ No spawn point found or Physics body missing! Using default position.');
             }
 
             // 4. UI и старт
@@ -95,7 +96,7 @@ class App {
      * Обновление чанков вокруг камеры
      */
     updateChunks() {
-        if (!this.chunkManager || !this.sceneManager) return;
+        if (!this.chunkManager || !this.sceneManager || !this.controlPanel) return;
         
         let pos = this.sceneManager.camera?.position;
         
@@ -104,13 +105,13 @@ class App {
             const pc = this.sceneManager.playerController;
             // Для Cannon-es берем позицию из физического тела
             if (pc.body && pc.body.position) {
-                pos = new THREE.Vector3().copy(pc.body.position);
+                pos = pc.body.position; // Используем ссылку напрямую, чтобы избежать аллокации
             } else if (pc.position) {
                 pos = pc.position;
             }
         }
             
-        if (pos && this.controlPanel) {
+        if (pos) {
             const config = this.controlPanel.getConfig();
             this.chunkManager.update(pos, config);
         }
@@ -196,7 +197,7 @@ class App {
             if (pc.body && pc.body.position) {
                 p = pc.body.position;
             }
-            if (p) {
+            if (p && typeof p.x === 'number') {
                 hudPos.textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
             }
         }
