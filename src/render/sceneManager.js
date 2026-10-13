@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import defaultConfig from '../core/config.js';
 import ScreenManager from './screenManager.js';
 import PlayerController from '../physics/playerController.js';
+import PhysicsManager from '../physics/physicsManager.js'; // <--- НОВЫЙ ИМПОРТ
 
 class SceneManager {
     constructor(container) {
@@ -23,8 +24,9 @@ class SceneManager {
         this.axisHelper = null;
 
         this.screenManager = null;
+        this.physicsManager = null; // <--- НОВОЕ ПОЛЕ
         
-        // ВОССТАНОВЛЕНО: Слой коллизий для Raycast-физики
+        // collisionLayer больше не нужен для физики, но можно оставить для дебага
         this.collisionLayer = new THREE.Group();
         this.collisionLayer.name = "CollisionLayer";
         
@@ -77,7 +79,6 @@ class SceneManager {
     }
 
     init() {
-        // 1. Настройка сцены Three.js
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
@@ -99,22 +100,22 @@ class SceneManager {
         this.axisHelper = new THREE.AxesHelper(30);
         this.scene.add(this.axisHelper);
         
-        // ДОБАВЛЕНО: Добавляем слой коллизий в сцену
-        // Он невидим (материалы имеют visible: false), но участвует в Raycast
-        this.scene.add(this.collisionLayer);
+        // collisionLayer больше не нужен для физики, но можно оставить для дебага
+        // this.scene.add(this.collisionLayer);
 
         this.setupLighting();
         
-        // 2. Менеджер экранов
+        // === ИНИЦИАЛИЗАЦИЯ ФИЗИКИ ===
+        this.physicsManager = new PhysicsManager();
+        // ============================
+
         this.screenManager = new ScreenManager(this.scene);
         
-        // 3. Контроллер игрока (Raycast-based)
-        // Создается синхронно, без ожидания физических движков
-        this.playerController = new PlayerController(this, this.config);
+        // Передаем physicsManager в контроллер игрока
+        this.playerController = new PlayerController(this, this.config, this.physicsManager);
         
         window.addEventListener('resize', () => this.onWindowResize());
     }
-
     setupLighting() {
         this.hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
         this.scene.add(this.hemisphereLight);
@@ -154,12 +155,17 @@ class SceneManager {
         const delta = (time - this.prevTime) / 1000;
         this.prevTime = time;
 
-        // Обновление контроллера игрока (включает Raycast проверку пола)
+        // === ШАГ ФИЗИКИ ===
+        // Обновляем физический мир ПЕРЕД обновлением контроллера игрока
+        if (this.physicsManager) {
+            this.physicsManager.step(delta);
+        }
+        // ==================
+
         if (this.playerController && this.camera) {
             this.playerController.update(delta, this.camera);
         }
 
-        // Обновление оси координат (следует за камерой)
         if (this.axisHelper && this.camera) {
             const direction = new THREE.Vector3();
             this.camera.getWorldDirection(direction);
@@ -167,12 +173,20 @@ class SceneManager {
             this.axisHelper.position.copy(axisPos);
         }
 
-        // Обновление анимированных экранов
         if (this.screenManager) {
             this.screenManager.update(delta, this.camera.position, this.camera);
         }
 
         this.renderer.render(this.scene, this.camera);
+    }
+    
+    /**
+     * Очищает физический мир (вызывается при регенерации мира)
+     */
+    clearPhysics() {
+        if (this.physicsManager) {
+            this.physicsManager.clear();
+        }
     }
 }
 
