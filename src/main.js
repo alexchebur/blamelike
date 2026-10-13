@@ -23,61 +23,73 @@ class App {
         this.init();
     }
 
-async init() {
-    try {
-        console.log('🚀 Initializing Blame! Generator...');
-        
-        this.sceneManager = new SceneManager(this.container);
-        console.log('✅ SceneManager initialized');
-        
-        this.chunkManager = new ChunkManager(this.sceneManager);
-        console.log('✅ ChunkManager initialized');
+    async init() {
+        try {
+            console.log('🚀 Initializing Blame! Generator...');
+            
+            // 1. Инициализация менеджеров
+            this.sceneManager = new SceneManager(this.container);
+            console.log('✅ SceneManager initialized');
+            
+            this.chunkManager = new ChunkManager(this.sceneManager);
+            console.log('✅ ChunkManager initialized');
 
-        this.controlPanel = new ControlPanel(
-            this.sceneManager,
-            this.chunkManager,
-            (config) => this.onConfigChange(config)
-        );
-        console.log('✅ ControlPanel initialized');
+            this.controlPanel = new ControlPanel(
+                this.sceneManager,
+                this.chunkManager,
+                (config) => this.onConfigChange(config)
+            );
+            console.log('✅ ControlPanel initialized');
 
-        if (this.sceneManager.playerController) {
-            this.sceneManager.chunkManager = this.chunkManager;
-            console.log('✅ PlayerController linked to ChunkManager');
+            // Связываем чанк-менеджер с контроллером для доступа к физике
+            if (this.sceneManager.playerController) {
+                this.sceneManager.chunkManager = this.chunkManager;
+                console.log('✅ PlayerController linked to ChunkManager');
+            }
+            
+            // 2. Первая загрузка чанков
+            this.updateChunks();
+            
+            // Даем время на асинхронную обработку генерации
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // 3. Спавн игрока
+            const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
+            const pm = this.sceneManager.physicsManager;
+            
+            if (spawnPos && pm && pm.playerBody) {
+                console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
+                
+                // Телепортируем физическое тело Cannon-es
+                pm.playerBody.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+                pm.playerBody.velocity.set(0, 0, 0);
+                pm.playerBody.angularVelocity.set(0, 0, 0);
+            } else {
+                console.warn('⚠️ No spawn point found or Physics not ready! Using default position.');
+            }
+
+            // 4. UI и старт
+            const debugHud = document.getElementById('debug-hud');
+            if (debugHud) debugHud.style.display = 'block';
+
+            if (this.loading) {
+                this.loading.style.display = 'none';
+            }
+            
+            this.isInitialized = true;
+            console.log('✅ Blame! Generator ready!');
+            
+            // Запускаем цикл только после полной инициализации
+            this.animate();
+            
+        } catch (error) {
+            console.error('❌ Initialization error:', error);
+            if (this.loading) {
+                this.loading.textContent = 'Ошибка загрузки! Проверьте консоль.';
+                this.loading.style.color = '#ff4444';
+            }
         }
-        
-        this.updateChunks();
-        await new Promise(resolve => setTimeout(resolve, 0));
-
-        // В методе init() замените блок спавна на:
-        const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
-        if (spawnPos && this.sceneManager.physicsManager.playerBody) {
-            console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
-    
-            // Телепортируем физическое тело Cannon-es
-            this.sceneManager.physicsManager.playerBody.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-            this.sceneManager.physicsManager.playerBody.velocity.set(0, 0, 0);
-        } else {
-            console.warn('⚠️ No spawn point found or Physics not ready!');
-        }
-
-        const debugHud = document.getElementById('debug-hud');
-        if (debugHud) {
-            debugHud.style.display = 'block';
-        }
-
-        this.loading.style.display = 'none';
-        this.isInitialized = true;
-        
-        console.log('✅ Blame! Generator ready!');
-        
-        this.animate();
-        
-    } catch (error) {
-        console.error('❌ Initialization error:', error);
-        this.loading.textContent = 'Ошибка загрузки! Проверьте консоль.';
-        this.loading.style.color = '#ff4444';
     }
-}
 
     /**
      * Обновление чанков вокруг камеры
@@ -85,60 +97,66 @@ async init() {
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager) return;
         
-        // Используем позицию игрока, если он есть, иначе позицию камеры
-        let pos;
+        let pos = this.sceneManager.camera?.position;
+        
+        // Безопасное получение позиции из физики
         if (this.sceneManager.playerController) {
+            const pc = this.sceneManager.playerController;
             // Для Cannon-es берем позицию из физического тела
-            if (this.sceneManager.playerController.body) {
-                pos = new THREE.Vector3().copy(this.sceneManager.playerController.body.position);
-            } else {
-                pos = this.sceneManager.playerController.position;
+            if (pc.body && pc.body.position) {
+                pos = new THREE.Vector3().copy(pc.body.position);
+            } else if (pc.position) {
+                pos = pc.position;
             }
-        } else {
-            pos = this.sceneManager.camera.position;
         }
             
-        const config = this.controlPanel.getConfig();
-        this.chunkManager.update(pos, config);
+        if (pos && this.controlPanel) {
+            const config = this.controlPanel.getConfig();
+            this.chunkManager.update(pos, config);
+        }
     }
 
     /**
      * Обработчик изменения конфигурации из панели
-     * @param {Object} config 
      */
     onConfigChange(config) {
-        console.log('️ Config changed, regenerating world...');
+        console.log('⚙️ Config changed, regenerating world...');
         
-        // Обновляем настройки сцены (туман, фон, тени)
-        this.sceneManager.updateConfig({
-            backgroundColor: config.backgroundColor,
-            fogDensity: config.fogDensity,
-            enableShadows: config.enableShadows
-        });
+        if (this.sceneManager) {
+            this.sceneManager.updateConfig({
+                backgroundColor: config.backgroundColor,
+                fogDensity: config.fogDensity,
+                enableShadows: config.enableShadows
+            });
+        }
         
         // Очищаем физический мир перед перегенерацией
-        if (this.sceneManager.clearPhysics) {
+        if (this.sceneManager?.clearPhysics) {
             this.sceneManager.clearPhysics();
         }
 
-        // Пересоздаем все чанки с новыми параметрами
-        this.chunkManager.clear();
-        this.updateChunks();
+        // Пересоздаем все чанки
+        if (this.chunkManager) {
+            this.chunkManager.clear();
+            this.updateChunks();
+        }
     }
 
     animate() {
+        requestAnimationFrame(() => this.animate());
+        
+        if (!this.isInitialized) return;
+
         try {
-            requestAnimationFrame(() => this.animate());
-        
-            if (this.isInitialized) {
-                this.updateChunks();
-                this.updateDebugHUD();
+            this.updateChunks();
+            this.updateDebugHUD();
+            
+            if (this.sceneManager) {
+                this.sceneManager.render();
             }
-        
-            this.sceneManager.render();
         } catch (e) {
-            console.error('❌ Animation loop error:', e);
-            // Не прерываем цикл, просто логируем
+            // Логируем ошибку, но не прерываем цикл
+            console.error('❌ Animation loop error:', e?.message || e);
         }
     }
 
@@ -156,7 +174,6 @@ async init() {
         let stateText = '❓ UNKNOWN';
         let statusClass = '';
         
-        // Для Cannon-es проверяем onGround флаг из контроллера
         if (pc.onGround) { 
             stateText = '✅ ON GROUND'; 
             statusClass = 'status-ok'; 
@@ -171,18 +188,24 @@ async init() {
             hudState.className = `hud-value ${statusClass}`;
         }
 
-        // Position (берем из физического тела)
+        // Position
         const hudPos = document.getElementById('hud-pos');
         if (hudPos) {
-            const p = pc.body ? pc.body.position : pc.position;
-            hudPos.textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
+            // Безопасное получение позиции
+            let p = pc.position;
+            if (pc.body && pc.body.position) {
+                p = pc.body.position;
+            }
+            if (p) {
+                hudPos.textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
+            }
         }
 
         // HeightMap Size
         const hudMap = document.getElementById('hud-map');
         if (hudMap) hudMap.textContent = cm.heightMap?.size || 0;
         
-        // Physics Bodies Count (для отладки)
+        // Physics Bodies Count
         const hudFloor = document.getElementById('hud-floor');
         if (hudFloor && pm) {
             hudFloor.textContent = `Bodies: ${pm.totalBodies || 0}`;
