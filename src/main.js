@@ -23,83 +23,61 @@ class App {
         this.init();
     }
 
-    async init() {
-        try {
-            console.log('🚀 Initializing Blame! Generator...');
-            
-            // 1. Create SceneManager (starts Physics WASM loading)
-            this.sceneManager = new SceneManager(this.container);
-            console.log('✅ SceneManager initialized');
-            
-            // === WAIT FOR PHYSICS (RAPIER WASM) TO LOAD ===
-            await this.sceneManager.physicsManager.waitForReady();
-            console.log('✅ Physics Engine (Rapier) ready');
-            // =================================================
+async init() {
+    try {
+        console.log('🚀 Initializing Blame! Generator...');
+        
+        this.sceneManager = new SceneManager(this.container);
+        console.log('✅ SceneManager initialized');
+        
+        this.chunkManager = new ChunkManager(this.sceneManager);
+        console.log('✅ ChunkManager initialized');
 
-            // 2. Create ChunkManager
-            this.chunkManager = new ChunkManager(this.sceneManager);
-            console.log('✅ ChunkManager initialized');
+        this.controlPanel = new ControlPanel(
+            this.sceneManager,
+            this.chunkManager,
+            (config) => this.onConfigChange(config)
+        );
+        console.log('✅ ControlPanel initialized');
 
-            // 3. Create ControlPanel
-            this.controlPanel = new ControlPanel(
-                this.sceneManager,
-                this.chunkManager,
-                (config) => this.onConfigChange(config)
-            );
-            console.log('✅ ControlPanel initialized');
-
-            // Link ChunkManager
-            if (this.sceneManager.playerController) {
-                this.sceneManager.chunkManager = this.chunkManager;
-                console.log('✅ PlayerController linked to ChunkManager');
-            }
-            
-            // 4. Initial Chunk Load
-            this.updateChunks();
-            
-            // Small delay to ensure chunks are processed
-            await new Promise(resolve => setTimeout(resolve, 0));
-
-            // 5. Find Spawn Point & Teleport Player
-            const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
-            
-            if (spawnPos && this.sceneManager.physicsManager.playerBody) {
-                console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
-                
-                // Teleport Rapier body
-                this.sceneManager.physicsManager.playerBody.setTranslation({
-                    x: spawnPos.x,
-                    y: spawnPos.y,
-                    z: spawnPos.z
-                }, true);
-                
-                // Reset velocity
-                this.sceneManager.physicsManager.playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
-            } else {
-                console.warn('⚠️ No spawn point found or Physics not ready!');
-            }
-
-            // 6. Show Debug HUD
-            const debugHud = document.getElementById('debug-hud');
-            if (debugHud) {
-                debugHud.style.display = 'block';
-            }
-
-            // 7. Hide Loading
-            this.loading.style.display = 'none';
-            this.isInitialized = true;
-            
-            console.log('✅ Blame! Generator ready!');
-            
-            // 8. Start Loop
-            this.animate();
-            
-        } catch (error) {
-            console.error('❌ Initialization error:', error);
-            this.loading.textContent = 'Ошибка загрузки! Проверьте консоль.';
-            this.loading.style.color = '#ff4444';
+        if (this.sceneManager.playerController) {
+            this.sceneManager.chunkManager = this.chunkManager;
+            console.log('✅ PlayerController linked to ChunkManager');
         }
+        
+        this.updateChunks();
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
+        
+        if (spawnPos && this.sceneManager.playerController) {
+            console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
+            
+            // Телепортируем позицию напрямую (без body)
+            this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+            this.sceneManager.playerController.velocity.set(0, 0, 0);
+        } else {
+            console.warn('️ No spawn point found! Keeping default position.');
+        }
+
+        const debugHud = document.getElementById('debug-hud');
+        if (debugHud) {
+            debugHud.style.display = 'block';
+        }
+
+        this.loading.style.display = 'none';
+        this.isInitialized = true;
+        
+        console.log('✅ Blame! Generator ready!');
+        
+        this.animate();
+        
+    } catch (error) {
+        console.error('❌ Initialization error:', error);
+        this.loading.textContent = 'Ошибка загрузки! Проверьте консоль.';
+        this.loading.style.color = '#ff4444';
     }
+}
 
     /**
      * Обновление чанков вокруг камеры
