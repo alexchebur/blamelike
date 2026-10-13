@@ -29,20 +29,24 @@ class PlayerController {
         
         const body = this.physicsManager.playerBody;
         
-        // === ПРОВЕРКА ЗЕМЛИ ЧЕРЕЗ CANNON RAYCAST ===
+        // === БЕЗОПАСНАЯ ПРОВЕРКА ЗЕМЛИ ЧЕРЕЗ КОНТАКТЫ ===
         this.onGround = false;
-        const rayFrom = body.position.clone();
-        // Луч чуть ниже центра тела
-        const rayTo = new CANNON.Vec3(rayFrom.x, rayFrom.y - 1.0, rayFrom.z);
-        const result = new CANNON.RaycastResult();
+        const upAxis = new CANNON.Vec3(0, 1, 0);
         
-        // hasHit возвращает boolean
-        if (this.physicsManager.world.raycastClosest(rayFrom, rayTo, {}, result)) {
-            // Проверяем, что поверхность достаточно горизонтальна
-            if (result.normal.dot(new CANNON.Vec3(0,1,0)) > 0.5) {
+        // Проверяем активные контакты тела
+        for (let i = 0; i < body.contacts.length; i++) {
+            const contact = body.contacts[i];
+            // Получаем нормаль контакта относительно игрока
+            const normal = contact.ni.clone();
+            if (contact.bi !== body) normal.negate(normal);
+            
+            // Если нормаль смотрит вверх (> 0.5 ~ 60 градусов), мы на земле
+            if (normal.dot(upAxis) > 0.5) {
                 this.onGround = true;
+                break;
             }
         }
+        // =================================================
 
         // Синхронизация позиции Three.js с физикой
         this.position.copy(body.position);
