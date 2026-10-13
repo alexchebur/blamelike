@@ -80,7 +80,24 @@ class PhysicsManager {
                     continue;
                 }
 
-                const shape = new CANNON.Box(halfExtents);
+                let shape;
+                try {
+                    shape = new CANNON.Box(halfExtents);
+                } catch (e) {
+                    // Fallback: создаем коробку через Trimesh, если Box ломается
+                    const hx = sx / 2, hy = sy / 2, hz = sz / 2;
+                    const vertices = [
+                        -hx,-hy,-hz, hx,-hy,-hz, hx,hy,-hz, -hx,hy,-hz,
+                        -hx,-hy,hz, hx,-hy,hz, hx,hy,hz, -hx,hy,hz
+                    ];
+                    const indices = [
+                        0,1,2, 0,2,3, 4,6,5, 4,7,6,
+                        0,4,5, 0,5,1, 2,6,7, 2,7,3,
+                        0,3,7, 0,7,4, 1,5,6, 1,6,2
+                    ];
+                    shape = new CANNON.Trimesh(vertices, indices);
+                }
+
                 const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
                 
                 // Позиция
@@ -109,10 +126,7 @@ class PhysicsManager {
                 this.world.addBody(body);
                 bodies.push(body);
             } catch (e) {
-                // Логируем только первые few ошибок, чтобы не спамить консоль
-                if (bodies.length < 3) {
-                    console.warn(`⚠️ Cannon skip prim ${prim.type}:`, e.message);
-                }
+                // Тихо пропускаем проблемные примитивы
             }
         }
         this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
