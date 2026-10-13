@@ -5,7 +5,7 @@ import * as THREE from 'three';
 class PhysicsManager {
     constructor() {
         this.world = new CANNON.World();
-        this.world.gravity.set(0, -25, 0);
+        this.world.gravity.set(0, -25, 0); // Усиленная гравитация для отзывчивости
         this.world.broadphase = new CANNON.SAPBroadphase(this.world);
         this.world.allowSleep = true;
         
@@ -32,7 +32,7 @@ class PhysicsManager {
             position: new CANNON.Vec3(position.x, position.y, position.z)
         });
         
-        // Включаем CCD для защиты от проваливания сквозь тонкие мосты
+        // === КЛЮЧЕВОЕ: Включаем CCD для защиты от проваливания ===
         this.playerBody.ccdSpeedThreshold = 0.1; 
         this.playerBody.ccdSweptSphereRadius = 0.4; 
         
@@ -45,7 +45,6 @@ class PhysicsManager {
     addChunkPrimitives(cx, cy, cz, primitives) {
         const bodies = [];
         for (const prim of primitives) {
-            // Фильтруем только проходимые объекты
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen' || prim.type === 'torus') continue;
             if (prim.type.includes('cable')) continue;
@@ -66,7 +65,6 @@ class PhysicsManager {
 
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
 
-                // Создаем Box только с гарантированно валидными halfExtents
                 const shape = new CANNON.Box(new CANNON.Vec3(sx/2, sy/2, sz/2));
                 const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
                 
