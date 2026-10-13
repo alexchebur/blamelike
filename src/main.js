@@ -149,15 +149,19 @@ class App {
         if (!this.isInitialized) return;
 
         try {
-            this.updateChunks();
-            this.updateDebugHUD();
+            // Проверяем существование менеджеров перед вызовом
+            if (this.chunkManager && this.controlPanel) {
+                this.updateChunks();
+            }
             
             if (this.sceneManager) {
+                this.updateDebugHUD();
                 this.sceneManager.render();
             }
         } catch (e) {
-            // Логируем ошибку, но не прерываем цикл
-            console.error('❌ Animation loop error:', e?.message || e);
+            console.error('❌ Animation loop error:', e);
+            // Можно временно раскомментировать для отладки:
+            // debugger; 
         }
     }
 
