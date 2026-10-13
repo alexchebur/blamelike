@@ -97,6 +97,7 @@ class PhysicsManager {
         }
         
         this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
+        console.log(`✅ Physics chunk ${cx},${cy},${cz}: created ${bodies.length} bodies`);
     }
 
     removeChunk(cx, cy, cz) {
