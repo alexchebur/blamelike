@@ -48,16 +48,16 @@ async init() {
         this.updateChunks();
         await new Promise(resolve => setTimeout(resolve, 0));
 
+        // В методе init() замените блок спавна на:
         const spawnPos = this.chunkManager.findSpawnPoint(new THREE.Vector3(0, 0, 0));
-        
-        if (spawnPos && this.sceneManager.playerController) {
+        if (spawnPos && this.sceneManager.physicsManager.playerBody) {
             console.log(`✅ Spawn point found at: ${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
-            
-            // Телепортируем позицию напрямую (без body)
-            this.sceneManager.playerController.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
-            this.sceneManager.playerController.velocity.set(0, 0, 0);
+    
+            // Телепортируем физическое тело Cannon-es
+            this.sceneManager.physicsManager.playerBody.position.set(spawnPos.x, spawnPos.y, spawnPos.z);
+            this.sceneManager.physicsManager.playerBody.velocity.set(0, 0, 0);
         } else {
-            console.warn('️ No spawn point found! Keeping default position.');
+            console.warn('⚠️ No spawn point found or Physics not ready!');
         }
 
         const debugHud = document.getElementById('debug-hud');
