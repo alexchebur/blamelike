@@ -20,11 +20,9 @@ class PhysicsManager {
     }
 
     createPlayerBody(position) {
-        const shape = new CANNON.Cylinder(0.4, 0.4, 1.8, 8);
-        const q = new CANNON.Quaternion();
-        q.setFromAxisAngle(new CANNON.Vec3(1,0,0), -Math.PI/2);
-        shape.transformAllPoints(new CANNON.Vec3(), q);
-
+        // Используем Box вместо Cylinder для игрока, так как Cylinder часто вызывает проблемы в ESM-сборках
+        const shape = new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)); 
+        
         this.playerBody = new CANNON.Body({
             mass: 70,
             fixedRotation: true,
@@ -32,7 +30,7 @@ class PhysicsManager {
             position: new CANNON.Vec3(position.x, position.y, position.z)
         });
         
-        // Включаем CCD для защиты от проваливания сквозь тонкие мосты
+        // CCD критически важен для предотвращения проваливания
         this.playerBody.ccdSpeedThreshold = 0.1; 
         this.playerBody.ccdSweptSphereRadius = 0.4; 
         
@@ -54,53 +52,56 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // === ЖЕСТКАЯ ВАЛИДАЦИЯ РАЗМЕРОВ ===
-                const sx = Math.max(0.05, Math.abs(Number(prim.scale?.x) || 1));
-                const sy = Math.max(0.05, Math.abs(Number(prim.scale?.y) || 1));
-                const sz = Math.max(0.05, Math.abs(Number(prim.scale?.z) || 1));
+                // Жесткая санитизация масштаба
+                let sx = Number(prim.scale?.x);
+                let sy = Number(prim.scale?.y);
+                let sz = Number(prim.scale?.z);
+
+                // Если scale отсутствует или некорректен, используем дефолт 1
+                if (!isFinite(sx)) sx = 1;
+                if (!isFinite(sy)) sy = 1;
+                if (!isFinite(sz)) sz = 1;
+
+                // Берем модуль и гарантируем минимальный размер > 0
+                sx = Math.abs(sx);
+                sy = Math.abs(sy);
+                sz = Math.abs(sz);
                 
+                const minSize = 0.05;
+                if (sx < minSize) sx = minSize;
+                if (sy < minSize) sy = minSize;
+                if (sz < minSize) sz = minSize;
+
+                // Создаем Vec3 явно через числа, а не через свойства объекта
+                const halfExtents = new CANNON.Vec3(sx / 2, sy / 2, sz / 2);
+                
+                // Проверяем, что Vec3 создался корректно
+                if (!isFinite(halfExtents.x) || !isFinite(halfExtents.y) || !isFinite(halfExtents.z)) {
+                    continue;
+                }
+
+                const shape = new CANNON.Box(halfExtents);
+                const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
+                
+                // Позиция
                 const px = Number(prim.position?.x) || 0;
                 const py = Number(prim.position?.y) || 0;
                 const pz = Number(prim.position?.z) || 0;
-
+                
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
-
-                const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-                let shape;
-
-                try {
-                    // Пытаемся создать стандартный Box
-                    shape = new CANNON.Box(new CANNON.Vec3(hx, hy, hz));
-                } catch (boxError) {
-                    // === FALLBACK: Создаем Box через Trimesh (обход бага конструктора) ===
-                    // Вершины куба
-                    const vertices = [
-                        -hx, -hy, -hz,   hx, -hy, -hz,   hx,  hy, -hz,  -hx,  hy, -hz,
-                        -hx, -hy,  hz,   hx, -hy,  hz,   hx,  hy,  hz,  -hx,  hy,  hz
-                    ];
-                    // Индексы треугольников (12 треугольников для 6 граней)
-                    const indices = [
-                        0, 1, 2,  0, 2, 3, // front
-                        4, 6, 5,  4, 7, 6, // back
-                        0, 4, 5,  0, 5, 1, // bottom
-                        2, 6, 7,  2, 7, 3, // top
-                        0, 3, 7,  0, 7, 4, // left
-                        1, 5, 6,  1, 6, 2  // right
-                    ];
-                    shape = new CANNON.Trimesh(vertices, indices);
-                }
-
-                const body = new CANNON.Body({ 
-                    mass: 0, 
-                    material: this.defaultMaterial
-                });
+                
                 body.position.set(px, py, pz);
+                
+                // Вращение
+                const rx = Number(prim.rotation?.tiltX) || 0;
+                const ry = Number(prim.rotation?.tiltY) || 0;
+                const rz = Number(prim.rotation?.twistZ) || 0;
                 
                 const q = new CANNON.Quaternion();
                 q.setFromEuler(
-                    THREE.MathUtils.degToRad(Number(prim.rotation?.tiltX) || 0),
-                    THREE.MathUtils.degToRad(Number(prim.rotation?.tiltY) || 0),
-                    THREE.MathUtils.degToRad(Number(prim.rotation?.twistZ) || 0)
+                    THREE.MathUtils.degToRad(rx),
+                    THREE.MathUtils.degToRad(ry),
+                    THREE.MathUtils.degToRad(rz)
                 );
                 body.quaternion.copy(q);
                 
@@ -108,7 +109,10 @@ class PhysicsManager {
                 this.world.addBody(body);
                 bodies.push(body);
             } catch (e) {
-                console.warn(`️ Cannon skip prim ${prim.type}:`, e.message);
+                // Логируем только первые few ошибок, чтобы не спамить консоль
+                if (bodies.length < 3) {
+                    console.warn(`⚠️ Cannon skip prim ${prim.type}:`, e.message);
+                }
             }
         }
         this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
@@ -124,11 +128,7 @@ class PhysicsManager {
     }
 
     step(dt) {
-        // === ИСПРАВЛЕНИЕ: Защита от невалидного dt ===
-        if (!dt || !isFinite(dt) || dt <= 0) {
-            dt = 1/60; // Фолбэк на стандартный шаг
-        }
-        // Ограничиваем максимальный dt, чтобы физика не "взрывалась" при лагах
+        if (!dt || !isFinite(dt) || dt <= 0) dt = 1/60;
         const safeDt = Math.min(dt, 0.1);
         this.world.step(1/60, safeDt, 3);
     }
