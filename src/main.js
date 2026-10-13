@@ -126,18 +126,20 @@ async init() {
         this.updateChunks();
     }
 
-    /**
-     * Цикл анимации и рендеринга
-     */
     animate() {
-        requestAnimationFrame(() => this.animate());
+        try {
+            requestAnimationFrame(() => this.animate());
         
-        if (this.isInitialized) {
-            this.updateChunks();
-            this.updateDebugHUD(); // Обновляем HUD каждый кадр
+            if (this.isInitialized) {
+                this.updateChunks();
+                this.updateDebugHUD();
+            }
+        
+            this.sceneManager.render();
+        } catch (e) {
+            console.error('❌ Animation loop error:', e);
+            // Не прерываем цикл, просто логируем
         }
-        
-        this.sceneManager.render();
     }
 
     /**
