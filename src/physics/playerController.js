@@ -6,30 +6,24 @@ class PlayerController {
         this.sceneManager = sceneManager;
         this.config = config;
         this.position = new THREE.Vector3(0, 50, 0); 
-        this.velocity = new THREE.Vector3();
+        this.velocity = new THREE.Vector3(0, 0, 0);
         this.onGround = false;
         this.isFalling = false;
-        this.onLadder = false;
         
+        // Параметры движения
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
-        this.jump = false;
         
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Raycaster
-        this.raycaster = new THREE.Raycaster();
-        this.downVector = new THREE.Vector3(0, -1, 0);
-        
-        // Параметры
-        this.footRadius = 0.35; // Радиус проверки "ног"
+        // Физические константы
         this.playerHeight = config.playerHeight || 1.8;
-        this.speed = 15.0; 
-        this.fallSpeed = config.fallSpeed || 25;
-        this.climbSpeed = config.ladderClimbSpeed || 6;
+        this.speed = config.moveSpeed || 15.0;
+        this.fallSpeed = config.fallSpeed || 25.0;
+        this.gravity = config.gravity || 9.8;
     }
 
     update(deltaTime, camera) {
@@ -56,75 +50,64 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола (5 лучей)
-        this.checkGroundWithOffsets(nextX, nextZ);
+        // 2. Проверка пола через HeightMap (Быстро и точно!)
+        this.checkGroundWithHeightMap(nextX, nextZ);
 
         // 3. Вертикальное движение
-        let targetY = this.position.y;
         if (this.onGround) {
             this.isFalling = false;
-            if (this.onLadder && (this.moveForward || this.moveBackward)) {
-                const climbDir = this.moveForward ? 1 : -1;
-                targetY += climbDir * this.climbSpeed * dt;
+            this.velocity.y = 0;
+            // Жесткая привязка к высоте платформы + половина роста игрока
+            const floorHeight = this.getFloorHeight(nextX, nextZ);
+            if (floorHeight !== null) {
+                this.position.y = floorHeight + (this.playerHeight / 2);
             }
         } else {
             this.isFalling = true;
-            targetY -= this.fallSpeed * dt;
-        }
-
-        this.position.set(nextX, targetY, nextZ);
-
-        // 4. Камера
-        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
-        camera.quaternion.setFromEuler(this.cameraEuler);
-    }
-
-    checkGroundWithOffsets(x, z) {
-        this.onGround = false;
-        this.onLadder = false;
-        
-        const collisionLayer = this.sceneManager.collisionLayer;
-        if (!collisionLayer) return;
-
-        // 5 точек проверки: центр + 4 угла
-        const offsets = [
-            { x: 0, z: 0 },
-            { x: this.footRadius, z: this.footRadius },
-            { x: -this.footRadius, z: this.footRadius },
-            { x: this.footRadius, z: -this.footRadius },
-            { x: -this.footRadius, z: -this.footRadius }
-        ];
-
-        let highestHitY = -Infinity;
-        let isLadderFound = false;
-        const maxCheckDist = this.playerHeight + 1.0;
-
-        for (const offset of offsets) {
-            const rayOrigin = new THREE.Vector3(x + offset.x, this.position.y + 0.5, z + offset.z);
-            this.raycaster.set(rayOrigin, this.downVector);
-            this.raycaster.far = maxCheckDist;
-
-            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
-
-            if (intersects.length > 0) {
-                const hit = intersects[0];
-                if (hit.distance < this.playerHeight) {
-                    if (hit.point.y > highestHitY) {
-                        highestHitY = hit.point.y;
-                        isLadderFound = hit.object.userData.isLadder || false;
-                    }
-                }
+            this.velocity.y -= this.gravity * dt; // Простая гравитация
+            this.position.y += this.velocity.y * dt;
+            
+            // Проверка, не упали ли мы ниже какого-то предела (ресет)
+            if (this.position.y < -100) {
+                this.position.set(0, 50, 0);
+                this.velocity.set(0, 0, 0);
             }
         }
 
-        if (highestHitY > -Infinity) {
-            this.onGround = true;
-            this.isFalling = false;
-            this.onLadder = isLadderFound;
-            // Жесткая привязка к полу
-            this.position.y = highestHitY + (this.playerHeight * 0.5);
-            this.velocity.y = 0;
+        // Применяем горизонтальное смещение
+        this.position.x = nextX;
+        this.position.z = nextZ;
+
+        // 4. Камера
+        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.4, this.position.z);
+        camera.quaternion.setFromEuler(this.cameraEuler);
+    }
+
+    checkGroundWithHeightMap(x, z) {
+        const chunkManager = this.sceneManager.chunkManager;
+        if (!chunkManager) return;
+
+        const floorHeight = this.getFloorHeight(x, z);
+        
+        if (floorHeight !== null) {
+            // Если мы падали и достигли пола
+            if (this.isFalling && this.position.y <= floorHeight + this.playerHeight) {
+                this.onGround = true;
+            } else if (!this.isFalling) {
+                this.onGround = true;
+            }
+        } else {
+            this.onGround = false;
         }
+    }
+
+    getFloorHeight(x, z) {
+        const chunkManager = this.sceneManager.chunkManager;
+        if (!chunkManager) return null;
+        
+        // Получаем данные из логической карты высот
+        const data = chunkManager.getLogicalHeight(x, z);
+        return data ? data.y : null;
     }
 
     onMouseMove(movementX, movementY) {
