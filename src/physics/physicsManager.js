@@ -20,7 +20,7 @@ class PhysicsManager {
     }
 
     createPlayerBody(position) {
-        // Используем Box для игрока для максимальной совместимости
+        // Используем Box для максимальной совместимости с UMD-сборкой
         const shape = new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)); 
         
         this.playerBody = new CANNON.Body({
@@ -57,7 +57,7 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // 1. Санитизация масштаба
+                // Санитизация масштаба
                 let sx = Math.abs(Number(prim.scale?.x) || 1);
                 let sy = Math.abs(Number(prim.scale?.y) || 1);
                 let sz = Math.abs(Number(prim.scale?.z) || 1);
@@ -69,7 +69,7 @@ class PhysicsManager {
 
                 const hx = sx / 2, hy = sy / 2, hz = sz / 2;
 
-                // 2. Создаем форму через Trimesh (обход бага Box)
+                // Создаем форму через Trimesh (обход бага Box в ESM)
                 const vertices = [
                     -hx,-hy,-hz, hx,-hy,-hz, hx, hy,-hz, -hx, hy,-hz,
                     -hx,-hy, hz, hx,-hy, hz, hx, hy, hz, -hx, hy, hz
@@ -81,7 +81,7 @@ class PhysicsManager {
                 ];
                 const shape = new CANNON.Trimesh(vertices, indices);
 
-                // 3. Санитизация позиции (ЯВНОЕ СОЗДАНИЕ ВЕКТОРА)
+                // Санитизация позиции
                 const px = Number(prim.position?.x);
                 const py = Number(prim.position?.y);
                 const pz = Number(prim.position?.z);
@@ -90,17 +90,16 @@ class PhysicsManager {
                 
                 const posVec = new CANNON.Vec3(px, py, pz);
 
-                // 4. Санитизация вращения
+                // Санитизация вращения
                 const rx = THREE.MathUtils.degToRad(Number(prim.rotation?.tiltX) || 0);
                 const ry = THREE.MathUtils.degToRad(Number(prim.rotation?.tiltY) || 0);
                 const rz = THREE.MathUtils.degToRad(Number(prim.rotation?.twistZ) || 0);
                 
                 const q = new CANNON.Quaternion();
                 q.setFromEuler(rx, ry, rz);
-                // Нормализация кватерниона критически важна!
                 q.normalize();
 
-                // 5. Создание тела и ДОБАВЛЕНИЕ В МИР
+                // Создание тела
                 const body = new CANNON.Body({ 
                     mass: 0, 
                     material: this.defaultMaterial,
@@ -110,13 +109,13 @@ class PhysicsManager {
                 
                 body.addShape(shape);
                 
-                // ОБЕРТЫВАЕМ addBody В ОТДЕЛЬНЫЙ TRY-CATCH
+                // ДОБАВЛЕНИЕ В МИР С ЗАЩИТОЙ
                 this.world.addBody(body);
                 bodies.push(body);
                 
             } catch (e) {
                 if (errorCount < 3) {
-                    console.warn(`⚠️ Physics skip prim ${prim.type}:`, e.message);
+                    console.warn(`️ Physics skip prim ${prim.type}:`, e.message);
                 }
                 errorCount++;
             }
