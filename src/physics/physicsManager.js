@@ -42,7 +42,9 @@ class PhysicsManager {
 
     addChunkPrimitives(cx, cy, cz, primitives) {
         const bodies = [];
+        
         for (const prim of primitives) {
+            // 1. Быстрая фильтрация непроходимых объектов
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen' || prim.type === 'torus') continue;
             if (prim.type.includes('cable')) continue;
@@ -52,17 +54,15 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // Жесткая санитизация масштаба
+                // 2. Санитизация масштаба ДО создания формы
                 let sx = Number(prim.scale?.x);
                 let sy = Number(prim.scale?.y);
                 let sz = Number(prim.scale?.z);
 
-                // Если scale отсутствует или некорректен, используем дефолт 1
                 if (!isFinite(sx)) sx = 1;
                 if (!isFinite(sy)) sy = 1;
                 if (!isFinite(sz)) sz = 1;
 
-                // Берем модуль и гарантируем минимальный размер > 0
                 sx = Math.abs(sx);
                 sy = Math.abs(sy);
                 sz = Math.abs(sz);
@@ -72,44 +72,39 @@ class PhysicsManager {
                 if (sy < minSize) sy = minSize;
                 if (sz < minSize) sz = minSize;
 
-                // Создаем Vec3 явно через числа, а не через свойства объекта
-                const halfExtents = new CANNON.Vec3(sx / 2, sy / 2, sz / 2);
-                
-                // Проверяем, что Vec3 создался корректно
-                if (!isFinite(halfExtents.x) || !isFinite(halfExtents.y) || !isFinite(halfExtents.z)) {
-                    continue;
-                }
+                const hx = sx / 2;
+                const hy = sy / 2;
+                const hz = sz / 2;
 
-                let shape;
-                try {
-                    shape = new CANNON.Box(halfExtents);
-                } catch (e) {
-                    // Fallback: создаем коробку через Trimesh, если Box ломается
-                    const hx = sx / 2, hy = sy / 2, hz = sz / 2;
-                    const vertices = [
-                        -hx,-hy,-hz, hx,-hy,-hz, hx,hy,-hz, -hx,hy,-hz,
-                        -hx,-hy,hz, hx,-hy,hz, hx,hy,hz, -hx,hy,hz
-                    ];
-                    const indices = [
-                        0,1,2, 0,2,3, 4,6,5, 4,7,6,
-                        0,4,5, 0,5,1, 2,6,7, 2,7,3,
-                        0,3,7, 0,7,4, 1,5,6, 1,6,2
-                    ];
-                    shape = new CANNON.Trimesh(vertices, indices);
-                }
-
-                const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
+                // 3. Создаем ТОЛЬКО через Trimesh (обход бага CANNON.Box в ESM)
+                // Вершины куба (8 точек)
+                const vertices = [
+                    -hx,-hy,-hz,  hx,-hy,-hz,  hx, hy,-hz, -hx, hy,-hz,
+                    -hx,-hy, hz,  hx,-hy, hz,  hx, hy, hz, -hx, hy, hz
+                ];
+                // Индексы треугольников (12 треугольников для 6 граней)
+                const indices = [
+                    0,1,2, 0,2,3, // front
+                    4,6,5, 4,7,6, // back
+                    0,4,5, 0,5,1, // bottom
+                    2,6,7, 2,7,3, // top
+                    0,3,7, 0,7,4, // left
+                    1,5,6, 1,6,2  // right
+                ];
                 
-                // Позиция
-                const px = Number(prim.position?.x) || 0;
-                const py = Number(prim.position?.y) || 0;
-                const pz = Number(prim.position?.z) || 0;
+                const shape = new CANNON.Trimesh(vertices, indices);
+
+                // 4. Санитизация позиции ДО создания тела
+                const px = Number(prim.position?.x);
+                const py = Number(prim.position?.y);
+                const pz = Number(prim.position?.z);
                 
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
-                
+
+                // 5. Создание тела и установка параметров
+                const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
                 body.position.set(px, py, pz);
                 
-                // Вращение
                 const rx = Number(prim.rotation?.tiltX) || 0;
                 const ry = Number(prim.rotation?.tiltY) || 0;
                 const rz = Number(prim.rotation?.twistZ) || 0;
@@ -125,10 +120,15 @@ class PhysicsManager {
                 body.addShape(shape);
                 this.world.addBody(body);
                 bodies.push(body);
+                
             } catch (e) {
-                // Тихо пропускаем проблемные примитивы
+                // Тихо пропускаем проблемные примитивы, но логируем первые 3 ошибки для отладки
+                if (bodies.length < 3) {
+                    console.warn(`⚠️ Physics skip prim ${prim.type}:`, e.message);
+                }
             }
         }
+        
         this.chunkBodies.set(`${cx},${cy},${cz}`, bodies);
     }
 
