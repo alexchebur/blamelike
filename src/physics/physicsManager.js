@@ -20,17 +20,20 @@ class PhysicsManager {
     }
 
     createPlayerBody(position) {
-        // Используем Box вместо Cylinder для игрока, так как Cylinder часто вызывает проблемы в ESM-сборках
+        // Используем Box для игрока для максимальной совместимости
         const shape = new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)); 
         
         this.playerBody = new CANNON.Body({
             mass: 70,
             fixedRotation: true,
             material: this.defaultMaterial,
-            position: new CANNON.Vec3(position.x, position.y, position.z)
+            position: new CANNON.Vec3(
+                isFinite(position.x) ? position.x : 0,
+                isFinite(position.y) ? position.y : 50,
+                isFinite(position.z) ? position.z : 0
+            )
         });
         
-        // CCD критически важен для предотвращения проваливания
         this.playerBody.ccdSpeedThreshold = 0.1; 
         this.playerBody.ccdSweptSphereRadius = 0.4; 
         
@@ -42,9 +45,9 @@ class PhysicsManager {
 
     addChunkPrimitives(cx, cy, cz, primitives) {
         const bodies = [];
+        let errorCount = 0;
         
         for (const prim of primitives) {
-            // 1. Быстрая фильтрация непроходимых объектов
             if (prim.role === 'decor' || prim.role === 'micro') continue;
             if (prim.type === 'screen' || prim.type === 'torus') continue;
             if (prim.type.includes('cable')) continue;
@@ -54,78 +57,68 @@ class PhysicsManager {
             if (!isWalkable) continue;
 
             try {
-                // 2. Санитизация масштаба ДО создания формы
-                let sx = Number(prim.scale?.x);
-                let sy = Number(prim.scale?.y);
-                let sz = Number(prim.scale?.z);
-
-                if (!isFinite(sx)) sx = 1;
-                if (!isFinite(sy)) sy = 1;
-                if (!isFinite(sz)) sz = 1;
-
-                sx = Math.abs(sx);
-                sy = Math.abs(sy);
-                sz = Math.abs(sz);
+                // 1. Санитизация масштаба
+                let sx = Math.abs(Number(prim.scale?.x) || 1);
+                let sy = Math.abs(Number(prim.scale?.y) || 1);
+                let sz = Math.abs(Number(prim.scale?.z) || 1);
                 
                 const minSize = 0.05;
                 if (sx < minSize) sx = minSize;
                 if (sy < minSize) sy = minSize;
                 if (sz < minSize) sz = minSize;
 
-                const hx = sx / 2;
-                const hy = sy / 2;
-                const hz = sz / 2;
+                const hx = sx / 2, hy = sy / 2, hz = sz / 2;
 
-                // 3. Создаем ТОЛЬКО через Trimesh (обход бага CANNON.Box в ESM)
-                // Вершины куба (8 точек)
+                // 2. Создаем форму через Trimesh (обход бага Box)
                 const vertices = [
-                    -hx,-hy,-hz,  hx,-hy,-hz,  hx, hy,-hz, -hx, hy,-hz,
-                    -hx,-hy, hz,  hx,-hy, hz,  hx, hy, hz, -hx, hy, hz
+                    -hx,-hy,-hz, hx,-hy,-hz, hx, hy,-hz, -hx, hy,-hz,
+                    -hx,-hy, hz, hx,-hy, hz, hx, hy, hz, -hx, hy, hz
                 ];
-                // Индексы треугольников (12 треугольников для 6 граней)
                 const indices = [
-                    0,1,2, 0,2,3, // front
-                    4,6,5, 4,7,6, // back
-                    0,4,5, 0,5,1, // bottom
-                    2,6,7, 2,7,3, // top
-                    0,3,7, 0,7,4, // left
-                    1,5,6, 1,6,2  // right
+                    0,1,2, 0,2,3, 4,6,5, 4,7,6,
+                    0,4,5, 0,5,1, 2,6,7, 2,7,3,
+                    0,3,7, 0,7,4, 1,5,6, 1,6,2
                 ];
-                
                 const shape = new CANNON.Trimesh(vertices, indices);
 
-                // 4. Санитизация позиции ДО создания тела
+                // 3. Санитизация позиции (ЯВНОЕ СОЗДАНИЕ ВЕКТОРА)
                 const px = Number(prim.position?.x);
                 const py = Number(prim.position?.y);
                 const pz = Number(prim.position?.z);
                 
                 if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) continue;
-
-                // 5. Создание тела и установка параметров
-                const body = new CANNON.Body({ mass: 0, material: this.defaultMaterial });
-                body.position.set(px, py, pz);
                 
-                const rx = Number(prim.rotation?.tiltX) || 0;
-                const ry = Number(prim.rotation?.tiltY) || 0;
-                const rz = Number(prim.rotation?.twistZ) || 0;
+                const posVec = new CANNON.Vec3(px, py, pz);
+
+                // 4. Санитизация вращения
+                const rx = THREE.MathUtils.degToRad(Number(prim.rotation?.tiltX) || 0);
+                const ry = THREE.MathUtils.degToRad(Number(prim.rotation?.tiltY) || 0);
+                const rz = THREE.MathUtils.degToRad(Number(prim.rotation?.twistZ) || 0);
                 
                 const q = new CANNON.Quaternion();
-                q.setFromEuler(
-                    THREE.MathUtils.degToRad(rx),
-                    THREE.MathUtils.degToRad(ry),
-                    THREE.MathUtils.degToRad(rz)
-                );
-                body.quaternion.copy(q);
+                q.setFromEuler(rx, ry, rz);
+                // Нормализация кватерниона критически важна!
+                q.normalize();
+
+                // 5. Создание тела и ДОБАВЛЕНИЕ В МИР
+                const body = new CANNON.Body({ 
+                    mass: 0, 
+                    material: this.defaultMaterial,
+                    position: posVec,
+                    quaternion: q
+                });
                 
                 body.addShape(shape);
+                
+                // ОБЕРТЫВАЕМ addBody В ОТДЕЛЬНЫЙ TRY-CATCH
                 this.world.addBody(body);
                 bodies.push(body);
                 
             } catch (e) {
-                // Тихо пропускаем проблемные примитивы, но логируем первые 3 ошибки для отладки
-                if (bodies.length < 3) {
+                if (errorCount < 3) {
                     console.warn(`⚠️ Physics skip prim ${prim.type}:`, e.message);
                 }
+                errorCount++;
             }
         }
         
@@ -136,7 +129,11 @@ class PhysicsManager {
         const key = `${cx},${cy},${cz}`;
         const bodies = this.chunkBodies.get(key);
         if (bodies) {
-            bodies.forEach(b => this.world.removeBody(b));
+            try {
+                bodies.forEach(b => this.world.removeBody(b));
+            } catch (e) {
+                console.warn(`⚠️ Error removing chunk ${key}:`, e.message);
+            }
             this.chunkBodies.delete(key);
         }
     }
@@ -144,16 +141,22 @@ class PhysicsManager {
     step(dt) {
         if (!dt || !isFinite(dt) || dt <= 0) dt = 1/60;
         const safeDt = Math.min(dt, 0.1);
-        this.world.step(1/60, safeDt, 3);
+        try {
+            this.world.step(1/60, safeDt, 3);
+        } catch (e) {
+            console.error("❌ Physics step error:", e.message);
+        }
     }
 
     clear() {
         for (const [, bodies] of this.chunkBodies) {
-            bodies.forEach(b => this.world.removeBody(b));
+            try {
+                bodies.forEach(b => this.world.removeBody(b));
+            } catch (e) {}
         }
         this.chunkBodies.clear();
         if (this.playerBody) {
-            this.world.removeBody(this.playerBody);
+            try { this.world.removeBody(this.playerBody); } catch(e) {}
             this.playerBody = null;
         }
     }
