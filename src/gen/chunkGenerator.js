@@ -3,6 +3,7 @@
 import { createRNG, hash3D } from '../core/rng.js';
 import { chunkToBounds } from '../core/chunkKey.js';
 
+
 /**
  * Генерирует экраны под платформами
  */
@@ -112,77 +113,101 @@ function generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     return primitives;
 }
 
+
+
+/**
+ * Санитарный фильтр для примитивов.
+ * Гарантирует, что все данные корректны перед отправкой в физику/рендер.
+ * @param {Object} prim - Исходный примитив
+ * @returns {Object|null} Очищенный примитив или null, если данные невалидны
+ */
+function sanitizePrimitive(prim) {
+    if (!prim || !prim.position || !prim.scale) return null;
+    
+    // 1. Проверка координат на NaN/Infinity
+    const px = Number(prim.position.x);
+    const py = Number(prim.position.y);
+    const pz = Number(prim.position.z);
+    if (!isFinite(px) || !isFinite(py) || !isFinite(pz)) return null;
+
+    // 2. Проверка и нормализация масштаба
+    let sx = Math.abs(Number(prim.scale.x) || 1);
+    let sy = Math.abs(Number(prim.scale.y) || 1);
+    let sz = Math.abs(Number(prim.scale.z) || 1);
+    
+    // Минимальный размер для физического движка (Cannon-es ломается на < 0.01)
+    const MIN_SIZE = 0.05;
+    if (sx < MIN_SIZE) sx = MIN_SIZE;
+    if (sy < MIN_SIZE) sy = MIN_SIZE;
+    if (sz < MIN_SIZE) sz = MIN_SIZE;
+
+    // 3. Возвращаем безопасную копию объекта
+    return {
+        ...prim,
+        position: { x: px, y: py, z: pz },
+        scale: { x: sx, y: sy, z: sz },
+        rotation: {
+            tiltX: Number(prim.rotation?.tiltX) || 0,
+            tiltY: Number(prim.rotation?.tiltY) || 0,
+            twistZ: Number(prim.rotation?.twistZ) || 0
+        }
+    };
+}
+
 export function generateChunk(cx, cy, cz, seed, config) {
     const primitives = [];
     const chunkSeed = hash3D(cx, cy, cz, seed);
     const rng = createRNG(Math.floor(chunkSeed * 1000000));
     const bounds = chunkToBounds(cx, cy, cz, config.chunkSize);
     
-    // === КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Явный расчет cellSize ===
     const cellSize = config.chunkSize / config.gridSize;
     
     let instanceCount = 0;
     const maxInstances = config.maxInstancesPerChunk || 30000;
 
+    // Вспомогательная функция для безопасного добавления этапа
+    const addStage = (stageData) => {
+        if (instanceCount >= maxInstances) return;
+        
+        for (const rawPrim of stageData) {
+            if (instanceCount >= maxInstances) break;
+            
+            const cleanPrim = sanitizePrimitive(rawPrim);
+            if (cleanPrim) {
+                primitives.push(cleanPrim);
+                instanceCount++;
+            }
+        }
+    };
+
     // === ЭТАП A: Платформы + Лестницы ===
-    const platforms = generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize);
-    primitives.push(...platforms);
-    instanceCount += platforms.length;
+    addStage(generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize));
 
     // === ЭТАП B: Комнаты и стены ===
-    if (instanceCount < maxInstances) {
-        const rooms = generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...rooms);
-        instanceCount += rooms.length;
-    }
+    addStage(generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize));
 
     // === ЭТАП C: Мосты ===
-    if (instanceCount < maxInstances) {
-        const connections = generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...connections);
-        instanceCount += connections.length;
-    }
+    addStage(generateConnections(cx, cy, cz, seed, config, rng, bounds, cellSize));
 
     // === ЭТАП D: Монолиты ===
-    if (instanceCount < maxInstances) {
-        const mega = generateMegaStructures(cx, cy, cz, seed, config, rng, bounds);
-        primitives.push(...mega);
-        instanceCount += mega.length;
-    }
+    addStage(generateMegaStructures(cx, cy, cz, seed, config, rng, bounds));
 
     // === ЭТАП E: Протыкающие фигуры ===
-    if (instanceCount < maxInstances) {
-        const pierce = generatePierce(cx, cy, cz, seed, config, rng, bounds);
-        primitives.push(...pierce);
-        instanceCount += pierce.length;
-    }
+    addStage(generatePierce(cx, cy, cz, seed, config, rng, bounds));
 
     // === ЭТАП F.5: Арки ===
-    if (instanceCount < maxInstances) {
-        const arches = generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...arches);
-        instanceCount += arches.length;
-    }
+    addStage(generateArches(cx, cy, cz, seed, config, rng, bounds, cellSize));
     
     // === ЭТАП F: Декор ===
-    if (instanceCount < maxInstances) {
-        const decor = generateDecor(cx, cy, cz, seed, config, rng, bounds, cellSize);
-        primitives.push(...decor);
-        instanceCount += decor.length;
-    }
+    addStage(generateDecor(cx, cy, cz, seed, config, rng, bounds, cellSize));
 
     // === ЭТАП G: Экраны ===
-    if (instanceCount < maxInstances) {
-        const screens = generateScreens(cx, cy, cz, seed, config, rng, bounds);
-        primitives.push(...screens);
-        instanceCount += screens.length;
-    }
+    addStage(generateScreens(cx, cy, cz, seed, config, rng, bounds));
     
-    if (instanceCount < maxInstances) {
-        const underScreens = generateScreensUnderPlatforms(platforms, cx, cy, cz, seed, config, rng, bounds);
-        primitives.push(...underScreens);
-        instanceCount += underScreens.length;
-    }
+    // === ЭТАП H: Экраны под платформами ===
+    // Передаем уже очищенные платформы из Этапа A
+    const safePlatforms = primitives.filter(p => p.type === 'box' && p.role === 'frame');
+    addStage(generateScreensUnderPlatforms(safePlatforms, cx, cy, cz, seed, config, rng, bounds));
     
     return primitives;
 }
