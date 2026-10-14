@@ -20,7 +20,7 @@ class PhysicsManager {
     }
 
     createPlayerBody(position) {
-        // Используем Box для максимальной совместимости с UMD-сборкой
+        // Используем Box вместо Cylinder для максимальной совместимости
         const shape = new CANNON.Box(new CANNON.Vec3(0.4, 0.9, 0.4)); 
         
         this.playerBody = new CANNON.Body({
@@ -79,6 +79,8 @@ class PhysicsManager {
                     0,4,5, 0,5,1, 2,6,7, 2,7,3,
                     0,3,7, 0,7,4, 1,5,6, 1,6,2
                 ];
+                
+                // ВАЖНО: Если Trimesh упадет здесь, мы не создадим тело вообще
                 const shape = new CANNON.Trimesh(vertices, indices);
 
                 // Санитизация позиции
@@ -129,7 +131,12 @@ class PhysicsManager {
         const bodies = this.chunkBodies.get(key);
         if (bodies) {
             try {
-                bodies.forEach(b => this.world.removeBody(b));
+                // Безопасное удаление: проверяем, существует ли тело в мире
+                bodies.forEach(b => {
+                    if (b.world === this.world) {
+                        this.world.removeBody(b);
+                    }
+                });
             } catch (e) {
                 console.warn(`⚠️ Error removing chunk ${key}:`, e.message);
             }
@@ -144,18 +151,24 @@ class PhysicsManager {
             this.world.step(1/60, safeDt, 3);
         } catch (e) {
             console.error("❌ Physics step error:", e.message);
+            // Если шаг упал, пробуем сбросить мир (крайняя мера)
+            // this.world.broadphase.reset(); 
         }
     }
 
     clear() {
         for (const [, bodies] of this.chunkBodies) {
             try {
-                bodies.forEach(b => this.world.removeBody(b));
+                bodies.forEach(b => {
+                    if (b.world === this.world) this.world.removeBody(b);
+                });
             } catch (e) {}
         }
         this.chunkBodies.clear();
         if (this.playerBody) {
-            try { this.world.removeBody(this.playerBody); } catch(e) {}
+            try { 
+                if (this.playerBody.world === this.world) this.world.removeBody(this.playerBody); 
+            } catch(e) {}
             this.playerBody = null;
         }
     }
