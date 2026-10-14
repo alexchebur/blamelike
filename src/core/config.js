@@ -104,6 +104,7 @@ export const defaultConfig = {
     yMax: 100,
     viewChunksXY: 3,
     viewChunksZ: 2,
+    debugPhysics: true, // <-- Добавьте эту строку
     
     // Layout
     roomDensity: 0.55,
