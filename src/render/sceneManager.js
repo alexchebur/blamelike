@@ -81,6 +81,9 @@ class SceneManager {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.config.backgroundColor);
         this.updateFog();
+        this.collisionLayer = new THREE.Group();
+        this.collisionLayer.name = "CollisionLayer";
+        this.scene.add(this.collisionLayer); // <-- Эта строка обязательна!
         
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         this.camera.up.set(0, 1, 0); 
