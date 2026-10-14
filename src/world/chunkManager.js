@@ -197,23 +197,68 @@ class ChunkManager {
             this.cache.set(key, chunkData);
         }
 
+        // Обновляем логическую карту высот (для спавна и быстрой проверки пола)
         this.updateHeightMapForChunk(chunkData);
 
-        // 1. Визуальный слой
+        // 1. Визуальный слой (InstancedMesh)
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой (CANNON-ES)
-        // Cannon-es синхронен, просто добавляем примитивы напрямую
-        if (this.sceneManager.physicsManager) {
-            try {
-                this.sceneManager.physicsManager.addChunkPrimitives(cx, cy, cz, chunkData);
-            } catch (e) {
-                console.warn(`⚠️ Physics error in chunk ${key}:`, e.message);
+        // 2. Физический слой для Raycast (Collision Layer)
+        // Создаем упрощенные коллайдеры только для проходимых объектов
+        if (this.sceneManager.collisionLayer) {
+            const collisionGroup = new THREE.Group();
+            collisionGroup.name = `Collision_${key}`;
+            
+            // Материал невидимый, но участвует в Raycast
+            const debugMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x00ff00, 
+                visible: false,
+                side: THREE.DoubleSide
+            });
+
+            for (const prim of chunkData) {
+                // Фильтруем только то, на чем можно стоять
+                if (prim.role === 'decor' || prim.role === 'micro') continue;
+                if (prim.type === 'screen' || prim.type === 'torus') continue;
+                if (prim.type.includes('cable')) continue;
+                
+                const isWalkable = prim.type === 'box' || prim.type.includes('stair') || 
+                                   prim.type.includes('bridge') || prim.type === 'platform_stair';
+                
+                if (isWalkable) {
+                    // Создаем простой BoxGeometry для коллайдера
+                    const geometry = new THREE.BoxGeometry(
+                        Math.abs(prim.scale.x), 
+                        Math.abs(prim.scale.y), 
+                        Math.abs(prim.scale.z)
+                    );
+                    
+                    const mesh = new THREE.Mesh(geometry, debugMaterial);
+                    mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
+                    
+                    // Применяем вращение
+                    mesh.rotation.set(
+                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
+                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
+                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                    );
+                    
+                    // Помечаем лестницы для логики игрока
+                    if (prim.type.includes('stair')) {
+                        mesh.userData.isLadder = true;
+                    }
+                    
+                    collisionGroup.add(mesh);
+                }
             }
+            
+            this.sceneManager.collisionLayer.add(collisionGroup);
+            // Сохраняем ссылку на группу коллизий, чтобы удалить её при выгрузке чанка
+            group.userData.collisionGroup = collisionGroup;
         }
 
         // 3. Экраны
@@ -225,18 +270,22 @@ class ChunkManager {
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
+                // Удаляем визуальный меш
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
                 
-                // Удаляем физические тела из Cannon-es
-                if (this.sceneManager.physicsManager) {
-                    try {
-                        const { cx, cy, cz } = parseChunkKey(key);
-                        this.sceneManager.physicsManager.removeChunk(cx, cy, cz);
-                    } catch (e) {
-                        console.warn(`⚠️ Physics removal error for ${key}:`, e.message);
-                    }
+                // === УДАЛЕНИЕ ФИЗИЧЕСКОГО СЛОЯ (COLLISION LAYER) ===
+                if (chunk.userData.collisionGroup && this.sceneManager.collisionLayer) {
+                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionGroup);
+                    
+                    // Освобождаем память геометрии коллайдеров
+                    chunk.userData.collisionGroup.traverse((child) => {
+                        if (child.isMesh && child.geometry) {
+                            child.geometry.dispose();
+                        }
+                    });
                 }
+                // ==================================================
                 
                 if (this.sceneManager.screenManager) {
                     this.unregisterScreens(key);
