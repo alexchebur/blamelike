@@ -197,7 +197,6 @@ class ChunkManager {
             this.cache.set(key, chunkData);
         }
 
-        // Обновляем логическую карту высот (для спавна и быстрой проверки пола)
         this.updateHeightMapForChunk(chunkData);
 
         // 1. Визуальный слой (InstancedMesh)
@@ -207,58 +206,75 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой для Raycast (Collision Layer)
-        // Создаем упрощенные коллайдеры только для проходимых объектов
+        // 2. Физический слой для Raycast + Debug Visuals
+        // Создаем ОДИН InstancedMesh для всех коллайдеров чанка вместо тысяч отдельных мешей
         if (this.sceneManager.collisionLayer) {
-            const collisionGroup = new THREE.Group();
-            collisionGroup.name = `Collision_${key}`;
-            
-            // Материал невидимый, но участвует в Raycast
-            const debugMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x00ff00, 
-                visible: false,
-                side: THREE.DoubleSide
-            });
+            const walkablePrims = chunkData.filter(p => 
+                p.role !== 'decor' && p.role !== 'micro' &&
+                p.type !== 'screen' && p.type !== 'torus' &&
+                !p.type.includes('cable') &&
+                (p.type === 'box' || p.type.includes('stair') || p.type.includes('bridge') || p.type === 'platform_stair')
+            );
 
-            for (const prim of chunkData) {
-                // Фильтруем только то, на чем можно стоять
-                if (prim.role === 'decor' || prim.role === 'micro') continue;
-                if (prim.type === 'screen' || prim.type === 'torus') continue;
-                if (prim.type.includes('cable')) continue;
+            if (walkablePrims.length > 0) {
+                // Общая геометрия бокса 1x1x1
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                const isWalkable = prim.type === 'box' || prim.type.includes('stair') || 
-                                   prim.type.includes('bridge') || prim.type === 'platform_stair';
-                
-                if (isWalkable) {
-                    // Создаем простой BoxGeometry для коллайдера
-                    const geometry = new THREE.BoxGeometry(
-                        Math.abs(prim.scale.x), 
-                        Math.abs(prim.scale.y), 
-                        Math.abs(prim.scale.z)
-                    );
-                    
-                    const mesh = new THREE.Mesh(geometry, debugMaterial);
-                    mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
-                    
-                    // Применяем вращение
-                    mesh.rotation.set(
+                // Материал для Raycast (невидимый, но участвует в пересечениях)
+                const collisionMaterial = new THREE.MeshBasicMaterial({ 
+                    visible: false,
+                    colorWrite: false,
+                    depthWrite: true 
+                });
+
+                // Материал для Debug Wireframe (видимый)
+                const debugMaterial = new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff88, 
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.3
+                });
+
+                const instancedMesh = new THREE.InstancedMesh(geometry, collisionMaterial, walkablePrims.length);
+                instancedMesh.name = `Collision_${key}`;
+                instancedMesh.frustumCulled = false; // Важно для инстансов внутри группы
+
+                const dummy = new THREE.Object3D();
+                for (let i = 0; i < walkablePrims.length; i++) {
+                    const prim = walkablePrims[i];
+                    dummy.position.set(prim.position.x, prim.position.y, prim.position.z);
+                    dummy.rotation.set(
                         THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
                         THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
                         THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
                     );
-                    
-                    // Помечаем лестницы для логики игрока
-                    if (prim.type.includes('stair')) {
-                        mesh.userData.isLadder = true;
-                    }
-                    
-                    collisionGroup.add(mesh);
+                    dummy.scale.set(
+                        Math.abs(prim.scale.x),
+                        Math.abs(prim.scale.y),
+                        Math.abs(prim.scale.z)
+                    );
+                    dummy.updateMatrix();
+                    instancedMesh.setMatrixAt(i, dummy.matrix);
                 }
+                instancedMesh.instanceMatrix.needsUpdate = true;
+
+                // Добавляем невидимый меш для физики
+                this.sceneManager.collisionLayer.add(instancedMesh);
+                
+                // Если включен дебаг, добавляем ВИДИМЫЙ wireframe поверх
+                if (config.debugPhysics) {
+                    const debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
+                    debugMesh.instanceMatrix.copy(instancedMesh.instanceMatrix);
+                    debugMesh.frustumCulled = false;
+                    this.sceneManager.scene.add(debugMesh);
+                    
+                    // Сохраняем ссылку на дебаг-меш, чтобы удалить его потом
+                    instancedMesh.userData.debugMesh = debugMesh;
+                }
+
+                // Сохраняем ссылку на физический меш в группе чанка для удаления
+                group.userData.collisionMesh = instancedMesh;
             }
-            
-            this.sceneManager.collisionLayer.add(collisionGroup);
-            // Сохраняем ссылку на группу коллизий, чтобы удалить её при выгрузке чанка
-            group.userData.collisionGroup = collisionGroup;
         }
 
         // 3. Экраны
@@ -274,18 +290,21 @@ class ChunkManager {
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
                 
-                // === УДАЛЕНИЕ ФИЗИЧЕСКОГО СЛОЯ (COLLISION LAYER) ===
-                if (chunk.userData.collisionGroup && this.sceneManager.collisionLayer) {
-                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionGroup);
+                // === УДАЛЕНИЕ ФИЗИЧЕСКОГО СЛОЯ ===
+                if (chunk.userData.collisionMesh && this.sceneManager.collisionLayer) {
+                    // Удаляем основной невидимый меш из collisionLayer
+                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionMesh);
+                    chunk.userData.collisionMesh.geometry.dispose();
+                    chunk.userData.collisionMesh.material.dispose();
                     
-                    // Освобождаем память геометрии коллайдеров
-                    chunk.userData.collisionGroup.traverse((child) => {
-                        if (child.isMesh && child.geometry) {
-                            child.geometry.dispose();
-                        }
-                    });
+                    // Удаляем дебаг-меш из сцены, если он есть
+                    if (chunk.userData.collisionMesh.userData.debugMesh) {
+                        this.sceneManager.scene.remove(chunk.userData.collisionMesh.userData.debugMesh);
+                        chunk.userData.collisionMesh.userData.debugMesh.geometry.dispose();
+                        chunk.userData.collisionMesh.userData.debugMesh.material.dispose();
+                    }
                 }
-                // ==================================================
+                // ============================
                 
                 if (this.sceneManager.screenManager) {
                     this.unregisterScreens(key);
