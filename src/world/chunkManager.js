@@ -197,31 +197,6 @@ class ChunkManager {
             this.cache.set(key, chunkData);
         }
 
-        this.updateHeightMapForChunk(chunkData);
-
-        // 1. Визуальный слой
-        const group = this.createChunkMesh(chunkData, config);
-        group.userData.primitives = chunkData; 
-        
-        this.activeChunks.set(key, group);
-        this.sceneManager.scene.add(group);
-
-        // 2. Физический слой (ТОЛЬКО ДЛЯ ПРОХОДИМЫХ ОБЪЕКТОВ)
-        if (this.sceneManager.collisionLayer) {
-            const collisionGroup = new THREE.Group();
-            collisionGroup.name = `Collision_${key}`;
-            
-            // Материал для дебага (видимый wireframe) или невидимый для продакшена
-            const debugMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x00ff88,     loadChunk(cx, cy, cz, config, cameraPos) {
-        const key = createChunkKey(cx, cy, cz);
-        let chunkData = this.cache.get(key);
-        
-        if (!chunkData) {
-            chunkData = generateChunk(cx, cy, cz, config.seed, config);
-            this.cache.set(key, chunkData);
-        }
-
         // Обновляем логическую карту высот (для спавна и быстрой проверки пола)
         this.updateHeightMapForChunk(chunkData);
 
@@ -306,14 +281,13 @@ class ChunkManager {
                 group.userData.physicsMesh = physicsMesh;
                 if (debugMesh) group.userData.debugMesh = debugMesh;
             }
-        }
+        } // <-- ЭТА СКОБКА ЗАКРЫВАЕТ БЛОК collisionLayer
 
         // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
-    }
-
+    } // <-- ЭТА СКОБКА ЗАКРЫВАЕТ МЕТОД loadChunk
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
