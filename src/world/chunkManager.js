@@ -199,82 +199,66 @@ class ChunkManager {
 
         this.updateHeightMapForChunk(chunkData);
 
-        // 1. Визуальный слой (InstancedMesh)
+        // 1. Визуальный слой
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой для Raycast + Debug Visuals
-        // Создаем ОДИН InstancedMesh для всех коллайдеров чанка вместо тысяч отдельных мешей
+        // 2. Физический слой (ТОЛЬКО ДЛЯ ПРОХОДИМЫХ ОБЪЕКТОВ)
         if (this.sceneManager.collisionLayer) {
-            const walkablePrims = chunkData.filter(p => 
-                p.role !== 'decor' && p.role !== 'micro' &&
-                p.type !== 'screen' && p.type !== 'torus' &&
-                !p.type.includes('cable') &&
-                (p.type === 'box' || p.type.includes('stair') || p.type.includes('bridge') || p.type === 'platform_stair')
-            );
+            const collisionGroup = new THREE.Group();
+            collisionGroup.name = `Collision_${key}`;
+            
+            // Материал для дебага (видимый wireframe) или невидимый для продакшена
+            const debugMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x00ff88, 
+                wireframe: true,
+                transparent: true,
+                opacity: 0.3
+            });
 
-            if (walkablePrims.length > 0) {
-                // Общая геометрия бокса 1x1x1
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
+            for (const prim of chunkData) {
+                // === КРИТИЧЕСКАЯ ФИЛЬТРАЦИЯ ===
+                // Создаем физику ТОЛЬКО для основных структурных элементов
+                const isWalkable = 
+                    prim.type === 'box' || 
+                    prim.type.includes('stair') || 
+                    prim.type.includes('bridge') || 
+                    prim.type === 'platform_stair';
+
+                // Исключаем декор, экраны, кабели и торусы из физики
+                if (!isWalkable) continue;
+                if (prim.role === 'decor' || prim.role === 'micro') continue;
+                if (prim.type === 'screen' || prim.type === 'torus') continue;
+                if (prim.type.includes('cable')) continue;
+                // ==============================
+
+                const geometry = new THREE.BoxGeometry(
+                    Math.abs(prim.scale.x), 
+                    Math.abs(prim.scale.y), 
+                    Math.abs(prim.scale.z)
+                );
                 
-                // Материал для Raycast (невидимый, но участвует в пересечениях)
-                const collisionMaterial = new THREE.MeshBasicMaterial({ 
-                    visible: false,
-                    colorWrite: false,
-                    depthWrite: true 
-                });
-
-                // Материал для Debug Wireframe (видимый)
-                const debugMaterial = new THREE.MeshBasicMaterial({ 
-                    color: 0x00ff88, 
-                    wireframe: true,
-                    transparent: true,
-                    opacity: 0.3
-                });
-
-                const instancedMesh = new THREE.InstancedMesh(geometry, collisionMaterial, walkablePrims.length);
-                instancedMesh.name = `Collision_${key}`;
-                instancedMesh.frustumCulled = false; // Важно для инстансов внутри группы
-
-                const dummy = new THREE.Object3D();
-                for (let i = 0; i < walkablePrims.length; i++) {
-                    const prim = walkablePrims[i];
-                    dummy.position.set(prim.position.x, prim.position.y, prim.position.z);
-                    dummy.rotation.set(
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
-                    );
-                    dummy.scale.set(
-                        Math.abs(prim.scale.x),
-                        Math.abs(prim.scale.y),
-                        Math.abs(prim.scale.z)
-                    );
-                    dummy.updateMatrix();
-                    instancedMesh.setMatrixAt(i, dummy.matrix);
-                }
-                instancedMesh.instanceMatrix.needsUpdate = true;
-
-                // Добавляем невидимый меш для физики
-                this.sceneManager.collisionLayer.add(instancedMesh);
+                const mesh = new THREE.Mesh(geometry, debugMaterial);
+                mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
                 
-                // Если включен дебаг, добавляем ВИДИМЫЙ wireframe поверх
-                if (config.debugPhysics) {
-                    const debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
-                    debugMesh.instanceMatrix.copy(instancedMesh.instanceMatrix);
-                    debugMesh.frustumCulled = false;
-                    this.sceneManager.scene.add(debugMesh);
-                    
-                    // Сохраняем ссылку на дебаг-меш, чтобы удалить его потом
-                    instancedMesh.userData.debugMesh = debugMesh;
+                mesh.rotation.set(
+                    THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
+                    THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
+                    THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                );
+                
+                if (prim.type.includes('stair')) {
+                    mesh.userData.isLadder = true;
                 }
-
-                // Сохраняем ссылку на физический меш в группе чанка для удаления
-                group.userData.collisionMesh = instancedMesh;
+                
+                collisionGroup.add(mesh);
             }
+            
+            this.sceneManager.collisionLayer.add(collisionGroup);
+            group.userData.collisionGroup = collisionGroup;
         }
 
         // 3. Экраны
