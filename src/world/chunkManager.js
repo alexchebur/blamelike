@@ -213,52 +213,99 @@ class ChunkManager {
             
             // Материал для дебага (видимый wireframe) или невидимый для продакшена
             const debugMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0x00ff88, 
-                wireframe: true,
-                transparent: true,
-                opacity: 0.3
-            });
+                color: 0x00ff88,     loadChunk(cx, cy, cz, config, cameraPos) {
+        const key = createChunkKey(cx, cy, cz);
+        let chunkData = this.cache.get(key);
+        
+        if (!chunkData) {
+            chunkData = generateChunk(cx, cy, cz, config.seed, config);
+            this.cache.set(key, chunkData);
+        }
 
-            for (const prim of chunkData) {
-                // === КРИТИЧЕСКАЯ ФИЛЬТРАЦИЯ ===
-                // Создаем физику ТОЛЬКО для основных структурных элементов
-                const isWalkable = 
-                    prim.type === 'box' || 
-                    prim.type.includes('stair') || 
-                    prim.type.includes('bridge') || 
-                    prim.type === 'platform_stair';
+        // Обновляем логическую карту высот (для спавна и быстрой проверки пола)
+        this.updateHeightMapForChunk(chunkData);
 
-                // Исключаем декор, экраны, кабели и торусы из физики
-                if (!isWalkable) continue;
-                if (prim.role === 'decor' || prim.role === 'micro') continue;
-                if (prim.type === 'screen' || prim.type === 'torus') continue;
-                if (prim.type.includes('cable')) continue;
-                // ==============================
+        // 1. Визуальный слой (InstancedMesh для рендера мира)
+        const group = this.createChunkMesh(chunkData, config);
+        group.userData.primitives = chunkData; 
+        
+        this.activeChunks.set(key, group);
+        this.sceneManager.scene.add(group);
 
-                const geometry = new THREE.BoxGeometry(
-                    Math.abs(prim.scale.x), 
-                    Math.abs(prim.scale.y), 
-                    Math.abs(prim.scale.z)
-                );
+        // 2. Физический слой + Debug Visuals (ОПТИМИЗИРОВАННЫЙ)
+        if (this.sceneManager.collisionLayer) {
+            // Фильтруем только проходимые объекты для физики
+            const walkablePrims = chunkData.filter(p => 
+                p.role !== 'decor' && p.role !== 'micro' &&
+                p.type !== 'screen' && p.type !== 'torus' &&
+                !p.type.includes('cable') &&
+                (p.type === 'box' || p.type.includes('stair') || p.type.includes('bridge') || p.type === 'platform_stair')
+            );
+
+            if (walkablePrims.length > 0) {
+                // Общая геометрия бокса 1x1x1 (будет масштабироваться матрицей)
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                const mesh = new THREE.Mesh(geometry, debugMaterial);
-                mesh.position.set(prim.position.x, prim.position.y, prim.position.z);
-                
-                mesh.rotation.set(
-                    THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
-                    THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
-                    THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
-                );
-                
-                if (prim.type.includes('stair')) {
-                    mesh.userData.isLadder = true;
+                // А) НЕВИДИМЫЙ слой для ФИЗИКИ (Raycast работает только с ним)
+                const collisionMaterial = new THREE.MeshBasicMaterial({ 
+                    visible: false,       // Не рисуется
+                    colorWrite: false,    // Не пишет в буфер цвета
+                    depthWrite: true      // Но участвует в Z-буфере и Raycast
+                });
+
+                const physicsMesh = new THREE.InstancedMesh(geometry, collisionMaterial, walkablePrims.length);
+                physicsMesh.name = `Physics_${key}`;
+                physicsMesh.frustumCulled = false; // Важно для инстансов внутри группы
+
+                // Б) ВИДИМЫЙ слой для ОТЛАДКИ (Raycaster его ИГНОРИРУЕТ)
+                let debugMesh = null;
+                if (config.debugPhysics) {
+                    const debugMaterial = new THREE.MeshBasicMaterial({ 
+                        color: 0x00ff88, 
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0.4
+                    });
+                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
+                    debugMesh.name = `Debug_${key}`;
+                    debugMesh.frustumCulled = false;
+                    
+                    // КЛЮЧЕВОЕ: Отключаем проверку пересечений для дебаг-меша
+                    debugMesh.raycast = () => {}; 
+                    
+                    this.sceneManager.scene.add(debugMesh);
                 }
+
+                // Заполняем матрицы инстансов
+                const dummy = new THREE.Object3D();
+                for (let i = 0; i < walkablePrims.length; i++) {
+                    const prim = walkablePrims[i];
+                    dummy.position.set(prim.position.x, prim.position.y, prim.position.z);
+                    dummy.rotation.set(
+                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
+                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
+                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                    );
+                    dummy.scale.set(
+                        Math.abs(prim.scale.x),
+                        Math.abs(prim.scale.y),
+                        Math.abs(prim.scale.z)
+                    );
+                    dummy.updateMatrix();
+                    
+                    physicsMesh.setMatrixAt(i, dummy.matrix);
+                    if (debugMesh) debugMesh.setMatrixAt(i, dummy.matrix);
+                }
+                physicsMesh.instanceMatrix.needsUpdate = true;
+                if (debugMesh) debugMesh.instanceMatrix.needsUpdate = true;
+
+                // Добавляем ТОЛЬКО невидимый меш в слой коллизий
+                this.sceneManager.collisionLayer.add(physicsMesh);
                 
-                collisionGroup.add(mesh);
+                // Сохраняем ссылки для удаления при выгрузке чанка
+                group.userData.physicsMesh = physicsMesh;
+                if (debugMesh) group.userData.debugMesh = debugMesh;
             }
-            
-            this.sceneManager.collisionLayer.add(collisionGroup);
-            group.userData.collisionGroup = collisionGroup;
         }
 
         // 3. Экраны
@@ -275,18 +322,17 @@ class ChunkManager {
                 this.disposeChunk(chunk);
                 
                 // === УДАЛЕНИЕ ФИЗИЧЕСКОГО СЛОЯ ===
-                if (chunk.userData.collisionMesh && this.sceneManager.collisionLayer) {
-                    // Удаляем основной невидимый меш из collisionLayer
-                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionMesh);
-                    chunk.userData.collisionMesh.geometry.dispose();
-                    chunk.userData.collisionMesh.material.dispose();
-                    
-                    // Удаляем дебаг-меш из сцены, если он есть
-                    if (chunk.userData.collisionMesh.userData.debugMesh) {
-                        this.sceneManager.scene.remove(chunk.userData.collisionMesh.userData.debugMesh);
-                        chunk.userData.collisionMesh.userData.debugMesh.geometry.dispose();
-                        chunk.userData.collisionMesh.userData.debugMesh.material.dispose();
-                    }
+                if (chunk.userData.physicsMesh && this.sceneManager.collisionLayer) {
+                    this.sceneManager.collisionLayer.remove(chunk.userData.physicsMesh);
+                    chunk.userData.physicsMesh.geometry.dispose();
+                    chunk.userData.physicsMesh.material.dispose();
+                }
+                
+                // === УДАЛЕНИЕ DEBUG СЛОЯ ===
+                if (chunk.userData.debugMesh) {
+                    this.sceneManager.scene.remove(chunk.userData.debugMesh);
+                    chunk.userData.debugMesh.geometry.dispose();
+                    chunk.userData.debugMesh.material.dispose();
                 }
                 // ============================
                 
