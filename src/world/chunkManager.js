@@ -210,67 +210,87 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой (RAYCAST) - СОЗДАНИЕ КОЛЛАЙДЕРОВ
+        // 2. Физический слой (RAYCAST) - ИСПРАВЛЕННАЯ ЛОГИКА
         if (this.sceneManager.collisionLayer) {
-            // Фильтруем проходимые объекты
-            const walkablePrims = chunkData.filter(p => 
-                p.role !== 'decor' && p.role !== 'micro' &&
-                p.type !== 'screen' && p.type !== 'torus' &&
-                !p.type.includes('cable') &&
-                (p.type === 'box' || p.type.includes('stair') || p.type.includes('bridge') || p.type === 'platform_stair')
-            );
+            const collisionGroup = new THREE.Group();
+            collisionGroup.name = `Collision_${key}`;
+            
+            // Материал невидимый, но участвует в Raycast
+            const debugMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x00ff88, 
+                wireframe: true,
+                transparent: true,
+                opacity: 0.3,
+                visible: config.debugPhysics // Показываем только если включен дебаг
+            });
+            
+            // Невидимый материал для физики
+            const physicsMaterial = new THREE.MeshBasicMaterial({ 
+                visible: false,
+                colorWrite: false,
+                depthWrite: true
+            });
 
-            if (walkablePrims.length > 0) {
-                // Создаем один InstancedMesh для всех коллайдеров чанка (оптимизация)
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
-                // Материал невидимый, но участвует в Raycast
-                const material = new THREE.MeshBasicMaterial({ 
-                    visible: false, 
-                    colorWrite: false,
-                    depthWrite: true
-                });
+            for (const prim of chunkData) {
+                // Фильтрация непроходимых объектов
+                if (prim.role === 'decor' || prim.role === 'micro') continue;
+                if (prim.type === 'screen' || prim.type === 'torus') continue;
+                if (prim.type.includes('cable')) continue;
                 
-                const collisionMesh = new THREE.InstancedMesh(geometry, material, walkablePrims.length);
-                collisionMesh.name = `Collision_${key}`;
-                collisionMesh.frustumCulled = false; // Важно для инстансов
+                const isWalkable = prim.type === 'box' || prim.type.includes('stair') || 
+                                   prim.type.includes('bridge') || prim.type === 'platform_stair';
+                if (!isWalkable) continue;
 
-                const dummy = new THREE.Object3D();
-                for (let i = 0; i < walkablePrims.length; i++) {
-                    const prim = walkablePrims[i];
-                    
-                    // Корректировка для лестниц (как обсуждали ранее)
-                    let sy = Math.abs(prim.scale.y);
-                    let py = prim.position.y;
-                    
-                    if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        const thickness = config.platformThickness || 0.5;
-                        sy = thickness;
-                        py = prim.position.y + (thickness / 2);
-                    }
+                // === КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Корректировка размеров для лестниц ===
+                let physScale = { ...prim.scale };
+                let physPos = { ...prim.position };
 
-                    dummy.position.set(prim.position.x, py, prim.position.z);
-                    dummy.rotation.set(
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
-                    );
-                    dummy.scale.set(Math.abs(prim.scale.x), sy, Math.abs(prim.scale.z));
-                    dummy.updateMatrix();
+                if (prim.type.includes('stair') || prim.type === 'platform_stair') {
+                    // Для лестниц используем ТОЛЬКО толщину платформы, а не всю высоту уровня
+                    const thickness = config.platformThickness || 0.5;
                     
-                    collisionMesh.setMatrixAt(i, dummy.matrix);
-                    
-                    // Помечаем лестницы в userData (для InstancedMesh это сложнее, 
-                    // но для простоты пока оставим так, либо можно использовать отдельный массив)
-                    // Для Raycast по InstancedMesh Three.js возвращает instanceId
+                    // В генераторе position.y = yBase (низ объекта)
+                    // Центр коллайдера должен быть на yBase + thickness / 2
+                    physPos.y = prim.position.y + (thickness / 2);
+                    physScale.y = thickness;
+                    // X и Z оставляем как есть (размер клетки)
                 }
-                collisionMesh.instanceMatrix.needsUpdate = true;
-                
-                // Сохраняем данные о типах инстансов для проверки лестниц
-                collisionMesh.userData.primTypes = walkablePrims.map(p => p.type);
+                // =============================================================
 
-                this.sceneManager.collisionLayer.add(collisionMesh);
-                group.userData.collisionMesh = collisionMesh; // Ссылка для удаления
+                const geometry = new THREE.BoxGeometry(
+                    Math.abs(physScale.x), 
+                    Math.abs(physScale.y), 
+                    Math.abs(physScale.z)
+                );
+                
+                // Создаем невидимый меш для физики
+                const mesh = new THREE.Mesh(geometry, physicsMaterial);
+                mesh.position.set(physPos.x, physPos.y, physPos.z);
+                mesh.rotation.set(
+                    THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
+                    THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
+                    THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                );
+                
+                // Помечаем лестницы для логики игрока
+                if (prim.type.includes('stair')) {
+                    mesh.userData.isLadder = true;
+                }
+                
+                collisionGroup.add(mesh);
+
+                // Если включен дебаг, добавляем видимый wireframe поверх
+                if (config.debugPhysics) {
+                    const debugMesh = new THREE.Mesh(geometry, debugMaterial);
+                    debugMesh.position.copy(mesh.position);
+                    debugMesh.rotation.copy(mesh.rotation);
+                    debugMesh.scale.copy(mesh.scale);
+                    collisionGroup.add(debugMesh);
+                }
             }
+            
+            this.sceneManager.collisionLayer.add(collisionGroup);
+            group.userData.collisionGroup = collisionGroup;
         }
 
         // 3. Экраны
@@ -278,7 +298,6 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
-
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
