@@ -72,28 +72,22 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
+// src/physics/playerController.js
+
     updateVerticalPhysics(dt, nextX, nextZ) {
         const collisionLayer = this.sceneManager.collisionLayer;
         if (!collisionLayer) return;
 
-        // === АЛГОРИТМ SWEPT RAYCAST (Защита от проваливания) ===
-        
-        // Текущая позиция ног
         const feetY = this.position.y - (this.playerHeight / 2);
-        
-        // Если мы падаем, луч должен начинаться ВЫШЕ и идти ВНИЗ на расстояние скорости
-        // Это позволяет "догнать" пол, даже если мы пролетели сквозь него за прошлый кадр
         let rayOriginY = feetY;
-        let rayDistance = this.playerHeight + 1.0; // Стандартная дистанция проверки
-        
+        let rayDistance = this.playerHeight + 1.0;
+
         if (this.isFalling) {
-            // Увеличиваем длину луча на величину падения за этот кадр + запас
             const fallDistance = Math.abs(this.velocity.y * dt);
-            rayOriginY = feetY + fallDistance + 0.5; // Начинаем выше
-            rayDistance = fallDistance + this.playerHeight + 1.0; // Луч длиннее
+            rayOriginY = feetY + fallDistance + 0.5;
+            rayDistance = fallDistance + this.playerHeight + 1.0;
         }
 
-        // Проверяем 4 точки вокруг игрока (квадрат) + центр
         const offsets = [
             { x: 0, z: 0 },
             { x: this.playerRadius, z: this.playerRadius },
@@ -112,26 +106,58 @@ class PlayerController {
             this.raycaster.far = rayDistance;
             this.raycaster.near = 0;
 
-            // intersectObjects с recursive: true критически важен для Group и InstancedMesh
-            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
+            // intersectObjects теперь будет находить InstancedMesh
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false); // false, т.к. дети - это уже меши
 
             if (intersects.length > 0) {
-                // Берем ближайшее пересечение
                 const hit = intersects[0];
                 
-                // Проверяем, что удар пришелся в верхнюю грань (нормаль смотрит вверх)
-                // Или просто что точка удара выше текущего низа игрока
-                if (hit.point.y > hitFloorY) {
-                    hitFloorY = hit.point.y;
-                    hasHit = true;
-                    
-                    // Проверка на лестницу (если у объекта есть userData)
-                    if (hit.object.userData && hit.object.userData.isLadder) {
+                // Проверка на лестницу через instanceId
+                if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
+                    const primType = hit.object.userData.primTypes[hit.instanceId];
+                    if (primType && primType.includes('stair')) {
                         hitLadder = true;
                     }
                 }
+
+                if (hit.point.y > hitFloorY) {
+                    hitFloorY = hit.point.y;
+                    hasHit = true;
+                }
             }
         }
+
+        if (hasHit) {
+            const floorLevel = hitFloorY + (this.playerHeight / 2);
+            if (this.isFalling || this.position.y <= floorLevel + 0.1) {
+                this.onGround = true;
+                this.isFalling = false;
+                this.velocity.y = 0;
+                if (Math.abs(this.position.y - floorLevel) > 0.01) {
+                    this.position.y = floorLevel;
+                }
+            }
+            this.onLadder = hitLadder;
+            if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                const climbDir = this.moveForward ? 1 : -1;
+                this.position.y += climbDir * this.climbSpeed * dt;
+                this.velocity.y = 0;
+            }
+        } else {
+            this.onGround = false;
+            this.onLadder = false;
+            this.isFalling = true;
+            this.velocity.y -= this.gravity * dt;
+            if (this.velocity.y < -this.maxFallSpeed) {
+                this.velocity.y = -this.maxFallSpeed;
+            }
+            this.position.y += this.velocity.y * dt;
+            if (this.position.y < -100) {
+                this.position.set(0, 50, 0);
+                this.velocity.set(0, 0, 0);
+            }
+        }
+    }
 
         // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
 
