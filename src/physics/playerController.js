@@ -22,8 +22,8 @@ class PlayerController {
         // Физические константы
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = config.moveSpeed || 15.0;
-        this.fallSpeed = config.fallSpeed || 25.0;
-        this.gravity = config.gravity || 9.8;
+        this.gravity = config.gravity || 30.0; // Увеличена для более четкого ощущения падения
+        this.maxFallDistance = 5.0; // Максимальная дистанция "шага" вниз без падения
     }
 
     update(deltaTime, camera) {
@@ -50,24 +50,40 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола через HeightMap (Быстро и точно!)
-        this.checkGroundWithHeightMap(nextX, nextZ);
+        // 2. Проверка пола с учетом ТЕКУЩЕЙ ВЫСОТЫ игрока
+        const floorHeight = this.getFloorHeightAtLevel(nextX, nextZ, this.position.y);
 
         // 3. Вертикальное движение
-        if (this.onGround) {
-            this.isFalling = false;
-            this.velocity.y = 0;
-            // Жесткая привязка к высоте платформы + половина роста игрока
-            const floorHeight = this.getFloorHeight(nextX, nextZ);
-            if (floorHeight !== null) {
+        if (floorHeight !== null) {
+            const distToFloor = this.position.y - (floorHeight + this.playerHeight / 2);
+            
+            // Если мы близко к полу (в пределах шага или падения)
+            if (distToFloor >= -0.1 && distToFloor <= this.maxFallDistance) {
+                this.onGround = true;
+                this.isFalling = false;
+                this.velocity.y = 0;
+                // Плавная коррекция позиции, а не телепортация
                 this.position.y = floorHeight + (this.playerHeight / 2);
+            } else if (distToFloor < -0.1) {
+                // Мы ЗАСТРЯЛИ В ПОЛУ (например, после спуска по лестнице)
+                this.onGround = true;
+                this.position.y = floorHeight + (this.playerHeight / 2);
+            } else {
+                // Пол слишком далеко внизу -> падаем
+                this.onGround = false;
+                this.isFalling = true;
             }
         } else {
+            // Пола нет вообще -> падаем
+            this.onGround = false;
             this.isFalling = true;
-            this.velocity.y -= this.gravity * dt; // Простая гравитация
+        }
+
+        if (this.isFalling) {
+            this.velocity.y -= this.gravity * dt;
             this.position.y += this.velocity.y * dt;
             
-            // Проверка, не упали ли мы ниже какого-то предела (ресет)
+            // Ресет при падении в бездну
             if (this.position.y < -100) {
                 this.position.set(0, 50, 0);
                 this.velocity.set(0, 0, 0);
@@ -83,31 +99,25 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-    checkGroundWithHeightMap(x, z) {
-        const chunkManager = this.sceneManager.chunkManager;
-        if (!chunkManager) return;
-
-        const floorHeight = this.getFloorHeight(x, z);
-        
-        if (floorHeight !== null) {
-            // Если мы падали и достигли пола
-            if (this.isFalling && this.position.y <= floorHeight + this.playerHeight) {
-                this.onGround = true;
-            } else if (!this.isFalling) {
-                this.onGround = true;
-            }
-        } else {
-            this.onGround = false;
-        }
-    }
-
-    getFloorHeight(x, z) {
+    /**
+     * Получает высоту пола ТОЛЬКО если она находится в разумном диапазоне от игрока.
+     * Это предотвращает "прилипание" к платформам на других ярусах.
+     */
+    getFloorHeightAtLevel(x, z, currentY) {
         const chunkManager = this.sceneManager.chunkManager;
         if (!chunkManager) return null;
         
-        // Получаем данные из логической карты высот
         const data = chunkManager.getLogicalHeight(x, z);
-        return data ? data.y : null;
+        if (!data) return null;
+
+        // Проверяем, находится ли этот пол "под нами", а не где-то в другом ярусе
+        // Допускаем пол, который находится от -2 (немного ниже ног) до +maxFallDistance выше головы
+        const playerFeetY = currentY - this.playerHeight / 2;
+        if (data.y <= playerFeetY + 0.5 && data.y >= playerFeetY - this.maxFallDistance) {
+            return data.y;
+        }
+        
+        return null;
     }
 
     onMouseMove(movementX, movementY) {
