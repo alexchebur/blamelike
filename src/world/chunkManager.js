@@ -197,97 +197,68 @@ class ChunkManager {
             this.cache.set(key, chunkData);
         }
 
-        // Обновляем логическую карту высот (для спавна и быстрой проверки пола)
         this.updateHeightMapForChunk(chunkData);
 
-        // 1. Визуальный слой (InstancedMesh для рендера мира)
+        // 1. Визуальный слой
         const group = this.createChunkMesh(chunkData, config);
         group.userData.primitives = chunkData; 
         
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой + Debug Visuals (ОПТИМИЗИРОВАННЫЙ)
-        if (this.sceneManager.collisionLayer) {
-            // Фильтруем только проходимые объекты для физики
-            const walkablePrims = chunkData.filter(p => 
-                p.role !== 'decor' && p.role !== 'micro' &&
-                p.type !== 'screen' && p.type !== 'torus' &&
-                !p.type.includes('cable') &&
-                (p.type === 'box' || p.type.includes('stair') || p.type.includes('bridge') || p.type === 'platform_stair')
-            );
+        // 2. Физический слой (CANNON-ES) - ИСПРАВЛЕННАЯ ЛОГИКА
+        if (this.sceneManager.physicsManager) {
+            const physicsPrimitives = [];
 
-            if (walkablePrims.length > 0) {
-                // Общая геометрия бокса 1x1x1 (будет масштабироваться матрицей)
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
+            for (const prim of chunkData) {
+                // Фильтрация непроходимых объектов
+                if (prim.role === 'decor' || prim.role === 'micro') continue;
+                if (prim.type === 'screen' || prim.type === 'torus') continue;
+                if (prim.type.includes('cable')) continue;
                 
-                // А) НЕВИДИМЫЙ слой для ФИЗИКИ (Raycast работает только с ним)
-                const collisionMaterial = new THREE.MeshBasicMaterial({ 
-                    visible: false,       // Не рисуется
-                    colorWrite: false,    // Не пишет в буфер цвета
-                    depthWrite: true      // Но участвует в Z-буфере и Raycast
+                const isWalkable = prim.type === 'box' || prim.type.includes('stair') || 
+                                   prim.type.includes('bridge') || prim.type === 'platform_stair';
+                if (!isWalkable) continue;
+
+                // === КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Корректировка размеров для лестниц ===
+                let physScale = { ...prim.scale };
+                let physPos = { ...prim.position };
+
+                if (prim.type.includes('stair') || prim.type === 'platform_stair') {
+                    // Для лестниц используем только толщину платформы, а не всю высоту уровня
+                    const thickness = config.platformThickness || 0.5;
+                    
+                    // Платформа в генераторе имеет position.y = yBase (низ)
+                    // Центр коллайдера должен быть на yBase + thickness / 2
+                    physPos.y = prim.position.y + (thickness / 2);
+                    physScale.y = thickness;
+                    
+                    // X и Z оставляем как есть (размер клетки)
+                }
+                // =============================================================
+
+                physicsPrimitives.push({
+                    ...prim,
+                    position: physPos,
+                    scale: physScale
                 });
-
-                const physicsMesh = new THREE.InstancedMesh(geometry, collisionMaterial, walkablePrims.length);
-                physicsMesh.name = `Physics_${key}`;
-                physicsMesh.frustumCulled = false; // Важно для инстансов внутри группы
-
-                // Б) ВИДИМЫЙ слой для ОТЛАДКИ (Raycaster его ИГНОРИРУЕТ)
-                let debugMesh = null;
-                if (config.debugPhysics) {
-                    const debugMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x00ff88, 
-                        wireframe: true,
-                        transparent: true,
-                        opacity: 0.4
-                    });
-                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
-                    debugMesh.name = `Debug_${key}`;
-                    debugMesh.frustumCulled = false;
-                    
-                    // КЛЮЧЕВОЕ: Отключаем проверку пересечений для дебаг-меша
-                    debugMesh.raycast = () => {}; 
-                    
-                    this.sceneManager.scene.add(debugMesh);
-                }
-
-                // Заполняем матрицы инстансов
-                const dummy = new THREE.Object3D();
-                for (let i = 0; i < walkablePrims.length; i++) {
-                    const prim = walkablePrims[i];
-                    dummy.position.set(prim.position.x, prim.position.y, prim.position.z);
-                    dummy.rotation.set(
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
-                    );
-                    dummy.scale.set(
-                        Math.abs(prim.scale.x),
-                        Math.abs(prim.scale.y),
-                        Math.abs(prim.scale.z)
-                    );
-                    dummy.updateMatrix();
-                    
-                    physicsMesh.setMatrixAt(i, dummy.matrix);
-                    if (debugMesh) debugMesh.setMatrixAt(i, dummy.matrix);
-                }
-                physicsMesh.instanceMatrix.needsUpdate = true;
-                if (debugMesh) debugMesh.instanceMatrix.needsUpdate = true;
-
-                // Добавляем ТОЛЬКО невидимый меш в слой коллизий
-                this.sceneManager.collisionLayer.add(physicsMesh);
-                
-                // Сохраняем ссылки для удаления при выгрузке чанка
-                group.userData.physicsMesh = physicsMesh;
-                if (debugMesh) group.userData.debugMesh = debugMesh;
             }
-        } // <-- ЭТА СКОБКА ЗАКРЫВАЕТ БЛОК collisionLayer
+
+            try {
+                // Передаем скорректированные примитивы в физический движок
+                this.sceneManager.physicsManager.addChunkPrimitives(cx, cy, cz, physicsPrimitives);
+            } catch (e) {
+                console.warn(`⚠️ Physics error in chunk ${key}:`, e.message);
+            }
+        }
 
         // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
-    } // <-- ЭТА СКОБКА ЗАКРЫВАЕТ МЕТОД loadChunk
+    }
+
+    
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
