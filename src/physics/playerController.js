@@ -78,14 +78,15 @@ class PlayerController {
         const collisionLayer = this.sceneManager.collisionLayer;
         if (!collisionLayer) return;
 
+        // === АЛГОРИТМ SWEPT RAYCAST (Защита от проваливания) ===
         const feetY = this.position.y - (this.playerHeight / 2);
         let rayOriginY = feetY;
         let rayDistance = this.playerHeight + 1.0;
 
         if (this.isFalling) {
             const fallDistance = Math.abs(this.velocity.y * dt);
-            rayOriginY = feetY + fallDistance + 0.5;
-            rayDistance = fallDistance + this.playerHeight + 1.0;
+            rayOriginY = feetY + fallDistance + 0.5; // Начинаем выше
+            rayDistance = fallDistance + this.playerHeight + 1.0; // Луч длиннее
         }
 
         const offsets = [
@@ -106,17 +107,21 @@ class PlayerController {
             this.raycaster.far = rayDistance;
             this.raycaster.near = 0;
 
-            // intersectObjects теперь будет находить InstancedMesh
-            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false); // false, т.к. дети - это уже меши
+            // intersectObjects с recursive: false, так как дети collisionLayer - это уже InstancedMesh
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 
-                // Проверка на лестницу через instanceId
+                // Проверка на лестницу через instanceId (если данные сохранены в userData)
                 if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
-                    const primType = hit.object.userData.primTypes[hit.instanceId];
-                    if (primType && primType.includes('stair')) {
-                        hitLadder = true;
+                    // Примечание: убедись, что при создании InstancedMesh в chunkManager 
+                    // ты сохраняешь массив типов в mesh.userData.primTypes
+                    if (hit.object.userData.primTypes && hit.object.userData.primTypes[hit.instanceId]) {
+                        const primType = hit.object.userData.primTypes[hit.instanceId];
+                        if (primType.includes('stair')) {
+                            hitLadder = true;
+                        }
                     }
                 }
 
@@ -127,40 +132,7 @@ class PlayerController {
             }
         }
 
-        if (hasHit) {
-            const floorLevel = hitFloorY + (this.playerHeight / 2);
-            if (this.isFalling || this.position.y <= floorLevel + 0.1) {
-                this.onGround = true;
-                this.isFalling = false;
-                this.velocity.y = 0;
-                if (Math.abs(this.position.y - floorLevel) > 0.01) {
-                    this.position.y = floorLevel;
-                }
-            }
-            this.onLadder = hitLadder;
-            if (this.onLadder && (this.moveForward || this.moveBackward)) {
-                const climbDir = this.moveForward ? 1 : -1;
-                this.position.y += climbDir * this.climbSpeed * dt;
-                this.velocity.y = 0;
-            }
-        } else {
-            this.onGround = false;
-            this.onLadder = false;
-            this.isFalling = true;
-            this.velocity.y -= this.gravity * dt;
-            if (this.velocity.y < -this.maxFallSpeed) {
-                this.velocity.y = -this.maxFallSpeed;
-            }
-            this.position.y += this.velocity.y * dt;
-            if (this.position.y < -100) {
-                this.position.set(0, 50, 0);
-                this.velocity.set(0, 0, 0);
-            }
-        }
-    }
-
         // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
-
         if (hasHit) {
             const floorLevel = hitFloorY + (this.playerHeight / 2); // Уровень центра игрока
             
