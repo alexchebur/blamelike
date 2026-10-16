@@ -94,37 +94,20 @@ class App {
         }
     }
 
-    /**
-     * Обновление чанков вокруг камеры (ЭКСПЕРИМЕНТ: ТОЛЬКО ОДИН ЧАНК)
-     */
+// src/main.js
+
     updateChunks() {
         if (!this.chunkManager || !this.sceneManager || !this.controlPanel) return;
         
+        let pos;
+        if (this.sceneManager.playerController) {
+            pos = this.sceneManager.playerController.position;
+        } else {
+            pos = this.sceneManager.camera.position;
+        }
+            
         const config = this.controlPanel.getConfig();
-        
-        // === ИСКУССТВЕННОЕ ОГРАНИЧЕНИЕ МИРА ===
-        // Вместо позиции игрока используем фиксированный центр (0,0,0)
-        const fixedCenterChunk = { cx: 0, cy: 0, cz: 0 };
-        
-        // Временно переопределяем параметры видимости для одного чанка
-        const debugConfig = { 
-            ...config, 
-            viewChunksXY: 0, // 0 чанков вокруг центра по горизонтали
-            viewChunksZ: 0,  // 0 чанков вокруг центра по глубине
-            maxRenderDistance: 9999 // Отключаем проверку дистанции
-        };
-        
-        // Вызываем update с фиксированным центром
-        // Нам нужно передать вектор позиции, соответствующий центру чанка (0,0,0)
-        // chunkSize обычно равен 100 или 200, центр будет (chunkSize/2, chunkSize/2, chunkSize/2)
-        const centerPos = new THREE.Vector3(
-            config.chunkSize / 2, 
-            config.chunkSize / 2, 
-            config.chunkSize / 2
-        );
-        
-        this.chunkManager.update(centerPos, debugConfig);
-        // ==========================================
+        this.chunkManager.update(pos, config);
     }
 
     /**
