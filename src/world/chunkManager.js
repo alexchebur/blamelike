@@ -188,6 +188,10 @@ class ChunkManager {
         }
     }
 
+// src/world/chunkManager.js
+
+// ... импорты ...
+
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
@@ -206,49 +210,66 @@ class ChunkManager {
         this.activeChunks.set(key, group);
         this.sceneManager.scene.add(group);
 
-        // 2. Физический слой (CANNON-ES) - ИСПРАВЛЕННАЯ ЛОГИКА
-        if (this.sceneManager.physicsManager) {
-            const physicsPrimitives = [];
+        // 2. Физический слой (RAYCAST) - СОЗДАНИЕ КОЛЛАЙДЕРОВ
+        if (this.sceneManager.collisionLayer) {
+            // Фильтруем проходимые объекты
+            const walkablePrims = chunkData.filter(p => 
+                p.role !== 'decor' && p.role !== 'micro' &&
+                p.type !== 'screen' && p.type !== 'torus' &&
+                !p.type.includes('cable') &&
+                (p.type === 'box' || p.type.includes('stair') || p.type.includes('bridge') || p.type === 'platform_stair')
+            );
 
-            for (const prim of chunkData) {
-                // Фильтрация непроходимых объектов
-                if (prim.role === 'decor' || prim.role === 'micro') continue;
-                if (prim.type === 'screen' || prim.type === 'torus') continue;
-                if (prim.type.includes('cable')) continue;
-                
-                const isWalkable = prim.type === 'box' || prim.type.includes('stair') || 
-                                   prim.type.includes('bridge') || prim.type === 'platform_stair';
-                if (!isWalkable) continue;
-
-                // === КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Корректировка размеров для лестниц ===
-                let physScale = { ...prim.scale };
-                let physPos = { ...prim.position };
-
-                if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                    // Для лестниц используем только толщину платформы, а не всю высоту уровня
-                    const thickness = config.platformThickness || 0.5;
-                    
-                    // Платформа в генераторе имеет position.y = yBase (низ)
-                    // Центр коллайдера должен быть на yBase + thickness / 2
-                    physPos.y = prim.position.y + (thickness / 2);
-                    physScale.y = thickness;
-                    
-                    // X и Z оставляем как есть (размер клетки)
-                }
-                // =============================================================
-
-                physicsPrimitives.push({
-                    ...prim,
-                    position: physPos,
-                    scale: physScale
+            if (walkablePrims.length > 0) {
+                // Создаем один InstancedMesh для всех коллайдеров чанка (оптимизация)
+                const geometry = new THREE.BoxGeometry(1, 1, 1);
+                // Материал невидимый, но участвует в Raycast
+                const material = new THREE.MeshBasicMaterial({ 
+                    visible: false, 
+                    colorWrite: false,
+                    depthWrite: true
                 });
-            }
+                
+                const collisionMesh = new THREE.InstancedMesh(geometry, material, walkablePrims.length);
+                collisionMesh.name = `Collision_${key}`;
+                collisionMesh.frustumCulled = false; // Важно для инстансов
 
-            try {
-                // Передаем скорректированные примитивы в физический движок
-                this.sceneManager.physicsManager.addChunkPrimitives(cx, cy, cz, physicsPrimitives);
-            } catch (e) {
-                console.warn(`⚠️ Physics error in chunk ${key}:`, e.message);
+                const dummy = new THREE.Object3D();
+                for (let i = 0; i < walkablePrims.length; i++) {
+                    const prim = walkablePrims[i];
+                    
+                    // Корректировка для лестниц (как обсуждали ранее)
+                    let sy = Math.abs(prim.scale.y);
+                    let py = prim.position.y;
+                    
+                    if (prim.type.includes('stair') || prim.type === 'platform_stair') {
+                        const thickness = config.platformThickness || 0.5;
+                        sy = thickness;
+                        py = prim.position.y + (thickness / 2);
+                    }
+
+                    dummy.position.set(prim.position.x, py, prim.position.z);
+                    dummy.rotation.set(
+                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
+                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
+                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                    );
+                    dummy.scale.set(Math.abs(prim.scale.x), sy, Math.abs(prim.scale.z));
+                    dummy.updateMatrix();
+                    
+                    collisionMesh.setMatrixAt(i, dummy.matrix);
+                    
+                    // Помечаем лестницы в userData (для InstancedMesh это сложнее, 
+                    // но для простоты пока оставим так, либо можно использовать отдельный массив)
+                    // Для Raycast по InstancedMesh Three.js возвращает instanceId
+                }
+                collisionMesh.instanceMatrix.needsUpdate = true;
+                
+                // Сохраняем данные о типах инстансов для проверки лестниц
+                collisionMesh.userData.primTypes = walkablePrims.map(p => p.type);
+
+                this.sceneManager.collisionLayer.add(collisionMesh);
+                group.userData.collisionMesh = collisionMesh; // Ссылка для удаления
             }
         }
 
@@ -258,6 +279,56 @@ class ChunkManager {
         }
     }
 
+    unloadUnusedChunks(desiredKeys) {
+        for (const [key, chunk] of this.activeChunks) {
+            if (!desiredKeys.has(key)) {
+                // Удаляем визуальный меш
+                this.sceneManager.scene.remove(chunk);
+                this.disposeChunk(chunk);
+                
+                // === УДАЛЕНИЕ ФИЗИЧЕСКОГО СЛОЯ (RAYCAST) ===
+                if (chunk.userData.collisionMesh && this.sceneManager.collisionLayer) {
+                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionMesh);
+                    chunk.userData.collisionMesh.geometry.dispose();
+                    chunk.userData.collisionMesh.material.dispose();
+                }
+                // ==========================================
+                
+                // Удаляем из HeightMap (ваш существующий код)
+                if (chunk.userData.primitives && this.config) {
+                     // ... (код очистки heightMap остается без изменений) ...
+                     const cellSize = this.config.chunkSize / this.config.gridSize;
+                     for (const prim of chunk.userData.primitives) {
+                        if (!isWalkablePrimitive(prim)) continue;
+                        const sx = prim.scale?.x ?? 1;
+                        const sz = prim.scale?.z ?? 1;
+                        const halfW = Math.abs(sx) / 2;
+                        const halfD = Math.abs(sz) / 2;
+                        const minX = Math.floor((prim.position.x - halfW) / cellSize);
+                        const maxX = Math.floor((prim.position.x + halfW) / cellSize);
+                        const minZ = Math.floor((prim.position.z - halfD) / cellSize);
+                        const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
+                        const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
+                        for (let x = minX; x <= maxX; x++) {
+                            for (let z = minZ; z <= maxZ; z++) {
+                                const mapKey = `${x},${z}`;
+                                const existing = this.heightMap.get(mapKey);
+                                if (existing && Math.abs(existing.y - topY) < 0.1) {
+                                    this.heightMap.delete(mapKey);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (this.sceneManager.screenManager) {
+                    this.unregisterScreens(key);
+                }
+                
+                this.activeChunks.delete(key);
+            }
+        }
+    }
     
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
