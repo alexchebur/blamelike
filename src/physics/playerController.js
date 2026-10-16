@@ -9,26 +9,36 @@ class PlayerController {
         this.velocity = new THREE.Vector3(0, 0, 0);
         this.onGround = false;
         this.isFalling = false;
+        this.onLadder = false;
         
-        // Параметры движения
         this.moveForward = false;
         this.moveBackward = false;
         this.moveLeft = false;
         this.moveRight = false;
+        this.jump = false;
         
         this.direction = new THREE.Vector3();
         this.cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
         
-        // Физические константы
+        // Raycaster
+        this.raycaster = new THREE.Raycaster();
+        this.downVector = new THREE.Vector3(0, -1, 0);
+        
+        // Параметры
+        this.playerRadius = 0.4; // Радиус игрока
         this.playerHeight = config.playerHeight || 1.8;
-        this.speed = config.moveSpeed || 15.0;
-        this.gravity = config.gravity || 30.0; // Увеличена для более четкого ощущения падения
-        this.maxFallDistance = 5.0; // Максимальная дистанция "шага" вниз без падения
+        this.speed = config.moveSpeed || 15.0; 
+        this.maxFallSpeed = 20.0; // Максимальная скорость падения
+        this.gravity = 30.0; // Ускорение свободного падения
+        this.climbSpeed = config.ladderClimbSpeed || 6;
+        
+        // Для отладки
+        this.debugRay = null;
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
-        const dt = Math.min(deltaTime, 0.05);
+        const dt = Math.min(deltaTime, 0.05); // Ограничиваем dt, чтобы избежать скачков
 
         // 1. Горизонтальное движение
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
@@ -50,37 +60,119 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Проверка пола с учетом ТЕКУЩЕЙ ВЫСОТЫ игрока
-        const floorHeight = this.getFloorHeightAtLevel(nextX, nextZ, this.position.y);
+        // 2. Вертикальная физика и проверка коллизий
+        this.updateVerticalPhysics(dt, nextX, nextZ);
 
-        // 3. Вертикальное движение
-        if (floorHeight !== null) {
-            const distToFloor = this.position.y - (floorHeight + this.playerHeight / 2);
+        // Применяем горизонтальное смещение
+        this.position.x = nextX;
+        this.position.z = nextZ;
+
+        // 3. Камера
+        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.9, this.position.z);
+        camera.quaternion.setFromEuler(this.cameraEuler);
+    }
+
+    updateVerticalPhysics(dt, nextX, nextZ) {
+        const collisionLayer = this.sceneManager.collisionLayer;
+        if (!collisionLayer) return;
+
+        // === АЛГОРИТМ SWEPT RAYCAST (Защита от проваливания) ===
+        
+        // Текущая позиция ног
+        const feetY = this.position.y - (this.playerHeight / 2);
+        
+        // Если мы падаем, луч должен начинаться ВЫШЕ и идти ВНИЗ на расстояние скорости
+        // Это позволяет "догнать" пол, даже если мы пролетели сквозь него за прошлый кадр
+        let rayOriginY = feetY;
+        let rayDistance = this.playerHeight + 1.0; // Стандартная дистанция проверки
+        
+        if (this.isFalling) {
+            // Увеличиваем длину луча на величину падения за этот кадр + запас
+            const fallDistance = Math.abs(this.velocity.y * dt);
+            rayOriginY = feetY + fallDistance + 0.5; // Начинаем выше
+            rayDistance = fallDistance + this.playerHeight + 1.0; // Луч длиннее
+        }
+
+        // Проверяем 4 точки вокруг игрока (квадрат) + центр
+        const offsets = [
+            { x: 0, z: 0 },
+            { x: this.playerRadius, z: this.playerRadius },
+            { x: -this.playerRadius, z: this.playerRadius },
+            { x: this.playerRadius, z: -this.playerRadius },
+            { x: -this.playerRadius, z: -this.playerRadius }
+        ];
+
+        let hitFloorY = -Infinity;
+        let hitLadder = false;
+        let hasHit = false;
+
+        for (const offset of offsets) {
+            const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
+            this.raycaster.set(origin, this.downVector);
+            this.raycaster.far = rayDistance;
+            this.raycaster.near = 0;
+
+            // intersectObjects с recursive: true критически важен для Group и InstancedMesh
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
+
+            if (intersects.length > 0) {
+                // Берем ближайшее пересечение
+                const hit = intersects[0];
+                
+                // Проверяем, что удар пришелся в верхнюю грань (нормаль смотрит вверх)
+                // Или просто что точка удара выше текущего низа игрока
+                if (hit.point.y > hitFloorY) {
+                    hitFloorY = hit.point.y;
+                    hasHit = true;
+                    
+                    // Проверка на лестницу (если у объекта есть userData)
+                    if (hit.object.userData && hit.object.userData.isLadder) {
+                        hitLadder = true;
+                    }
+                }
+            }
+        }
+
+        // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
+
+        if (hasHit) {
+            const floorLevel = hitFloorY + (this.playerHeight / 2); // Уровень центра игрока
             
-            // Если мы близко к полу (в пределах шага или падения)
-            if (distToFloor >= -0.1 && distToFloor <= this.maxFallDistance) {
+            // Если мы падали и достигли пола (или уже стоим на нем)
+            if (this.isFalling || this.position.y <= floorLevel + 0.1) {
                 this.onGround = true;
                 this.isFalling = false;
                 this.velocity.y = 0;
-                // Плавная коррекция позиции, а не телепортация
-                this.position.y = floorHeight + (this.playerHeight / 2);
-            } else if (distToFloor < -0.1) {
-                // Мы ЗАСТРЯЛИ В ПОЛУ (например, после спуска по лестнице)
-                this.onGround = true;
-                this.position.y = floorHeight + (this.playerHeight / 2);
-            } else {
-                // Пол слишком далеко внизу -> падаем
-                this.onGround = false;
-                this.isFalling = true;
+                
+                // Жесткая привязка к полу (с небольшим допуском, чтобы не дрожать)
+                if (Math.abs(this.position.y - floorLevel) > 0.01) {
+                    this.position.y = floorLevel;
+                }
             }
-        } else {
-            // Пола нет вообще -> падаем
-            this.onGround = false;
-            this.isFalling = true;
-        }
+            
+            this.onLadder = hitLadder;
+            
+            // Логика лестницы
+            if (this.onLadder && (this.moveForward || this.moveBackward)) {
+                const climbDir = this.moveForward ? 1 : -1;
+                this.position.y += climbDir * this.climbSpeed * dt;
+                this.velocity.y = 0; // Отменяем гравитацию на лестнице
+            }
 
-        if (this.isFalling) {
+        } else {
+            // Пола нет -> падаем
+            this.onGround = false;
+            this.onLadder = false;
+            this.isFalling = true;
+            
+            // Применяем гравитацию
             this.velocity.y -= this.gravity * dt;
+            
+            // Ограничиваем максимальную скорость падения
+            if (this.velocity.y < -this.maxFallSpeed) {
+                this.velocity.y = -this.maxFallSpeed;
+            }
+            
             this.position.y += this.velocity.y * dt;
             
             // Ресет при падении в бездну
@@ -89,35 +181,6 @@ class PlayerController {
                 this.velocity.set(0, 0, 0);
             }
         }
-
-        // Применяем горизонтальное смещение
-        this.position.x = nextX;
-        this.position.z = nextZ;
-
-        // 4. Камера
-        camera.position.set(this.position.x, this.position.y + this.playerHeight * 0.4, this.position.z);
-        camera.quaternion.setFromEuler(this.cameraEuler);
-    }
-
-    /**
-     * Получает высоту пола ТОЛЬКО если она находится в разумном диапазоне от игрока.
-     * Это предотвращает "прилипание" к платформам на других ярусах.
-     */
-    getFloorHeightAtLevel(x, z, currentY) {
-        const chunkManager = this.sceneManager.chunkManager;
-        if (!chunkManager) return null;
-        
-        const data = chunkManager.getLogicalHeight(x, z);
-        if (!data) return null;
-
-        // Проверяем, находится ли этот пол "под нами", а не где-то в другом ярусе
-        // Допускаем пол, который находится от -2 (немного ниже ног) до +maxFallDistance выше головы
-        const playerFeetY = currentY - this.playerHeight / 2;
-        if (data.y <= playerFeetY + 0.5 && data.y >= playerFeetY - this.maxFallDistance) {
-            return data.y;
-        }
-        
-        return null;
     }
 
     onMouseMove(movementX, movementY) {
