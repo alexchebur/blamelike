@@ -176,6 +176,9 @@ class ChunkManager {
         }
     }
 
+// src/world/chunkManager.js
+// ... импорты остаются без изменений ...
+
     loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
@@ -207,7 +210,6 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                // Материал для физики (невидимый триггер)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
@@ -218,7 +220,7 @@ class ChunkManager {
                 physicsMesh.name = `Physics_${key}`;
                 physicsMesh.frustumCulled = false;
                 
-                const primTypes = []; // Здесь будем хранить либо тип, либо данные рампы
+                const primTypes = [];
                 const dummy = new THREE.Object3D();
 
                 const cellSize = config.chunkSize / config.gridSize;
@@ -259,19 +261,17 @@ class ChunkManager {
                         let startCoord = 0;
                         let endCoord = 0;
                         
-                        // Координаты центра клетки
                         const centerX = prim.position.x;
                         const centerZ = prim.position.z;
                         
-                        // Определяем направление и границы интерполяции
                         if (prim.type === 'stair_north') {
                             dir = 'z';
-                            startCoord = centerZ - halfCell; // Начало в -Z
-                            endCoord = centerZ + halfCell;   // Конец в +Z
+                            startCoord = centerZ - halfCell;
+                            endCoord = centerZ + halfCell;
                         } else if (prim.type === 'stair_south') {
                             dir = 'z';
-                            startCoord = centerZ + halfCell; // Начало в +Z
-                            endCoord = centerZ - halfCell;   // Конец в -Z
+                            startCoord = centerZ + halfCell;
+                            endCoord = centerZ - halfCell;
                         } else if (prim.type === 'stair_east') {
                             dir = 'x';
                             startCoord = centerX - halfCell;
@@ -282,8 +282,7 @@ class ChunkManager {
                             endCoord = centerX - halfCell;
                         }
                         
-                        // Кодируем данные рампы в строку для передачи в контроллер
-                        // Формат: ramp_ось_startCoord_endCoord_startY_endY
+                        // Кодируем данные рампы в строку
                         const rampData = `ramp_${dir}_${startCoord.toFixed(2)}_${endCoord.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}`;
                         primTypes.push(rampData);
                     } 
@@ -352,6 +351,8 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
+
+// ... остальные методы (unloadUnusedChunks и т.д.) остаются без изменений ...
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
