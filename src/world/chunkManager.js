@@ -197,7 +197,6 @@ class ChunkManager {
 
         // 2. Физический слой (RAYCAST + INSTANCED MESH)
         if (this.sceneManager.collisionLayer) {
-            // Фильтруем только проходимые объекты
             const walkablePrims = chunkData.filter(p => {
                 if (p.role === 'decor' || p.role === 'micro') return false;
                 if (p.type === 'screen' || p.type === 'torus') return false;
@@ -209,7 +208,6 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                // Материал для физики (невидимый)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
@@ -223,32 +221,30 @@ class ChunkManager {
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
-                // === ПОДГОТОВКА К ОТЛАДКЕ ЛЕСТНИЦ ===
-                // Сначала посчитаем, сколько лестниц, чтобы создать меш точного размера
+                // === DEBUG FIX: Жесткая фильтрация только для лестниц ===
                 const stairPrims = walkablePrims.filter(p => p.type.includes('stair') || p.type === 'platform_stair');
                 let debugMesh = null;
-                let debugIndex = 0; // Счетчик для инстансов отладочного меша
+                let debugIndex = 0;
 
+                // Создаем отладочный меш ТОЛЬКО если включен флаг И есть лестницы
                 if (config.debugPhysics && stairPrims.length > 0) {
                     const debugMaterial = new THREE.MeshBasicMaterial({ 
                         color: 0xff0000, // Ярко-красный
                         wireframe: true,
                         transparent: true,
                         opacity: 0.8,
-                        depthTest: false // Рисовать поверх всего
+                        depthTest: false
                     });
                     
-                    // Создаем меш ровно на количество лестниц
                     debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, stairPrims.length);
                     debugMesh.name = `Debug_Stairs_${key}`;
                     debugMesh.frustumCulled = false;
                     debugMesh.renderOrder = 999;
-                    debugMesh.raycast = () => {}; // Отключаем физику для отладки
+                    debugMesh.raycast = () => {}; 
                     
                     this.sceneManager.scene.add(debugMesh);
                 }
 
-                // Предварительные расчеты для лестниц
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const rampAngleRad = Math.atan2(levelHeight, cellSize);
@@ -268,7 +264,6 @@ class ChunkManager {
 
                     let isStair = false;
 
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
                         isStair = true;
                         const rampWidth = cellSize * 0.8;
@@ -295,7 +290,6 @@ class ChunkManager {
                         }
                         physRot.twistZ = 0;
                     } 
-                    // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
                         const bridgeWidth = 0.2 * prim.scale.x;
                         const bridgeLength = 1.0 * prim.scale.z;
@@ -321,7 +315,6 @@ class ChunkManager {
                         physPos.y = visualTopY - (bridgeThickness / 2);
                     }
 
-                    // Применяем трансформации для ФИЗИКИ
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
                     dummy.rotation.set(
                         THREE.MathUtils.degToRad(physRot.tiltX),
@@ -338,9 +331,8 @@ class ChunkManager {
                     physicsMesh.setMatrixAt(i, dummy.matrix);
                     primTypes.push(prim.type);
 
-                    // === ЗАПОЛНЕНИЕ DEBUG MESH (ТОЛЬКО ЛЕСТНИЦЫ) ===
+                    // === DEBUG FIX: Заполняем только для лестниц ===
                     if (isStair && debugMesh) {
-                        // Используем ту же матрицу, что и для физики
                         debugMesh.setMatrixAt(debugIndex, dummy.matrix);
                         debugIndex++;
                     }
@@ -360,12 +352,10 @@ class ChunkManager {
             }
         }
 
-        // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
     }
-
 
 
     unloadUnusedChunks(desiredKeys) {
