@@ -1,4 +1,3 @@
-
 // src/world/chunkManager.js
 // @ts-check
 import * as THREE from 'three';
@@ -11,9 +10,6 @@ import { createLCableGeometry } from '../geom/meshFactory.js';
 
 /**
  * Определяет, является ли примитив проходимым (опорой для игрока).
- * Используется для HeightMap и фильтрации физических тел.
- * @param {Object} prim - PrimitiveRecord
- * @returns {boolean}
  */
 function isWalkablePrimitive(prim) {
     if (!prim || !prim.type) return false;
@@ -21,21 +17,16 @@ function isWalkablePrimitive(prim) {
     if (prim.type === 'screen') return false;
     if (prim.type === 'cable' || prim.type === 'l_cable') return false;
     if (prim.type === 'torus') return false;
-    
-    // box, stair_*, bridge_*, platform_stair, arch, cylinder, cone...
     return true;
 }
 
 class ChunkManager {
     constructor(sceneManager) {
         this.sceneManager = sceneManager;
-        /** @type {Map<string, THREE.Group>} */
         this.activeChunks = new Map();
         this.cache = new ChunkCache(50);
         this.lastCameraChunk = null;
         this.config = null;
-        
-        // Логическая карта высот (для спавна и быстрой проверки без raycast)
         this.heightMap = new Map(); 
     }
 
@@ -98,7 +89,6 @@ class ChunkManager {
         const gridX = Math.floor(center.x / cellSize);
         const gridZ = Math.floor(center.z / cellSize);
         
-        // Сначала ищем через heightMap (быстро)
         for (let dx = -3; dx <= 3; dx++) {
             for (let dz = -3; dz <= 3; dz++) {
                 const key = `${gridX + dx},${gridZ + dz}`;
@@ -114,7 +104,6 @@ class ChunkManager {
             }
         }
 
-        // Fallback: поиск через примитивы чанков
         for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
                 for (let dz = -radius; dz <= radius; dz++) {
@@ -156,7 +145,6 @@ class ChunkManager {
         for (const prim of chunkData) {
             if (!isWalkablePrimitive(prim)) continue;
             
-            // Защита от отсутствующих scale
             const sx = prim.scale?.x ?? 1;
             const sz = prim.scale?.z ?? 1;
             
@@ -188,35 +176,7 @@ class ChunkManager {
         }
     }
 
-// src/world/chunkManager.js
-
-// ... импорты ...
-
     loadChunk(cx, cy, cz, config, cameraPos) {
-        const key = createChunkKey(cx, cy, cz);
-        let chunkData = this.cache.get(key);
-        
-        if (!chunkData) {
-            chunkData = generateChunk(cx, cy, cz, config.seed, config);
-            this.cache.set(key, chunkData);
-        }
-
-        this.updateHeightMapForChunk(chunkData);
-
-        // 1. Визуальный слой
-        const group = this.createChunkMesh(chunkData, config);
-        group.userData.primitives = chunkData; 
-        
-        this.activeChunks.set(key, group);
-        this.sceneManager.scene.add(group);
-
-        // 2. Физический слой (RAYCAST + INSTANCED MESH) - ОПТИМИЗИРОВАННО
-        if (this.sceneManager.collisionLayer) {
-            // Фильтруем только проходимые объекты
-            const walkablePrims = chunkData.filter(p => {
-                if (p.role === 'decor' || p.role === 'micro') return false;
-                if (p.type === 'screen' || p.type === 'torus') return false;
-                if (p.type.inc    loadChunk(cx, cy, cz, config, cameraPos) {
         const key = createChunkKey(cx, cy, cz);
         let chunkData = this.cache.get(key);
         
@@ -236,107 +196,70 @@ class ChunkManager {
 
         // 2. Физический слой (RAYCAST + INSTANCED MESH)
         if (this.sceneManager.collisionLayer) {
-            // Фильтруем только проходимые объекты
             const walkablePrims = chunkData.filter(p => {
                 if (p.role === 'decor' || p.role === 'micro') return false;
                 if (p.type === 'screen' || p.type === 'torus') return false;
                 if (p.type.includes('cable')) return false;
-                
                 return p.type === 'box' || p.type.includes('stair') || 
                        p.type.includes('bridge') || p.type === 'platform_stair';
             });
 
             if (walkablePrims.length > 0) {
-                // Базовая геометрия 1x1x1 (будет масштабироваться матрицей)
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
-                
-                // Материал для физики (невидимый, но участвует в Raycast)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
                     depthWrite: true
                 });
 
-                // Создаем InstancedMesh для всех коллайдеров чанка
                 const physicsMesh = new THREE.InstancedMesh(geometry, physicsMaterial, walkablePrims.length);
                 physicsMesh.name = `Physics_${key}`;
-                physicsMesh.frustumCulled = false; // Важно для инстансов внутри группы
+                physicsMesh.frustumCulled = false;
                 
-                // Массив для хранения типов примитивов (для проверки лестниц в PlayerController)
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
                     
-                    // === КОРРЕКТИРОВКА РАЗМЕРОВ И ПОЗИЦИИ ДЛЯ ФИЗИКИ ===
                     let physScale = { ...prim.scale };
                     let physPos = { ...prim.position };
 
-                    // Минимальная толщина для надежного Raycast (защита от проваливания)
-                    const minThickness = 0.5; 
-
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ И МОСТОВ ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        // ЛЕСТНИЦЫ: Используем только толщину платформы, игнорируя высоту этажа
-                        const thickness = Math.max(minThickness, config.platformThickness || 0.5);
-                        // Сдвигаем центр коллайдера на половину толщины вверх от низа платформы
+                        const thickness = config.platformThickness || 0.5;
                         physPos.y = prim.position.y + (thickness / 2);
                         physScale.y = thickness;
-                        // X и Z оставляем как есть (размер клетки)
                     } 
                     else if (prim.type === 'bridge_ns') {
-                        // МОСТ СЕВЕР-ЮГ: Узкий по X, длинный по Z
-                        // Геометрия в stairFactory: Box(0.2, 0.1, 1.0)
-                        // Scale в генераторе: { x: cellSize, y: 1, z: cellSize }
-                        // Итоговый визуальный размер: 0.2*cellSize x 0.1 x 1.0*cellSize
+                        // Мост Север-Юг: узкий по X, длинный по Z
+                        const bridgeWidth = 0.2 * prim.scale.x;
+                        const bridgeLength = 1.0 * prim.scale.z;
+                        const bridgeThickness = 0.5; // Утолщаем для надежности
                         
-                        const bridgeWidth = 0.2 * prim.scale.x; // Ширина моста
-                        const bridgeLength = 1.0 * prim.scale.z; // Длина моста
-                        const bridgeThickness = Math.max(minThickness, 0.1 * prim.scale.y); // Толщина (увеличена для физики)
-
                         physScale.x = bridgeWidth;
                         physScale.z = bridgeLength;
                         physScale.y = bridgeThickness;
-
-                        // Корректировка позиции Y: центр бокса должен быть на поверхности моста
-                        // В генераторе position.y = currentYBase + platformThickness + 0.05
-                        // Визуальная высота моста = 0.1 * scale.y = 0.1
-                        // Верхняя грань визуального моста = pos.y + 0.05
-                        // Нам нужно, чтобы верхняя грань физического бокса совпадала с верхней гранью визуального
+                        
+                        // Корректировка Y: центр бокса на поверхности моста
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
                     }
                     else if (prim.type === 'bridge_ew') {
-                        // МОСТ ВОСТОК-ЗАПАД: Длинный по X, узкий по Z
-                        // Геометрия в stairFactory: Box(1.0, 0.1, 0.2)
+                        // Мост Восток-Запад: длинный по X, узкий по Z
+                        const bridgeLength = 1.0 * prim.scale.x;
+                        const bridgeWidth = 0.2 * prim.scale.z;
+                        const bridgeThickness = 0.5;
                         
-                        const bridgeLength = 1.0 * prim.scale.x; // Длина моста
-                        const bridgeWidth = 0.2 * prim.scale.z;  // Ширина моста
-                        const bridgeThickness = Math.max(minThickness, 0.1 * prim.scale.y); // Толщина
-
                         physScale.x = bridgeLength;
                         physScale.z = bridgeWidth;
                         physScale.y = bridgeThickness;
-
-                        // Корректировка позиции Y (аналогично bridge_ns)
+                        
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
                     }
-                    else {
-                        // ОБЫЧНЫЕ ПЛАТФОРМЫ (box)
-                        // Убедимся, что толщина достаточна для Raycast
-                        if (physScale.y < minThickness) {
-                            const oldY = physPos.y;
-                            physScale.y = minThickness;
-                            // Если это тонкая плита, скорректируем позицию, чтобы верх остался на месте
-                            // (предполагая, что prim.position.y - это центр)
-                            // Но в генераторе для box position.y = yBase + thickness/2, так что центр уже верный.
-                            // Просто увеличиваем толщину симметрично.
-                        }
-                    }
-                    // =============================================================
+                    // ==================================
 
-                    // Устанавливаем трансформацию для инстанса
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
                     dummy.rotation.set(
                         THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
@@ -351,17 +274,14 @@ class ChunkManager {
                     dummy.updateMatrix();
                     
                     physicsMesh.setMatrixAt(i, dummy.matrix);
-                    primTypes.push(prim.type); // Сохраняем тип для проверки isLadder
+                    primTypes.push(prim.type);
                 }
                 
                 physicsMesh.instanceMatrix.needsUpdate = true;
-                // Сохраняем типы в userData, чтобы PlayerController мог их читать
                 physicsMesh.userData.primTypes = primTypes; 
 
-                // Добавляем невидимый меш в слой коллизий
                 this.sceneManager.collisionLayer.add(physicsMesh);
                 
-                // === DEBUG VISUALS (если включено) ===
                 let debugMesh = null;
                 if (config.debugPhysics) {
                     const debugMaterial = new THREE.MeshBasicMaterial({ 
@@ -374,17 +294,12 @@ class ChunkManager {
                     debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
                     debugMesh.name = `Debug_${key}`;
                     debugMesh.frustumCulled = false;
-                    
-                    // Копируем матрицы из физического меша
                     debugMesh.instanceMatrix.copy(physicsMesh.instanceMatrix);
-                    
-                    // Отключаем Raycast для дебаг-меша, чтобы он не мешал физике
                     debugMesh.raycast = () => {}; 
                     
                     this.sceneManager.scene.add(debugMesh);
                 }
 
-                // Сохраняем ссылки для удаления при выгрузке чанка
                 group.userData.physicsMesh = physicsMesh;
                 if (debugMesh) group.userData.debugMesh = debugMesh;
             }
@@ -395,85 +310,29 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
-    
-    unloadUnusedChunks(desiredKeys) {
-        for (const [key, chunk] of this.activeChunks) {
-            if (!desiredKeys.has(key)) {
-                // Удаляем визуальный меш
-                this.sceneManager.scene.remove(chunk);
-                this.disposeChunk(chunk);
-                
-                // === УДАЛЕНИЕ ФИЗИЧЕСКОГО СЛОЯ (RAYCAST) ===
-                if (chunk.userData.collisionMesh && this.sceneManager.collisionLayer) {
-                    this.sceneManager.collisionLayer.remove(chunk.userData.collisionMesh);
-                    chunk.userData.collisionMesh.geometry.dispose();
-                    chunk.userData.collisionMesh.material.dispose();
-                }
-                // ==========================================
-                
-                // Удаляем из HeightMap (ваш существующий код)
-                if (chunk.userData.primitives && this.config) {
-                     // ... (код очистки heightMap остается без изменений) ...
-                     const cellSize = this.config.chunkSize / this.config.gridSize;
-                     for (const prim of chunk.userData.primitives) {
-                        if (!isWalkablePrimitive(prim)) continue;
-                        const sx = prim.scale?.x ?? 1;
-                        const sz = prim.scale?.z ?? 1;
-                        const halfW = Math.abs(sx) / 2;
-                        const halfD = Math.abs(sz) / 2;
-                        const minX = Math.floor((prim.position.x - halfW) / cellSize);
-                        const maxX = Math.floor((prim.position.x + halfW) / cellSize);
-                        const minZ = Math.floor((prim.position.z - halfD) / cellSize);
-                        const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
-                        const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
-                        for (let x = minX; x <= maxX; x++) {
-                            for (let z = minZ; z <= maxZ; z++) {
-                                const mapKey = `${x},${z}`;
-                                const existing = this.heightMap.get(mapKey);
-                                if (existing && Math.abs(existing.y - topY) < 0.1) {
-                                    this.heightMap.delete(mapKey);
-                                }
-                            }
-                        }
-                    }
-                }
 
-                if (this.sceneManager.screenManager) {
-                    this.unregisterScreens(key);
-                }
-                
-                this.activeChunks.delete(key);
-            }
-        }
-    }
-    
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
-                // === КРИТИЧЕСКОЕ: Удаляем данные чанка из HeightMap ===
-                // Иначе старые платформы продолжают удерживать игрока
+                // Удаляем данные из HeightMap
                 if (chunk.userData.primitives && this.config) {
                     const cellSize = this.config.chunkSize / this.config.gridSize;
                     for (const prim of chunk.userData.primitives) {
                         if (!isWalkablePrimitive(prim)) continue;
-                        
                         const sx = prim.scale?.x ?? 1;
                         const sz = prim.scale?.z ?? 1;
                         const halfW = Math.abs(sx) / 2;
                         const halfD = Math.abs(sz) / 2;
-                        
                         const minX = Math.floor((prim.position.x - halfW) / cellSize);
                         const maxX = Math.floor((prim.position.x + halfW) / cellSize);
                         const minZ = Math.floor((prim.position.z - halfD) / cellSize);
                         const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
-                        
                         const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
-
+                        
                         for (let x = minX; x <= maxX; x++) {
                             for (let z = minZ; z <= maxZ; z++) {
                                 const mapKey = `${x},${z}`;
                                 const existing = this.heightMap.get(mapKey);
-                                // Удаляем запись только если она принадлежит этому чанку (совпадает по высоте)
                                 if (existing && Math.abs(existing.y - topY) < 0.1) {
                                     this.heightMap.delete(mapKey);
                                 }
@@ -481,20 +340,16 @@ class ChunkManager {
                         }
                     }
                 }
-                // ==================================================
 
-                // Удаляем визуальный меш
                 this.sceneManager.scene.remove(chunk);
                 this.disposeChunk(chunk);
                 
-                // Удаление физического слоя
                 if (chunk.userData.physicsMesh && this.sceneManager.collisionLayer) {
                     this.sceneManager.collisionLayer.remove(chunk.userData.physicsMesh);
                     chunk.userData.physicsMesh.geometry.dispose();
                     chunk.userData.physicsMesh.material.dispose();
                 }
                 
-                // Удаление Debug слоя
                 if (chunk.userData.debugMesh) {
                     this.sceneManager.scene.remove(chunk.userData.debugMesh);
                     chunk.userData.debugMesh.geometry.dispose();
@@ -550,14 +405,13 @@ class ChunkManager {
             const dz = item.position.z - cameraPos.z;
             const distSq = dx*dx + dy*dy + dz*dz;
 
-            // LOD фильтрация
-            if (distSq > 22500) { // 150^2
+            if (distSq > 22500) {
                 if (slot === 'decor' || slot === 'micro') continue;
                 if (fullType === 'cable' || fullType === 'l_cable') continue;
                 if (fullType === 'sphere' || fullType === 'torus') continue;
             }
 
-            if (distSq > 10000) { // 100^2
+            if (distSq > 10000) {
                 if (slot === 'micro') continue;
             }
 
@@ -696,7 +550,6 @@ class ChunkManager {
         this.heightMap.clear();
         this.lastCameraChunk = null;
         
-        // Очищаем физический мир
         if (this.sceneManager.physicsManager) {
             this.sceneManager.physicsManager.clear();
         }
@@ -707,4 +560,3 @@ class ChunkManager {
 }
 
 export default ChunkManager;
-
