@@ -30,8 +30,7 @@ class PlayerController {
         this.speed = config.moveSpeed || 15.0; 
         this.maxFallSpeed = 20.0;
         this.gravity = 30.0;
-        // this.climbSpeed больше не нужен для рамп, но оставим для совместимости
-        this.climbSpeed = config.ladderClimbSpeed || 6;
+        this.climbSpeed = config.ladderClimbSpeed || 6; // Оставлен для совместимости, но не используется для рамп
     }
 
     update(deltaTime, camera) {
@@ -96,6 +95,7 @@ class PlayerController {
         let hitFloorY = -Infinity;
         let hasHit = false;
         let isLadderHit = false;
+        let calculatedFloorY = -Infinity; // Для математической физики лестниц
 
         for (const offset of offsets) {
             const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
@@ -103,31 +103,59 @@ class PlayerController {
             this.raycaster.far = rayDistance;
             this.raycaster.near = 0;
 
-            // intersectObjects с recursive: false, так как дети - это InstancedMesh
+            // recursive: false, т.к. дети collisionLayer - это уже InstancedMesh
             const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 
-                // === ПРОВЕРКА ТИПА ЧЕРЕЗ INSTANCE ID ===
+                // === ПРОВЕРКА ТИПА И МАТЕМАТИЧЕСКАЯ ФИЗИКА ЛЕСТНИЦ ===
                 if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
-                    const types = hit.object.userData.primTypes;
-                    if (types && types[hit.instanceId] && types[hit.instanceId].includes('stair')) {
+                    const typeStr = hit.object.userData.primTypes[hit.instanceId];
+                    
+                    // Проверяем, является ли это рампой (лестницей-триггером)
+                    if (typeStr && typeStr.startsWith('ramp_')) {
+                        isLadderHit = true;
+                        
+                        // Парсим данные рампы: ramp_dir_startCoord_endCoord_startY_endY
+                        const parts = typeStr.split('_');
+                        const dir = parts[1]; // 'x' или 'z'
+                        const startCoord = parseFloat(parts[2]);
+                        const endCoord = parseFloat(parts[3]);
+                        const startY = parseFloat(parts[4]);
+                        const endY = parseFloat(parts[5]);
+                        
+                        // Текущая координата игрока в направлении рампы
+                        const currentCoord = dir === 'x' ? nextX : nextZ;
+                        
+                        // Линейная интерполяция (clamp между 0 и 1)
+                        let t = (currentCoord - startCoord) / (endCoord - startCoord);
+                        t = Math.max(0, Math.min(1, t)); 
+                        
+                        // Вычисляем идеальную высоту пола математически
+                        const mathFloorY = startY + (endY - startY) * t;
+                        
+                        // Используем математическую высоту вместо точки удара луча
+                        if (mathFloorY > calculatedFloorY) {
+                            calculatedFloorY = mathFloorY;
+                            hitFloorY = mathFloorY; // Переопределяем для общей логики
+                        }
+                    } else if (typeStr && typeStr.includes('stair')) {
+                        // Фолбэк для старых типов лестниц (если вдруг остались)
                         isLadderHit = true;
                     }
                 }
 
-                if (hit.point.y > hitFloorY) {
+                // Если это не рампа, используем стандартную точку удара
+                if (calculatedFloorY === -Infinity && hit.point.y > hitFloorY) {
                     hitFloorY = hit.point.y;
-                    hasHit = true;
                 }
+                
+                hasHit = true;
             }
         }
 
         // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
-        // Лестница теперь работает как обычный наклонный пол.
-        // Никакого ручного climbSpeed. Игрок идет по поверхности.
-        
         const floorLevel = hitFloorY + (this.playerHeight / 2);
 
         if (hasHit) {
@@ -138,23 +166,20 @@ class PlayerController {
                 this.isFalling = false;
                 this.velocity.y = 0;
                 
-                // Плавная коррекция (LERP)
+                // Плавная коррекция позиции (LERP)
                 const targetY = floorLevel;
                 this.position.y += (targetY - this.position.y) * 0.2;
                 if (Math.abs(this.position.y - targetY) < 0.01) {
                     this.position.y = targetY;
                 }
             } else {
-                // Мы ниже пола (застряли в геометрии). Выталкиваем.
+                // Мы ниже пола (застряли в геометрии). Мягко выталкиваем вверх.
                 this.position.y += 0.5;
                 this.onGround = false;
                 this.isFalling = true;
             }
             
             this.onLadder = isLadderHit;
-            
-            // УДАЛЕНО: Блок с climbSpeed. 
-            // Теперь движение вверх/вниз происходит естественно за счет наклона коллайдера.
             
         } else {
             this.onGround = false;
