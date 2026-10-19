@@ -47,7 +47,7 @@ class ChunkManager {
 
     updateVisibleChunks(centerChunk, config, cameraPos) {
         const { viewChunksXY, viewChunksZ, chunkSize, maxRenderDistance = 300 } = config;
-        const maxDistSq = maxRenderDistance * maxRenderDistance;
+        const maxDistSq = maxRenderDistance * maxDistSq;
         const desiredChunks = new Set();
 
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
@@ -219,34 +219,71 @@ class ChunkManager {
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
+                // Предварительные расчеты для лестниц
+                const cellSize = config.chunkSize / config.gridSize;
+                const levelHeight = config.levelHeight || 20;
+                const rampAngleRad = Math.atan2(levelHeight, cellSize);
+                const rampAngleDeg = THREE.MathUtils.radToDeg(rampAngleRad);
+                const rampLength = Math.sqrt(cellSize * cellSize + levelHeight * levelHeight) * 1.1; // Чуть длиннее гипотенузы
+
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
                     
                     let physScale = { ...prim.scale };
                     let physPos = { ...prim.position };
+                    let physRot = { 
+                        tiltX: prim.rotation?.tiltX || 0, 
+                        tiltY: prim.rotation?.tiltY || 0, 
+                        twistZ: prim.rotation?.twistZ || 0 
+                    };
 
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ И МОСТОВ ===
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        const thickness = config.platformThickness || 0.5;
-                        physPos.y = prim.position.y + (thickness / 2);
-                        physScale.y = thickness;
+                        // Создаем наклонный бокс (рампу)
+                        const rampWidth = cellSize * 0.8; // Чуть уже клетки
+                        const rampThickness = 0.5; // Толщина пандуса
+
+                        physScale.x = rampWidth;
+                        physScale.y = rampThickness;
+                        physScale.z = rampLength; // Длина вдоль наклона
+
+                        // Позиция: центр пандуса посередине между низом и верхом яруса
+                        physPos.y = prim.position.y + (levelHeight / 2);
+
+                        // Поворот в зависимости от направления лестницы
+                        // Базовая геометрия Box(1,1,1) ориентирована по осям.
+                        // Мы растянули её по Z (rampLength). Теперь нужно наклонить вокруг X и повернуть вокруг Y.
+                        
+                        if (prim.type === 'stair_north') {
+                            physRot.tiltX = -rampAngleDeg; // Наклон "от себя"
+                            physRot.tiltY = 0;
+                        } else if (prim.type === 'stair_south') {
+                            physRot.tiltX = -rampAngleDeg; 
+                            physRot.tiltY = 180; // Разворот на 180
+                        } else if (prim.type === 'stair_east') {
+                            physRot.tiltX = -rampAngleDeg;
+                            physRot.tiltY = -90; // Поворот на Восток
+                        } else if (prim.type === 'stair_west') {
+                            physRot.tiltX = -rampAngleDeg;
+                            physRot.tiltY = 90; // Поворот на Запад
+                        }
+                        
+                        physRot.twistZ = 0;
                     } 
+                    // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
-                        // Мост Север-Юг: узкий по X, длинный по Z
                         const bridgeWidth = 0.2 * prim.scale.x;
                         const bridgeLength = 1.0 * prim.scale.z;
-                        const bridgeThickness = 0.5; // Утолщаем для надежности
+                        const bridgeThickness = 0.5; 
                         
                         physScale.x = bridgeWidth;
                         physScale.z = bridgeLength;
                         physScale.y = bridgeThickness;
                         
-                        // Корректировка Y: центр бокса на поверхности моста
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
                     }
                     else if (prim.type === 'bridge_ew') {
-                        // Мост Восток-Запад: длинный по X, узкий по Z
                         const bridgeLength = 1.0 * prim.scale.x;
                         const bridgeWidth = 0.2 * prim.scale.z;
                         const bridgeThickness = 0.5;
@@ -261,11 +298,14 @@ class ChunkManager {
                     // ==================================
 
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
+                    
+                    // Применяем повороты (порядок Euler 'XYZ' в Three.js)
                     dummy.rotation.set(
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltX || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.tiltY || 0),
-                        THREE.MathUtils.degToRad(prim.rotation?.twistZ || 0)
+                        THREE.MathUtils.degToRad(physRot.tiltX),
+                        THREE.MathUtils.degToRad(physRot.tiltY),
+                        THREE.MathUtils.degToRad(physRot.twistZ)
                     );
+                    
                     dummy.scale.set(
                         Math.abs(physScale.x), 
                         Math.abs(physScale.y), 
