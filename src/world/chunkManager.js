@@ -47,7 +47,8 @@ class ChunkManager {
 
     updateVisibleChunks(centerChunk, config, cameraPos) {
         const { viewChunksXY, viewChunksZ, chunkSize, maxRenderDistance = 300 } = config;
-        const maxDistSq = maxRenderDistance * maxDistSq;
+        // ИСПРАВЛЕНИЕ: было maxRenderDistance * maxDistSq (ошибка), стало maxRenderDistance * maxRenderDistance
+        const maxDistSq = maxRenderDistance * maxRenderDistance; 
         const desiredChunks = new Set();
 
         for (let dx = -viewChunksXY; dx <= viewChunksXY; dx++) {
