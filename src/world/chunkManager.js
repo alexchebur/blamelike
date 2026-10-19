@@ -210,6 +210,7 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
+                // Материал для физики (невидимый триггер)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
@@ -220,12 +221,14 @@ class ChunkManager {
                 physicsMesh.name = `Physics_${key}`;
                 physicsMesh.frustumCulled = false;
                 
-                const primTypes = [];
+                const primTypes = []; // Хранит либо тип объекта, либо данные "рельсы"
                 const dummy = new THREE.Object3D();
 
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const halfCell = cellSize / 2;
+                // Ширина коридора лестницы (60% от клетки), чтобы игрок не "прилипал" сбоку
+                const railWidth = cellSize * 0.6; 
 
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
@@ -238,7 +241,7 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПЛОСКИЙ ТРИГГЕР + МАТЕМАТИКА) ===
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (РЕЛЬСА + ТРИГГЕР) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
                         // Создаем плоскую платформу-триггер на всю клетку
                         physScale.x = cellSize;
@@ -248,43 +251,41 @@ class ChunkManager {
                         // Центр триггера посередине высоты яруса
                         physPos.y = prim.position.y + (levelHeight / 2);
                         
-                        // Сбрасываем повороты - нам нужен ровный бокс
+                        // Сбрасываем повороты - нам нужен ровный бокс для надежного Raycast
                         physRot.tiltX = 0;
                         physRot.tiltY = 0;
                         physRot.twistZ = 0;
 
-                        // Вычисляем параметры для линейной интерполяции в PlayerController
+                        // Вычисляем параметры центральной оси (рельсы)
                         const startY = prim.position.y;
                         const endY = prim.position.y + levelHeight;
-                        
-                        let dir = '';
-                        let startCoord = 0;
-                        let endCoord = 0;
-                        
                         const centerX = prim.position.x;
                         const centerZ = prim.position.z;
                         
+                        let sx, sz, ex, ez;
+
                         if (prim.type === 'stair_north') {
-                            dir = 'z';
-                            startCoord = centerZ - halfCell;
-                            endCoord = centerZ + halfCell;
+                            sx = centerX; sz = centerZ - halfCell;
+                            ex = centerX; ez = centerZ + halfCell;
                         } else if (prim.type === 'stair_south') {
-                            dir = 'z';
-                            startCoord = centerZ + halfCell;
-                            endCoord = centerZ - halfCell;
+                            sx = centerX; sz = centerZ + halfCell;
+                            ex = centerX; ez = centerZ - halfCell;
                         } else if (prim.type === 'stair_east') {
-                            dir = 'x';
-                            startCoord = centerX - halfCell;
-                            endCoord = centerX + halfCell;
+                            sx = centerX - halfCell; sz = centerZ;
+                            ex = centerX + halfCell; ez = centerZ;
                         } else if (prim.type === 'stair_west') {
-                            dir = 'x';
-                            startCoord = centerX + halfCell;
-                            endCoord = centerX - halfCell;
+                            sx = centerX + halfCell; sz = centerZ;
+                            ex = centerX - halfCell; ez = centerZ;
+                        } else {
+                            // Fallback для неизвестных типов лестниц
+                            sx = centerX; sz = centerZ;
+                            ex = centerX; ez = centerZ;
                         }
                         
-                        // Кодируем данные рампы в строку
-                        const rampData = `ramp_${dir}_${startCoord.toFixed(2)}_${endCoord.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}`;
-                        primTypes.push(rampData);
+                        // Кодируем данные рельсы в строку
+                        // Формат: rail_startX_startZ_endX_endZ_startY_endY_width
+                        const railData = `rail_${sx.toFixed(2)}_${sz.toFixed(2)}_${ex.toFixed(2)}_${ez.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}_${railWidth.toFixed(2)}`;
+                        primTypes.push(railData);
                     } 
                     // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
@@ -351,7 +352,6 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
-
 // ... остальные методы (unloadUnusedChunks и т.д.) остаются без изменений ...
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
