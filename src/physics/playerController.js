@@ -98,9 +98,7 @@ class PlayerController {
         ];
 
         let hitFloorY = -Infinity;
-        let hitLadder = false;
         let hasHit = false;
-        let isInsideLadderVolume = false; // Новый флаг: находимся ли мы внутри объема лестницы
 
         for (const offset of offsets) {
             const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
@@ -113,42 +111,7 @@ class PlayerController {
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 
-                // Проверка типа через InstancedMesh
-                let isLadderHit = false;
-                if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
-                    const types = hit.object.userData.primTypes;
-                    if (types && types[hit.instanceId] && types[hit.instanceId].includes('stair')) {
-                        isLadderHit = true;
-                    }
-                }
-
-                if (isLadderHit) {
-                    hitLadder = true;
-                    // Если луч попал в лестницу, проверяем, где точка удара относительно ног
-                    // Так как коллайдер лестницы теперь высокий (на весь ярус),
-                    // то если мы вообще попали в него, значит мы внутри его объема по X/Z.
-                    // Нам нужно проверить, находимся ли мы в пределах его высоты.
-                    
-                    // Поскольку мы используем Raycast вниз, если мы внутри высокого бокса,
-                    // луч ударится в "пол" бокса (нижнюю грань) или пройдет сквозь, если мы ниже.
-                    // Но для логики "зоны" нам достаточно факта попадания в объект типа stair.
-                    
-                    // Уточнение: если мы падаем СВЕРХУ на высокий бокс, луч ударится в верхнюю грань.
-                    // В этом случае hit.point.y будет выше нас.
-                    // Если мы внутри, hit.point.y будет ниже нас (или мы не hitting ничего, если near > 0).
-                    
-                    // Для простоты: если мы попали в лестницу, считаем что мы в зоне действия.
-                    // Исключение: если точка удара значительно выше головы (мы под лестницей? нет, луч вниз).
-                    // Если точка удара ниже ног - мы внутри.
-                    if (hit.point.y <= feetY + 0.5) {
-                         isInsideLadderVolume = true;
-                    } else {
-                        // Мы стоим НА верхней грани высокого бокса (упали сверху)
-                        // В этом случае мы тоже считаем, что мы в зоне, но на самом верху
-                        isInsideLadderVolume = true;
-                    }
-                }
-
+                // Берем самую высокую точку удара
                 if (hit.point.y > hitFloorY) {
                     hitFloorY = hit.point.y;
                     hasHit = true;
@@ -156,29 +119,7 @@ class PlayerController {
             }
         }
 
-        // === ЛОГИКА ЛЕСТНИЦЫ (ПРИОРИТЕТ) ===
-        // Если мы внутри объема лестницы (попали в высокий бокс)
-        if (isInsideLadderVolume) {
-            this.onLadder = true;
-            this.onGround = false; // На лестнице мы не "на земле" в обычном смысле
-            this.isFalling = false; // ГРАВИТАЦИЯ ОТКЛЮЧЕНА
-            this.velocity.y = 0; // Останавливаем падение
-
-            // Управление подъемом/спуском
-            if (this.moveForward) {
-                this.position.y += this.climbSpeed * dt;
-            } else if (this.moveBackward) {
-                this.position.y -= this.climbSpeed * dt;
-            }
-            
-            // Ограничение, чтобы не вылететь за пределы яруса (опционально, но желательно)
-            // Можно добавить проверку границ чанка здесь, но пока оставим свободный полет
-            
-            return; // Выходим из функции, обычная физика пола не применяется
-        }
-
-        // === ОБЫЧНАЯ ЛОГИКА ПОЛА (если мы не на лестнице) ===
-        this.onLadder = false; // Сбрасываем флаг
+        // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
         const floorLevel = hitFloorY + (this.playerHeight / 2);
 
         if (hasHit) {
@@ -189,18 +130,26 @@ class PlayerController {
                 this.isFalling = false;
                 this.velocity.y = 0;
                 
+                // Плавная коррекция позиции (LERP)
                 const targetY = floorLevel;
                 this.position.y += (targetY - this.position.y) * 0.2;
                 if (Math.abs(this.position.y - targetY) < 0.01) {
                     this.position.y = targetY;
                 }
             } else {
+                // Мы ниже пола (застряли). Мягко выталкиваем вверх.
                 this.position.y += 0.5;
                 this.onGround = false;
                 this.isFalling = true;
             }
+            
+            // Проверка на лестницу (опционально, для отладки)
+            // Можно проверить instanceId, если нужно
+            this.onLadder = false; 
+
         } else {
             this.onGround = false;
+            this.onLadder = false;
             this.isFalling = true;
             this.velocity.y -= this.gravity * dt;
             if (this.velocity.y < -this.maxFallSpeed) {
