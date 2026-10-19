@@ -25,20 +25,18 @@ class PlayerController {
         this.downVector = new THREE.Vector3(0, -1, 0);
         
         // Параметры
-        this.playerRadius = 0.4; // Радиус игрока
+        this.playerRadius = 0.4;
         this.playerHeight = config.playerHeight || 1.8;
         this.speed = config.moveSpeed || 15.0; 
-        this.maxFallSpeed = 20.0; // Максимальная скорость падения
-        this.gravity = 30.0; // Ускорение свободного падения
+        this.maxFallSpeed = 20.0;
+        this.gravity = 30.0;
+        // this.climbSpeed больше не нужен для рамп, но оставим для совместимости
         this.climbSpeed = config.ladderClimbSpeed || 6;
-        
-        // Для отладки
-        this.debugRay = null;
     }
 
     update(deltaTime, camera) {
         if (!camera) return;
-        const dt = Math.min(deltaTime, 0.05); // Ограничиваем dt, чтобы избежать скачков
+        const dt = Math.min(deltaTime, 0.05);
 
         // 1. Горизонтальное движение
         this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
@@ -60,7 +58,7 @@ class PlayerController {
         const nextX = this.position.x + moveVec.x;
         const nextZ = this.position.z + moveVec.z;
 
-        // 2. Вертикальная физика и проверка коллизий
+        // 2. Вертикальная физика
         this.updateVerticalPhysics(dt, nextX, nextZ);
 
         // Применяем горизонтальное смещение
@@ -72,13 +70,11 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-// src/physics/playerController.js
-
     updateVerticalPhysics(dt, nextX, nextZ) {
         const collisionLayer = this.sceneManager.collisionLayer;
         if (!collisionLayer) return;
 
-        // === АЛГОРИТМ SWEPT RAYCAST ===
+        // === SWEPT RAYCAST ===
         const feetY = this.position.y - (this.playerHeight / 2);
         let rayOriginY = feetY;
         let rayDistance = this.playerHeight + 1.0;
@@ -99,6 +95,7 @@ class PlayerController {
 
         let hitFloorY = -Infinity;
         let hasHit = false;
+        let isLadderHit = false;
 
         for (const offset of offsets) {
             const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
@@ -106,12 +103,20 @@ class PlayerController {
             this.raycaster.far = rayDistance;
             this.raycaster.near = 0;
 
+            // intersectObjects с recursive: false, так как дети - это InstancedMesh
             const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 
-                // Берем самую высокую точку удара
+                // === ПРОВЕРКА ТИПА ЧЕРЕЗ INSTANCE ID ===
+                if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
+                    const types = hit.object.userData.primTypes;
+                    if (types && types[hit.instanceId] && types[hit.instanceId].includes('stair')) {
+                        isLadderHit = true;
+                    }
+                }
+
                 if (hit.point.y > hitFloorY) {
                     hitFloorY = hit.point.y;
                     hasHit = true;
@@ -120,6 +125,9 @@ class PlayerController {
         }
 
         // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
+        // Лестница теперь работает как обычный наклонный пол.
+        // Никакого ручного climbSpeed. Игрок идет по поверхности.
+        
         const floorLevel = hitFloorY + (this.playerHeight / 2);
 
         if (hasHit) {
@@ -130,23 +138,24 @@ class PlayerController {
                 this.isFalling = false;
                 this.velocity.y = 0;
                 
-                // Плавная коррекция позиции (LERP)
+                // Плавная коррекция (LERP)
                 const targetY = floorLevel;
                 this.position.y += (targetY - this.position.y) * 0.2;
                 if (Math.abs(this.position.y - targetY) < 0.01) {
                     this.position.y = targetY;
                 }
             } else {
-                // Мы ниже пола (застряли). Мягко выталкиваем вверх.
+                // Мы ниже пола (застряли в геометрии). Выталкиваем.
                 this.position.y += 0.5;
                 this.onGround = false;
                 this.isFalling = true;
             }
             
-            // Проверка на лестницу (опционально, для отладки)
-            // Можно проверить instanceId, если нужно
-            this.onLadder = false; 
-
+            this.onLadder = isLadderHit;
+            
+            // УДАЛЕНО: Блок с climbSpeed. 
+            // Теперь движение вверх/вниз происходит естественно за счет наклона коллайдера.
+            
         } else {
             this.onGround = false;
             this.onLadder = false;
