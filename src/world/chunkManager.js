@@ -210,7 +210,6 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                // Материал для физики (невидимый триггер)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
@@ -221,13 +220,13 @@ class ChunkManager {
                 physicsMesh.name = `Physics_${key}`;
                 physicsMesh.frustumCulled = false;
                 
-                const primTypes = []; // Хранит либо тип объекта, либо данные "рельсы"
+                const primTypes = [];
                 const dummy = new THREE.Object3D();
 
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const halfCell = cellSize / 2;
-                // Ширина коридора лестницы (60% от клетки), чтобы игрок не "прилипал" сбоку
+                // Ширина "коридора" лестницы (60% от размера клетки)
                 const railWidth = cellSize * 0.6; 
 
                 for (let i = 0; i < walkablePrims.length; i++) {
@@ -241,24 +240,25 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (РЕЛЬСА + ТРИГГЕР) ===
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (РЕЛЬСА) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        // Создаем плоскую платформу-триггер на всю клетку
+                        // Создаем ПЛОСКИЙ бокс-триггер на всю клетку
                         physScale.x = cellSize;
                         physScale.y = 0.5; // Толщина триггера
                         physScale.z = cellSize;
                         
-                        // Центр триггера посередине высоты яруса
+                        // Центр триггера посередине высоты яруса (чтобы луч попадал в него сверху)
                         physPos.y = prim.position.y + (levelHeight / 2);
                         
-                        // Сбрасываем повороты - нам нужен ровный бокс для надежного Raycast
+                        // Сбрасываем повороты - нам нужен ровный бокс без наклона
                         physRot.tiltX = 0;
                         physRot.tiltY = 0;
                         physRot.twistZ = 0;
 
-                        // Вычисляем параметры центральной оси (рельсы)
+                        // Вычисляем координаты начала и конца "рельсы"
                         const startY = prim.position.y;
                         const endY = prim.position.y + levelHeight;
+                        
                         const centerX = prim.position.x;
                         const centerZ = prim.position.z;
                         
@@ -276,14 +276,10 @@ class ChunkManager {
                         } else if (prim.type === 'stair_west') {
                             sx = centerX + halfCell; sz = centerZ;
                             ex = centerX - halfCell; ez = centerZ;
-                        } else {
-                            // Fallback для неизвестных типов лестниц
-                            sx = centerX; sz = centerZ;
-                            ex = centerX; ez = centerZ;
                         }
                         
                         // Кодируем данные рельсы в строку
-                        // Формат: rail_startX_startZ_endX_endZ_startY_endY_width
+                        // Формат: rail_sx_sz_ex_ez_sy_ey_width
                         const railData = `rail_${sx.toFixed(2)}_${sz.toFixed(2)}_${ex.toFixed(2)}_${ez.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}_${railWidth.toFixed(2)}`;
                         primTypes.push(railData);
                     } 
