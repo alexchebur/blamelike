@@ -47,7 +47,6 @@ class ChunkManager {
 
     updateVisibleChunks(centerChunk, config, cameraPos) {
         const { viewChunksXY, viewChunksZ, chunkSize, maxRenderDistance = 300 } = config;
-        // ИСПРАВЛЕНИЕ: было maxRenderDistance * maxDistSq (ошибка), стало maxRenderDistance * maxRenderDistance
         const maxDistSq = maxRenderDistance * maxRenderDistance; 
         const desiredChunks = new Set();
 
@@ -208,8 +207,9 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
+                // Материал для физики: ПОЛНОСТЬЮ невидимый
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
-                    visible: false,
+                    visible: false, 
                     colorWrite: false,
                     depthWrite: true
                 });
@@ -221,29 +221,20 @@ class ChunkManager {
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
-                // === DEBUG FIX: Жесткая фильтрация только для лестниц ===
-                const stairPrims = walkablePrims.filter(p => p.type.includes('stair') || p.type === 'platform_stair');
+                // === ОТЛАДКА: ВРЕМЕННО ОТКЛЮЧЕНА ДЛЯ ЧИСТОТЫ ЭКСПЕРИМЕНТА ===
+                // Если вы видите линии после этого кода, значит это НЕ debugMesh и НЕ physicsMesh
                 let debugMesh = null;
-                let debugIndex = 0;
-
-                // Создаем отладочный меш ТОЛЬКО если включен флаг И есть лестницы
-                if (config.debugPhysics && stairPrims.length > 0) {
+                /* 
+                if (config.debugPhysics) {
                     const debugMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0xff0000, // Ярко-красный
-                        wireframe: true,
-                        transparent: true,
-                        opacity: 0.8,
-                        depthTest: false
+                        color: 0xff0000, wireframe: true, transparent: true, opacity: 0.5, depthTest: false, fog: false
                     });
-                    
-                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, stairPrims.length);
-                    debugMesh.name = `Debug_Stairs_${key}`;
-                    debugMesh.frustumCulled = false;
-                    debugMesh.renderOrder = 999;
-                    debugMesh.raycast = () => {}; 
-                    
+                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
+                    debugMesh.name = `Debug_${key}`;
+                    debugMesh.raycast = () => {};
                     this.sceneManager.scene.add(debugMesh);
                 }
+                */
 
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
@@ -262,10 +253,9 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
-                    let isStair = false;
-
+                    // === ЛОГИКА ФИЗИКИ ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        isStair = true;
+                        // Лестница как наклонная рампа
                         const rampWidth = cellSize * 0.8;
                         const rampThickness = 0.5;
 
@@ -331,24 +321,16 @@ class ChunkManager {
                     physicsMesh.setMatrixAt(i, dummy.matrix);
                     primTypes.push(prim.type);
 
-                    // === DEBUG FIX: Заполняем только для лестниц ===
-                    if (isStair && debugMesh) {
-                        debugMesh.setMatrixAt(debugIndex, dummy.matrix);
-                        debugIndex++;
-                    }
+                    // if (debugMesh) debugMesh.setMatrixAt(i, dummy.matrix);
                 }
                 
                 physicsMesh.instanceMatrix.needsUpdate = true;
                 physicsMesh.userData.primTypes = primTypes; 
 
-                if (debugMesh) {
-                    debugMesh.instanceMatrix.needsUpdate = true;
-                }
-
                 this.sceneManager.collisionLayer.add(physicsMesh);
                 
                 group.userData.physicsMesh = physicsMesh;
-                if (debugMesh) group.userData.debugMesh = debugMesh;
+                // if (debugMesh) group.userData.debugMesh = debugMesh;
             }
         }
 
@@ -356,7 +338,6 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
-
 
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
@@ -486,9 +467,16 @@ class ChunkManager {
         const activePalette = palettes[config.palette] || palettes.blame;
         const colorHex = activePalette[slot] || activePalette.base;
         const geometry = this.createGeometry(type, slot, config, items[0]);
+        
+        // === ИСПРАВЛЕНИЕ МАТЕРИАЛА: Явно отключаем wireframe и fog для теста ===
         const material = new THREE.MeshLambertMaterial({
-            color: new THREE.Color(colorHex), flatShading: true, side: THREE.DoubleSide
+            color: new THREE.Color(colorHex), 
+            flatShading: true, 
+            side: THREE.DoubleSide,
+            wireframe: false, // Явно выключаем
+            fog: true // Включаем туман, чтобы дальние объекты исчезали
         });
+        
         const mesh = new THREE.InstancedMesh(geometry, material, items.length);
         mesh.frustumCulled = true; 
         const dummy = new THREE.Object3D();
@@ -597,8 +585,14 @@ class ChunkManager {
         this.heightMap.clear();
         this.lastCameraChunk = null;
         
-        if (this.sceneManager.physicsManager) {
-            this.sceneManager.physicsManager.clear();
+        // Очистка физических мешей
+        if (this.sceneManager.collisionLayer) {
+            while(this.sceneManager.collisionLayer.children.length > 0){ 
+                const obj = this.sceneManager.collisionLayer.children[0];
+                this.sceneManager.collisionLayer.remove(obj); 
+                if(obj.geometry) obj.geometry.dispose();
+                if(obj.material) obj.material.dispose();
+            }
         }
 
         if (this.sceneManager.screenManager) this.sceneManager.screenManager.clearAll();
