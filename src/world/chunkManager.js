@@ -254,8 +254,9 @@ class ChunkManager {
                     };
 
                     // === ЛОГИКА ФИЗИКИ ===
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) - ИСПРАВЛЕНО НАПРАВЛЕНИЕ ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        // Лестница как наклонная рампа
+                        isStair = true;
                         const rampWidth = cellSize * 0.8;
                         const rampThickness = 0.5;
 
@@ -266,17 +267,29 @@ class ChunkManager {
                         physPos.y = prim.position.y + (levelHeight / 2);
 
                         if (prim.type === 'stair_north') {
+                            // Направление +Z. tiltY = 0. tiltX поднимает +Z.
                             physRot.tiltX = -rampAngleDeg;
                             physRot.tiltY = 0;
                         } else if (prim.type === 'stair_south') {
+                            // Направление -Z. tiltY = 180. +Z становится -Z.
                             physRot.tiltX = -rampAngleDeg;
                             physRot.tiltY = 180;
                         } else if (prim.type === 'stair_east') {
+                            // Направление +X. 
+                            // Поворот Y на -90 переводит +Z в -X? Нет.
+                            // Проверка: Y rotation -90 deg.
+                            // x' = z*sin(-90) = -z. z' = z*cos(-90) = 0.
+                            // Вектор (0,0,1) -> (-1, 0, 0). Это -X (West).
+                            // Значит для East (+X) нужен поворот, который переводит +Z в +X.
+                            // Это +90 градусов.
                             physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = -90;
+                            physRot.tiltY = 90; // Было -90, стало 90
                         } else if (prim.type === 'stair_west') {
+                            // Направление -X.
+                            // Нужен поворот, который переводит +Z в -X.
+                            // Это -90 градусов.
                             physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = 90;
+                            physRot.tiltY = -90; // Было 90, стало -90
                         }
                         physRot.twistZ = 0;
                     } 
