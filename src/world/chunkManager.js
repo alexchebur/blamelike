@@ -207,9 +207,9 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                // Материал для физики: ПОЛНОСТЬЮ невидимый
+                // Материал для физики (невидимый)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
-                    visible: false, 
+                    visible: false,
                     colorWrite: false,
                     depthWrite: true
                 });
@@ -221,21 +221,7 @@ class ChunkManager {
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
-                // === ОТЛАДКА: ВРЕМЕННО ОТКЛЮЧЕНА ДЛЯ ЧИСТОТЫ ЭКСПЕРИМЕНТА ===
-                // Если вы видите линии после этого кода, значит это НЕ debugMesh и НЕ physicsMesh
-                let debugMesh = null;
-                /* 
-                if (config.debugPhysics) {
-                    const debugMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0xff0000, wireframe: true, transparent: true, opacity: 0.5, depthTest: false, fog: false
-                    });
-                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
-                    debugMesh.name = `Debug_${key}`;
-                    debugMesh.raycast = () => {};
-                    this.sceneManager.scene.add(debugMesh);
-                }
-                */
-
+                // Предварительные расчеты для лестниц
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const rampAngleRad = Math.atan2(levelHeight, cellSize);
@@ -253,8 +239,10 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
-                    // === ЛОГИКА ФИЗИКИ ===
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) - ИСПРАВЛЕНО НАПРАВЛЕНИЕ ===
+                    // === ИСПРАВЛЕНИЕ: Объявляем переменную isStair ===
+                    let isStair = false; 
+
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
                         isStair = true;
                         const rampWidth = cellSize * 0.8;
@@ -266,33 +254,23 @@ class ChunkManager {
 
                         physPos.y = prim.position.y + (levelHeight / 2);
 
+                        // Исправленные направления поворота
                         if (prim.type === 'stair_north') {
-                            // Направление +Z. tiltY = 0. tiltX поднимает +Z.
                             physRot.tiltX = -rampAngleDeg;
                             physRot.tiltY = 0;
                         } else if (prim.type === 'stair_south') {
-                            // Направление -Z. tiltY = 180. +Z становится -Z.
                             physRot.tiltX = -rampAngleDeg;
                             physRot.tiltY = 180;
                         } else if (prim.type === 'stair_east') {
-                            // Направление +X. 
-                            // Поворот Y на -90 переводит +Z в -X? Нет.
-                            // Проверка: Y rotation -90 deg.
-                            // x' = z*sin(-90) = -z. z' = z*cos(-90) = 0.
-                            // Вектор (0,0,1) -> (-1, 0, 0). Это -X (West).
-                            // Значит для East (+X) нужен поворот, который переводит +Z в +X.
-                            // Это +90 градусов.
                             physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = 90; // Было -90, стало 90
+                            physRot.tiltY = 90; // Исправлено: было -90
                         } else if (prim.type === 'stair_west') {
-                            // Направление -X.
-                            // Нужен поворот, который переводит +Z в -X.
-                            // Это -90 градусов.
                             physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = -90; // Было 90, стало -90
+                            physRot.tiltY = -90; // Исправлено: было 90
                         }
                         physRot.twistZ = 0;
                     } 
+                    // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
                         const bridgeWidth = 0.2 * prim.scale.x;
                         const bridgeLength = 1.0 * prim.scale.z;
@@ -318,6 +296,7 @@ class ChunkManager {
                         physPos.y = visualTopY - (bridgeThickness / 2);
                     }
 
+                    // Применяем трансформации для ФИЗИКИ
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
                     dummy.rotation.set(
                         THREE.MathUtils.degToRad(physRot.tiltX),
@@ -333,8 +312,6 @@ class ChunkManager {
                     
                     physicsMesh.setMatrixAt(i, dummy.matrix);
                     primTypes.push(prim.type);
-
-                    // if (debugMesh) debugMesh.setMatrixAt(i, dummy.matrix);
                 }
                 
                 physicsMesh.instanceMatrix.needsUpdate = true;
@@ -343,15 +320,14 @@ class ChunkManager {
                 this.sceneManager.collisionLayer.add(physicsMesh);
                 
                 group.userData.physicsMesh = physicsMesh;
-                // if (debugMesh) group.userData.debugMesh = debugMesh;
             }
         }
 
+        // 3. Экраны
         if (this.sceneManager.screenManager) {
             this.registerScreens(chunkData, key, config);
         }
     }
-
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
