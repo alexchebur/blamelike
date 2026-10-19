@@ -11,6 +11,7 @@ class App {
     constructor() {
         this.container = document.getElementById('canvas-container');
         this.loading = document.getElementById('loading');
+        this.lastChunkUpdatePos = new THREE.Vector3();
         
         // Основные компоненты
         this.sceneManager = null;
@@ -97,17 +98,21 @@ class App {
 // src/main.js
 
     updateChunks() {
-        if (!this.chunkManager || !this.sceneManager || !this.controlPanel) return;
-        
-        let pos;
-        if (this.sceneManager.playerController) {
-            pos = this.sceneManager.playerController.position;
-        } else {
-            pos = this.sceneManager.camera.position;
+        if (!this.chunkManager || !this.sceneManager) return;
+
+        const pc = this.sceneManager.playerController;
+        const currentPos = pc ? pc.position : this.sceneManager.camera.position;
+    
+        // Проверяем, ушли ли мы далеко от точки последнего обновления
+        // 5.0 - это порог в юнитах. Можно увеличить до 10-20 для экономии CPU
+        if (currentPos.distanceToSquared(this.lastChunkUpdatePos) < 25) { // 5 * 5 = 25
+            return; // Слишком близко, пропускаем обновление
         }
-            
+
+        this.lastChunkUpdatePos.copy(currentPos);
+    
         const config = this.controlPanel.getConfig();
-        this.chunkManager.update(pos, config);
+        this.chunkManager.update(currentPos, config);
     }
 
     /**
