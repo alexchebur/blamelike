@@ -30,7 +30,7 @@ class PlayerController {
         this.speed = config.moveSpeed || 15.0; 
         this.maxFallSpeed = 20.0;
         this.gravity = 30.0;
-        this.climbSpeed = config.ladderClimbSpeed || 6; // Оставлен для совместимости, но не используется для рамп
+        this.climbSpeed = config.ladderClimbSpeed || 6;
     }
 
     update(deltaTime, camera) {
