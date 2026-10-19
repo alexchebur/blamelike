@@ -197,6 +197,7 @@ class ChunkManager {
 
         // 2. Физический слой (RAYCAST + INSTANCED MESH)
         if (this.sceneManager.collisionLayer) {
+            // Фильтруем только проходимые объекты
             const walkablePrims = chunkData.filter(p => {
                 if (p.role === 'decor' || p.role === 'micro') return false;
                 if (p.type === 'screen' || p.type === 'torus') return false;
@@ -222,22 +223,30 @@ class ChunkManager {
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
-                // === ОТЛАДОЧНЫЙ МЕШ (WIREFRAME) ===
+                // === ОТЛАДОЧНЫЙ МЕШ ТОЛЬКО ДЛЯ ЛЕСТНИЦ ===
+                // Мы создаем его сразу, но заполняем матрицами только для лестниц.
+                // Для остальных индексов матрица будет нулевой (или мы просто не будем их рисовать, 
+                // но InstancedMesh требует фиксированное количество. 
+                // Хитрость: мы создаем меш на количество ВСЕХ примитивов, но для не-лестниц 
+                // устанавливаем scale в 0, чтобы они исчезли.
+                
                 let debugMesh = null;
-                if (config.debugPhysics) {
-                    // Используем яркий материал для отладки
+                // Проверяем флаг отладки И наличие лестниц в принципе
+                const hasStairs = walkablePrims.some(p => p.type.includes('stair'));
+                
+                if (config.debugPhysics && hasStairs) {
                     const debugMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x00ff00, // Зеленый для обычных
+                        color: 0xff0000, // Ярко-красный для лестниц
                         wireframe: true,
                         transparent: true,
-                        opacity: 0.5,
-                        depthTest: false // Рисовать поверх всего, чтобы видеть сквозь стены
+                        opacity: 0.8,
+                        depthTest: false // Рисовать поверх всего
                     });
                     
                     debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
-                    debugMesh.name = `Debug_${key}`;
+                    debugMesh.name = `Debug_Stairs_${key}`;
                     debugMesh.frustumCulled = false;
-                    debugMesh.renderOrder = 999; // Рисуем последним
+                    debugMesh.renderOrder = 999;
                     
                     // Отключаем Raycast для дебаг-меша
                     debugMesh.raycast = () => {}; 
@@ -263,8 +272,11 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
+                    let isStair = false;
+
                     // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
+                        isStair = true;
                         const rampWidth = cellSize * 0.8;
                         const rampThickness = 0.5;
 
@@ -288,12 +300,6 @@ class ChunkManager {
                             physRot.tiltY = 90;
                         }
                         physRot.twistZ = 0;
-                        
-                        // === ЦВЕТОВАЯ МАРКИРОВКА ДЛЯ ЛЕСТНИЦ ===
-                        if (debugMesh) {
-                            // Красный цвет для лестниц
-                            debugMesh.setColorAt(i, new THREE.Color(0xff0000));
-                        }
                     } 
                     // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
@@ -307,8 +313,6 @@ class ChunkManager {
                         
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
-                        
-                        if (debugMesh) debugMesh.setColorAt(i, new THREE.Color(0x0000ff)); // Синий для мостов
                     }
                     else if (prim.type === 'bridge_ew') {
                         const bridgeLength = 1.0 * prim.scale.x;
@@ -321,15 +325,9 @@ class ChunkManager {
                         
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
-                        
-                        if (debugMesh) debugMesh.setColorAt(i, new THREE.Color(0x0000ff)); // Синий для мостов
-                    }
-                    else {
-                        // Обычные платформы
-                        if (debugMesh) debugMesh.setColorAt(i, new THREE.Color(0x00ff00)); // Зеленый
                     }
 
-                    // Применяем трансформации
+                    // Применяем трансформации для ФИЗИКИ
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
                     dummy.rotation.set(
                         THREE.MathUtils.degToRad(physRot.tiltX),
@@ -344,13 +342,20 @@ class ChunkManager {
                     dummy.updateMatrix();
                     
                     physicsMesh.setMatrixAt(i, dummy.matrix);
-                    
-                    // Копируем матрицу в отладочный меш
-                    if (debugMesh) {
-                        debugMesh.setMatrixAt(i, dummy.matrix);
-                    }
-                    
                     primTypes.push(prim.type);
+
+                    // === ЗАПОЛНЕНИЕ DEBUG MESH (ТОЛЬКО ЛЕСТНИЦЫ) ===
+                    if (debugMesh) {
+                        if (isStair) {
+                            // Для лестниц копируем ту же матрицу (наклонный пандус)
+                            debugMesh.setMatrixAt(i, dummy.matrix);
+                        } else {
+                            // Для всех остальных (платформы, мосты) делаем масштаб 0, чтобы скрыть их
+                            dummy.scale.set(0, 0, 0);
+                            dummy.updateMatrix();
+                            debugMesh.setMatrixAt(i, dummy.matrix);
+                        }
+                    }
                 }
                 
                 physicsMesh.instanceMatrix.needsUpdate = true;
@@ -358,7 +363,6 @@ class ChunkManager {
 
                 if (debugMesh) {
                     debugMesh.instanceMatrix.needsUpdate = true;
-                    if (debugMesh.instanceColor) debugMesh.instanceColor.needsUpdate = true;
                 }
 
                 this.sceneManager.collisionLayer.add(physicsMesh);
