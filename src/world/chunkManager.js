@@ -207,7 +207,7 @@ class ChunkManager {
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
                 
-                // Материал для физики (невидимый)
+                // Материал для физики (невидимый триггер)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
@@ -218,15 +218,12 @@ class ChunkManager {
                 physicsMesh.name = `Physics_${key}`;
                 physicsMesh.frustumCulled = false;
                 
-                const primTypes = [];
+                const primTypes = []; // Здесь будем хранить либо тип, либо данные рампы
                 const dummy = new THREE.Object3D();
 
-                // Предварительные расчеты для лестниц
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
-                const rampAngleRad = Math.atan2(levelHeight, cellSize);
-                const rampAngleDeg = THREE.MathUtils.radToDeg(rampAngleRad);
-                const rampLength = Math.sqrt(cellSize * cellSize + levelHeight * levelHeight) * 1.1;
+                const halfCell = cellSize / 2;
 
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
@@ -239,36 +236,56 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
-                    // === ИСПРАВЛЕНИЕ: Объявляем переменную isStair ===
-                    let isStair = false; 
-
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) ===
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПЛОСКИЙ ТРИГГЕР + МАТЕМАТИКА) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        isStair = true;
-                        const rampWidth = cellSize * 0.8;
-                        const rampThickness = 0.5;
-
-                        physScale.x = rampWidth;
-                        physScale.y = rampThickness;
-                        physScale.z = rampLength;
-
+                        // Создаем плоскую платформу-триггер на всю клетку
+                        physScale.x = cellSize;
+                        physScale.y = 0.5; // Толщина триггера
+                        physScale.z = cellSize;
+                        
+                        // Центр триггера посередине высоты яруса
                         physPos.y = prim.position.y + (levelHeight / 2);
-
-                        // Исправленные направления поворота
-                        if (prim.type === 'stair_north') {
-                            physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = 0;
-                        } else if (prim.type === 'stair_south') {
-                            physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = 180;
-                        } else if (prim.type === 'stair_east') {
-                            physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = 90; // Исправлено: было -90
-                        } else if (prim.type === 'stair_west') {
-                            physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = -90; // Исправлено: было 90
-                        }
+                        
+                        // Сбрасываем повороты - нам нужен ровный бокс
+                        physRot.tiltX = 0;
+                        physRot.tiltY = 0;
                         physRot.twistZ = 0;
+
+                        // Вычисляем параметры для линейной интерполяции в PlayerController
+                        const startY = prim.position.y;
+                        const endY = prim.position.y + levelHeight;
+                        
+                        let dir = '';
+                        let startCoord = 0;
+                        let endCoord = 0;
+                        
+                        // Координаты центра клетки
+                        const centerX = prim.position.x;
+                        const centerZ = prim.position.z;
+                        
+                        // Определяем направление и границы интерполяции
+                        if (prim.type === 'stair_north') {
+                            dir = 'z';
+                            startCoord = centerZ - halfCell; // Начало в -Z
+                            endCoord = centerZ + halfCell;   // Конец в +Z
+                        } else if (prim.type === 'stair_south') {
+                            dir = 'z';
+                            startCoord = centerZ + halfCell; // Начало в +Z
+                            endCoord = centerZ - halfCell;   // Конец в -Z
+                        } else if (prim.type === 'stair_east') {
+                            dir = 'x';
+                            startCoord = centerX - halfCell;
+                            endCoord = centerX + halfCell;
+                        } else if (prim.type === 'stair_west') {
+                            dir = 'x';
+                            startCoord = centerX + halfCell;
+                            endCoord = centerX - halfCell;
+                        }
+                        
+                        // Кодируем данные рампы в строку для передачи в контроллер
+                        // Формат: ramp_ось_startCoord_endCoord_startY_endY
+                        const rampData = `ramp_${dir}_${startCoord.toFixed(2)}_${endCoord.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}`;
+                        primTypes.push(rampData);
                     } 
                     // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
@@ -282,6 +299,8 @@ class ChunkManager {
                         
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
+                        
+                        primTypes.push(prim.type);
                     }
                     else if (prim.type === 'bridge_ew') {
                         const bridgeLength = 1.0 * prim.scale.x;
@@ -294,6 +313,12 @@ class ChunkManager {
                         
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
+                        
+                        primTypes.push(prim.type);
+                    }
+                    // === ОБЫЧНЫЕ ПЛАТФОРМЫ ===
+                    else {
+                        primTypes.push(prim.type);
                     }
 
                     // Применяем трансформации для ФИЗИКИ
@@ -311,7 +336,6 @@ class ChunkManager {
                     dummy.updateMatrix();
                     
                     physicsMesh.setMatrixAt(i, dummy.matrix);
-                    primTypes.push(prim.type);
                 }
                 
                 physicsMesh.instanceMatrix.needsUpdate = true;
