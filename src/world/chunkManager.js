@@ -207,6 +207,8 @@ class ChunkManager {
 
             if (walkablePrims.length > 0) {
                 const geometry = new THREE.BoxGeometry(1, 1, 1);
+                
+                // Материал для физики (невидимый)
                 const physicsMaterial = new THREE.MeshBasicMaterial({ 
                     visible: false,
                     colorWrite: false,
@@ -220,12 +222,35 @@ class ChunkManager {
                 const primTypes = [];
                 const dummy = new THREE.Object3D();
 
+                // === ОТЛАДОЧНЫЙ МЕШ (WIREFRAME) ===
+                let debugMesh = null;
+                if (config.debugPhysics) {
+                    // Используем яркий материал для отладки
+                    const debugMaterial = new THREE.MeshBasicMaterial({ 
+                        color: 0x00ff00, // Зеленый для обычных
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0.5,
+                        depthTest: false // Рисовать поверх всего, чтобы видеть сквозь стены
+                    });
+                    
+                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
+                    debugMesh.name = `Debug_${key}`;
+                    debugMesh.frustumCulled = false;
+                    debugMesh.renderOrder = 999; // Рисуем последним
+                    
+                    // Отключаем Raycast для дебаг-меша
+                    debugMesh.raycast = () => {}; 
+                    
+                    this.sceneManager.scene.add(debugMesh);
+                }
+
                 // Предварительные расчеты для лестниц
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const rampAngleRad = Math.atan2(levelHeight, cellSize);
                 const rampAngleDeg = THREE.MathUtils.radToDeg(rampAngleRad);
-                const rampLength = Math.sqrt(cellSize * cellSize + levelHeight * levelHeight) * 1.1; // Чуть длиннее гипотенузы
+                const rampLength = Math.sqrt(cellSize * cellSize + levelHeight * levelHeight) * 1.1;
 
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
@@ -240,36 +265,35 @@ class ChunkManager {
 
                     // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ПАНДУСЫ) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        // Создаем наклонный бокс (рампу)
-                        const rampWidth = cellSize * 0.8; // Чуть уже клетки
-                        const rampThickness = 0.5; // Толщина пандуса
+                        const rampWidth = cellSize * 0.8;
+                        const rampThickness = 0.5;
 
                         physScale.x = rampWidth;
                         physScale.y = rampThickness;
-                        physScale.z = rampLength; // Длина вдоль наклона
+                        physScale.z = rampLength;
 
-                        // Позиция: центр пандуса посередине между низом и верхом яруса
                         physPos.y = prim.position.y + (levelHeight / 2);
 
-                        // Поворот в зависимости от направления лестницы
-                        // Базовая геометрия Box(1,1,1) ориентирована по осям.
-                        // Мы растянули её по Z (rampLength). Теперь нужно наклонить вокруг X и повернуть вокруг Y.
-                        
                         if (prim.type === 'stair_north') {
-                            physRot.tiltX = -rampAngleDeg; // Наклон "от себя"
+                            physRot.tiltX = -rampAngleDeg;
                             physRot.tiltY = 0;
                         } else if (prim.type === 'stair_south') {
-                            physRot.tiltX = -rampAngleDeg; 
-                            physRot.tiltY = 180; // Разворот на 180
+                            physRot.tiltX = -rampAngleDeg;
+                            physRot.tiltY = 180;
                         } else if (prim.type === 'stair_east') {
                             physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = -90; // Поворот на Восток
+                            physRot.tiltY = -90;
                         } else if (prim.type === 'stair_west') {
                             physRot.tiltX = -rampAngleDeg;
-                            physRot.tiltY = 90; // Поворот на Запад
+                            physRot.tiltY = 90;
                         }
-                        
                         physRot.twistZ = 0;
+                        
+                        // === ЦВЕТОВАЯ МАРКИРОВКА ДЛЯ ЛЕСТНИЦ ===
+                        if (debugMesh) {
+                            // Красный цвет для лестниц
+                            debugMesh.setColorAt(i, new THREE.Color(0xff0000));
+                        }
                     } 
                     // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
@@ -283,6 +307,8 @@ class ChunkManager {
                         
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
+                        
+                        if (debugMesh) debugMesh.setColorAt(i, new THREE.Color(0x0000ff)); // Синий для мостов
                     }
                     else if (prim.type === 'bridge_ew') {
                         const bridgeLength = 1.0 * prim.scale.x;
@@ -295,18 +321,21 @@ class ChunkManager {
                         
                         const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
                         physPos.y = visualTopY - (bridgeThickness / 2);
+                        
+                        if (debugMesh) debugMesh.setColorAt(i, new THREE.Color(0x0000ff)); // Синий для мостов
                     }
-                    // ==================================
+                    else {
+                        // Обычные платформы
+                        if (debugMesh) debugMesh.setColorAt(i, new THREE.Color(0x00ff00)); // Зеленый
+                    }
 
+                    // Применяем трансформации
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
-                    
-                    // Применяем повороты (порядок Euler 'XYZ' в Three.js)
                     dummy.rotation.set(
                         THREE.MathUtils.degToRad(physRot.tiltX),
                         THREE.MathUtils.degToRad(physRot.tiltY),
                         THREE.MathUtils.degToRad(physRot.twistZ)
                     );
-                    
                     dummy.scale.set(
                         Math.abs(physScale.x), 
                         Math.abs(physScale.y), 
@@ -315,32 +344,25 @@ class ChunkManager {
                     dummy.updateMatrix();
                     
                     physicsMesh.setMatrixAt(i, dummy.matrix);
+                    
+                    // Копируем матрицу в отладочный меш
+                    if (debugMesh) {
+                        debugMesh.setMatrixAt(i, dummy.matrix);
+                    }
+                    
                     primTypes.push(prim.type);
                 }
                 
                 physicsMesh.instanceMatrix.needsUpdate = true;
                 physicsMesh.userData.primTypes = primTypes; 
 
-                this.sceneManager.collisionLayer.add(physicsMesh);
-                
-                let debugMesh = null;
-                if (config.debugPhysics) {
-                    const debugMaterial = new THREE.MeshBasicMaterial({ 
-                        color: 0x00ff88, 
-                        wireframe: true,
-                        transparent: true,
-                        opacity: 0.3
-                    });
-                    
-                    debugMesh = new THREE.InstancedMesh(geometry, debugMaterial, walkablePrims.length);
-                    debugMesh.name = `Debug_${key}`;
-                    debugMesh.frustumCulled = false;
-                    debugMesh.instanceMatrix.copy(physicsMesh.instanceMatrix);
-                    debugMesh.raycast = () => {}; 
-                    
-                    this.sceneManager.scene.add(debugMesh);
+                if (debugMesh) {
+                    debugMesh.instanceMatrix.needsUpdate = true;
+                    if (debugMesh.instanceColor) debugMesh.instanceColor.needsUpdate = true;
                 }
 
+                this.sceneManager.collisionLayer.add(physicsMesh);
+                
                 group.userData.physicsMesh = physicsMesh;
                 if (debugMesh) group.userData.debugMesh = debugMesh;
             }
