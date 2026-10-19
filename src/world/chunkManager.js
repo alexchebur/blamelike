@@ -216,6 +216,30 @@ class ChunkManager {
             const walkablePrims = chunkData.filter(p => {
                 if (p.role === 'decor' || p.role === 'micro') return false;
                 if (p.type === 'screen' || p.type === 'torus') return false;
+                if (p.type.inc    loadChunk(cx, cy, cz, config, cameraPos) {
+        const key = createChunkKey(cx, cy, cz);
+        let chunkData = this.cache.get(key);
+        
+        if (!chunkData) {
+            chunkData = generateChunk(cx, cy, cz, config.seed, config);
+            this.cache.set(key, chunkData);
+        }
+
+        this.updateHeightMapForChunk(chunkData);
+
+        // 1. Визуальный слой
+        const group = this.createChunkMesh(chunkData, config);
+        group.userData.primitives = chunkData; 
+        
+        this.activeChunks.set(key, group);
+        this.sceneManager.scene.add(group);
+
+        // 2. Физический слой (RAYCAST + INSTANCED MESH)
+        if (this.sceneManager.collisionLayer) {
+            // Фильтруем только проходимые объекты
+            const walkablePrims = chunkData.filter(p => {
+                if (p.role === 'decor' || p.role === 'micro') return false;
+                if (p.type === 'screen' || p.type === 'torus') return false;
                 if (p.type.includes('cable')) return false;
                 
                 return p.type === 'box' || p.type.includes('stair') || 
@@ -245,16 +269,72 @@ class ChunkManager {
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
                     
-                    // === КОРРЕКТИРОВКА РАЗМЕРОВ ДЛЯ ЛЕСТНИЦ ===
+                    // === КОРРЕКТИРОВКА РАЗМЕРОВ И ПОЗИЦИИ ДЛЯ ФИЗИКИ ===
                     let physScale = { ...prim.scale };
                     let physPos = { ...prim.position };
 
+                    // Минимальная толщина для надежного Raycast (защита от проваливания)
+                    const minThickness = 0.5; 
+
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        const thickness = config.platformThickness || 0.5;
+                        // ЛЕСТНИЦЫ: Используем только толщину платформы, игнорируя высоту этажа
+                        const thickness = Math.max(minThickness, config.platformThickness || 0.5);
                         // Сдвигаем центр коллайдера на половину толщины вверх от низа платформы
                         physPos.y = prim.position.y + (thickness / 2);
                         physScale.y = thickness;
+                        // X и Z оставляем как есть (размер клетки)
+                    } 
+                    else if (prim.type === 'bridge_ns') {
+                        // МОСТ СЕВЕР-ЮГ: Узкий по X, длинный по Z
+                        // Геометрия в stairFactory: Box(0.2, 0.1, 1.0)
+                        // Scale в генераторе: { x: cellSize, y: 1, z: cellSize }
+                        // Итоговый визуальный размер: 0.2*cellSize x 0.1 x 1.0*cellSize
+                        
+                        const bridgeWidth = 0.2 * prim.scale.x; // Ширина моста
+                        const bridgeLength = 1.0 * prim.scale.z; // Длина моста
+                        const bridgeThickness = Math.max(minThickness, 0.1 * prim.scale.y); // Толщина (увеличена для физики)
+
+                        physScale.x = bridgeWidth;
+                        physScale.z = bridgeLength;
+                        physScale.y = bridgeThickness;
+
+                        // Корректировка позиции Y: центр бокса должен быть на поверхности моста
+                        // В генераторе position.y = currentYBase + platformThickness + 0.05
+                        // Визуальная высота моста = 0.1 * scale.y = 0.1
+                        // Верхняя грань визуального моста = pos.y + 0.05
+                        // Нам нужно, чтобы верхняя грань физического бокса совпадала с верхней гранью визуального
+                        const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
+                        physPos.y = visualTopY - (bridgeThickness / 2);
                     }
+                    else if (prim.type === 'bridge_ew') {
+                        // МОСТ ВОСТОК-ЗАПАД: Длинный по X, узкий по Z
+                        // Геометрия в stairFactory: Box(1.0, 0.1, 0.2)
+                        
+                        const bridgeLength = 1.0 * prim.scale.x; // Длина моста
+                        const bridgeWidth = 0.2 * prim.scale.z;  // Ширина моста
+                        const bridgeThickness = Math.max(minThickness, 0.1 * prim.scale.y); // Толщина
+
+                        physScale.x = bridgeLength;
+                        physScale.z = bridgeWidth;
+                        physScale.y = bridgeThickness;
+
+                        // Корректировка позиции Y (аналогично bridge_ns)
+                        const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
+                        physPos.y = visualTopY - (bridgeThickness / 2);
+                    }
+                    else {
+                        // ОБЫЧНЫЕ ПЛАТФОРМЫ (box)
+                        // Убедимся, что толщина достаточна для Raycast
+                        if (physScale.y < minThickness) {
+                            const oldY = physPos.y;
+                            physScale.y = minThickness;
+                            // Если это тонкая плита, скорректируем позицию, чтобы верх остался на месте
+                            // (предполагая, что prim.position.y - это центр)
+                            // Но в генераторе для box position.y = yBase + thickness/2, так что центр уже верный.
+                            // Просто увеличиваем толщину симметрично.
+                        }
+                    }
+                    // =============================================================
 
                     // Устанавливаем трансформацию для инстанса
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
