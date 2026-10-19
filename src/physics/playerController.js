@@ -78,9 +78,7 @@ class PlayerController {
         const collisionLayer = this.sceneManager.collisionLayer;
         if (!collisionLayer) return;
 
-        // === АЛГОРИТМ SWEPT RAYCAST ===
         const feetY = this.position.y - (this.playerHeight / 2);
-        
         let rayOriginY = feetY;
         let rayDistance = this.playerHeight + 1.0;
 
@@ -101,6 +99,7 @@ class PlayerController {
         let hitFloorY = -Infinity;
         let hitLadder = false;
         let hasHit = false;
+        let isInsideLadderVolume = false; // Новый флаг
 
         for (const offset of offsets) {
             const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
@@ -108,73 +107,86 @@ class PlayerController {
             this.raycaster.far = rayDistance;
             this.raycaster.near = 0;
 
-            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
-                // Берем самую высокую точку удара среди всех лучей
+                
+                // Проверка типа через InstancedMesh
+                let isLadderHit = false;
+                if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
+                    const types = hit.object.userData.primTypes;
+                    if (types && types[hit.instanceId] && types[hit.instanceId].includes('stair')) {
+                        isLadderHit = true;
+                    }
+                }
+
+                if (isLadderHit) {
+                    hitLadder = true;
+                    // Если луч попал в лестницу, проверяем, где точка удара относительно ног
+                    // Если точка удара выше ног (или чуть ниже), значит мы "внутри" объема лестницы
+                    if (hit.point.y >= feetY - 0.5) {
+                        isInsideLadderVolume = true;
+                    }
+                }
+
                 if (hit.point.y > hitFloorY) {
                     hitFloorY = hit.point.y;
                     hasHit = true;
-                    if (hit.object.userData && hit.object.userData.isLadder) {
-                        hitLadder = true;
-                    }
                 }
             }
         }
 
-        // === ОБРАБОТКА РЕЗУЛЬТАТОВ (ИСПРАВЛЕННАЯ) ===
+        // === ЛОГИКА ЛЕСТНИЦЫ (ПРИОРИТЕТ) ===
+        if (isInsideLadderVolume) {
+            this.onLadder = true;
+            this.onGround = false;
+            this.isFalling = false;
+            this.velocity.y = 0; // Полная остановка падения
+
+            // Управление подъемом/спуском
+            if (this.moveForward) {
+                this.position.y += this.climbSpeed * dt;
+            } else if (this.moveBackward) {
+                this.position.y -= this.climbSpeed * dt;
+            }
+            
+            // Ограничение, чтобы не вылететь за пределы яруса (опционально)
+            // Можно добавить проверку границ чанка здесь
+            
+            return; // Выходим из функции, гравитация не применяется
+        }
+
+        // === ОБЫЧНАЯ ЛОГИКА ПОЛА ===
+        this.onLadder = false; // Сбрасываем, если мы не в объеме лестницы
         const floorLevel = hitFloorY + (this.playerHeight / 2);
 
         if (hasHit) {
-            // Логика: если мы падаем И находимся выше или на уровне пола -> приземляемся
-            // Если мы уже ниже пола (провалились), мы НЕ телепортируемся вверх резко.
-            // Вместо этого мы считаем, что пола нет (или мы внутри него), и продолжаем падать/искать выход.
-            
-            const isAboveOrAtFloor = this.position.y >= floorLevel - 0.05; // Допуск 5 см
+            const isAboveOrAtFloor = this.position.y >= floorLevel - 0.05;
 
             if (isAboveOrAtFloor) {
                 this.onGround = true;
                 this.isFalling = false;
                 this.velocity.y = 0;
                 
-                // Плавная коррекция позиции (LERP) вместо жесткого присваивания
-                // Это убирает "дерганье" при ходьбе по неровностям
                 const targetY = floorLevel;
-                this.position.y += (targetY - this.position.y) * 0.2; // Коэффициент сглаживания
-                
-                // Если разница очень мала, фиксируем точно, чтобы не было дрейфа
+                this.position.y += (targetY - this.position.y) * 0.2;
                 if (Math.abs(this.position.y - targetY) < 0.01) {
                     this.position.y = targetY;
                 }
             } else {
-                // Мы ниже пола (застряли). Нужно выбираться.
-                // Вариант 1: Телепортировать вверх (может быть резко)
-                // Вариант 2: Считать, что мы в воздухе, и дать возможность упасть дальше или выйти сбоку
-                // Для Blame! лучше мягко вытолкнуть вверх, но не мгновенно
-                this.position.y += 0.5; // Мягкий толчок вверх из текстуры
+                this.position.y += 0.5;
                 this.onGround = false;
                 this.isFalling = true;
             }
-
-            this.onLadder = hitLadder;
-            if (this.onLadder && (this.moveForward || this.moveBackward)) {
-                const climbDir = this.moveForward ? 1 : -1;
-                this.position.y += climbDir * this.climbSpeed * dt;
-                this.velocity.y = 0;
-            }
-
         } else {
-            // Пола нет -> падаем
             this.onGround = false;
-            this.onLadder = false;
             this.isFalling = true;
             this.velocity.y -= this.gravity * dt;
             if (this.velocity.y < -this.maxFallSpeed) {
                 this.velocity.y = -this.maxFallSpeed;
             }
             this.position.y += this.velocity.y * dt;
-            
             if (this.position.y < -100) {
                 this.position.set(0, 50, 0);
                 this.velocity.set(0, 0, 0);
