@@ -232,6 +232,7 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                 const wz = bounds.min.z + (gy + 0.5) * cellSize; 
                 
                 let stairType = null;
+                let stairDir = null; // Сохраняем направление для смещения
                 
                 if (level < endLevel && rng() < stairsChance) {
                     const targetLevel = level + 1;
@@ -256,16 +257,30 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
                             
                             if (midEmpty && targetOccupied) {
                                 stairType = dir.type;
+                                stairDir = dir; // Запоминаем направление
                                 break;
                             }
                         }
                     }
                 }
 
-                if (stairType) {
+                if (stairType && stairDir) {
+                    // === ИСПРАВЛЕНИЕ 2: Сдвигаем лестницу к краю платформы ===
+                    // Лестница генерируется в центре клетки (wx, wz).
+                    // Нам нужно сдвинуть её к краю в направлении подъема.
+                    let offsetX = 0;
+                    let offsetZ = 0;
+                    
+                    // Сдвиг на половину размера клетки (cellSize / 2) в нужную сторону
+                    if (stairDir.type === 'stair_north') offsetZ = cellSize / 2;
+                    else if (stairDir.type === 'stair_south') offsetZ = -cellSize / 2;
+                    else if (stairDir.type === 'stair_east') offsetX = cellSize / 2;
+                    else if (stairDir.type === 'stair_west') offsetX = -cellSize / 2;
+
                     primitives.push({
                         type: stairType,
-                        position: { x: wx, y: yBase, z: wz }, 
+                        // Применяем смещение к координатам
+                        position: { x: wx + offsetX, y: yBase, z: wz + offsetZ }, 
                         rotation: { tiltX: 0, tiltY: 0, twistZ: 0 },
                         scale: { x: cellSize, y: levelHeight, z: cellSize },
                         paletteSlot: 'accent',
@@ -287,7 +302,6 @@ function generatePlatforms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     }
     return primitives;
 }
-
 function generateRooms(cx, cy, cz, seed, config, rng, bounds, cellSize) {
     const primitives = [];
     const { wallDensity, pillarDensity, levelHeight, gridSize, roomDensity, platformThickness } = config;
