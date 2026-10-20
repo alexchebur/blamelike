@@ -5,53 +5,45 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const geomCache = {};
 
 /**
- * Создает простую геометрию рампы (наклонный бокс)
- * Вместо сложных ступенек делаем честную наклонную плоскость
+ * Создает базовую геометрию лестницы, направленной на Восток (+X)
+ * ИЗМЕНЕНО: ширина теперь 0.15 (как у мостов)
  */
-function createRampGeometry(plateThickness, levelHeight) {
+function createEastStairGeometry(plateThickness, levelHeight) {
     const safeThickness = (typeof plateThickness === 'number' && plateThickness > 0) ? plateThickness : 0.5;
     const safeLevelHeight = (typeof levelHeight === 'number' && levelHeight > 0) ? levelHeight : 20;
+    const thicknessRatio = Math.max(0.01, Math.min(0.99, safeThickness / safeLevelHeight));
     
-    // Размеры рампы в локальных координатах (до масштабирования примитивом)
-    // Примитив в chunkGenerator имеет scale: { x: cellSize, y: levelHeight, z: cellSize }
-    // Нам нужно, чтобы после масштабирования получилась рампа толщиной ~0.5
+    const geometries = [];
     
-    // Базовая ширина (по X) - чуть уже клетки
-    const width = 0.8; 
-    // Базовая толщина (по Y) - очень тонкая, так как scale.y будет большим (levelHeight)
-    // Но подождите! Если scale.y = 20, а мы хотим толщину 0.5, то базовая толщина должна быть 0.5 / 20 = 0.025
-    const thicknessRatio = safeThickness / safeLevelHeight;
-    // Базовая длина (по Z) - чуть длиннее клетки, чтобы покрыть пролет по диагонали
-    const length = 1.1; 
-
-    const geo = new THREE.BoxGeometry(width, thicknessRatio, length);
+    // 1. ПЛИТА ОСНОВАНИЯ
+    const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
+    base.translate(0, thicknessRatio / 2, 0); 
+    geometries.push(base);
     
-    // Сдвигаем геометрию так, чтобы pivot был в центре нижней грани платформы
-    // В chunkGenerator position.y = yBase (низ яруса)
-    // Геометрия центрирована в 0. Нам нужно сдвинуть её вверх на половину толщины
-    geo.translate(0, thicknessRatio / 2, 0);
+    // 2. ЛЕСТНИЦА
+    const steps = 21; 
+    const stairLength = 1.05; 
+    const width = 0.15;        // <-- ИЗМЕНЕНО: было 0.4, стало 0.15 (как у мостов)
+    const zOffset = 0.35;      // <-- ИЗМЕНЕНО: смещаем ближе к краю (было 0.25)
+    const startOffset = 0.5; 
+    const availableHeight = 1.0 - thicknessRatio;
+    const stepH = availableHeight / steps;
+    const stepD = stairLength / steps;
     
-    return geo;
+    for (let i = 0; i < steps; i++) {
+        const step = new THREE.BoxGeometry(stepD, stepH, width);
+        const x = startOffset + (i * stepD); 
+        const y = thicknessRatio + (i * stepH) + (stepH / 2);
+        const z = zOffset;
+        step.translate(x, y, z);
+        geometries.push(step);
+    }
+    
+    return mergeGeometries(geometries);
 }
 
 /**
- * Создает простую геометрию моста Север-Юг
- */
-function createBridgeNSGeometry() {
-    const geo = new THREE.BoxGeometry(0.2, 0.1, 1.0);
-    return geo;
-}
-
-/**
- * Создает простую геометрию моста Восток-Запад
- */
-function createBridgeEWGeometry() {
-    const geo = new THREE.BoxGeometry(1.0, 0.1, 0.2);
-    return geo;
-}
-
-/**
- * Создает геометрию арки
+ * Создает геометрию арки (две стойки + перекладина)
  */
 function createArchGeometry() {
     const geometries = [];
@@ -75,7 +67,23 @@ function createArchGeometry() {
 }
 
 /**
- * Возвращает геометрию нужного типа
+ * Создает простую геометрию моста Север-Юг (вдоль оси Z)
+ */
+function createBridgeNSGeometry() {
+    const geo = new THREE.BoxGeometry(0.2, 0.1, 1.0);
+    return geo;
+}
+
+/**
+ * Создает простую геометрию моста Восток-Запад (вдоль оси X)
+ */
+function createBridgeEWGeometry() {
+    const geo = new THREE.BoxGeometry(1.0, 0.1, 0.2);
+    return geo;
+}
+
+/**
+ * Возвращает геометрию нужного типа (лестница, мост или арка)
  */
 export function getStairGeometry(type, plateThickness, levelHeight) {
     const safePT = plateThickness ?? 0.5;
@@ -93,61 +101,13 @@ export function getStairGeometry(type, plateThickness, levelHeight) {
     } else if (type === 'arch') {
         geo = createArchGeometry();
     } else {
-        // Для всех типов лестниц используем простую рампу
-        geo = createRampGeometry(safePT, safeLH);
+        // Создаем базовую геометрию лестницы, направленную на Восток (+X)
+        geo = createEastStairGeometry(safePT, safeLH);
         
-        // Поворачиваем рампу в нужном направлении
-        // Базовая рампа направлена вдоль Z (North)
-        if (type === 'stair_west') geo.rotateY(Math.PI / 2);
-        else if (type === 'stair_east') geo.rotateY(-Math.PI / 2);
-        else if (type === 'stair_south') geo.rotateY(Math.PI);
-        // stair_north остается без поворота (вдоль +Z)
-        
-        // Наклоняем рампу вокруг оси X
-        // Угол наклона: atan(levelHeight / cellSize). 
-        // Но так как геометрия будет масштабироваться по Y на levelHeight, а по Z на cellSize,
-        // нам нужно наклонить её в локальных координатах так, чтобы после масштабирования она соединяла углы.
-        // В локальных координатах (до scale): высота = 1 (условно), длина = 1.
-        // Нам нужно поднять дальний край (Z+) на высоту 1 (в локальных единицах, которые станут levelHeight).
-        // applyMatrix4 или rotateX?
-        // Проще использовать shear (сдвиг) или просто повернуть и растянуть?
-        // Нет, самый надежный способ для InstancedMesh - это сделать геометрию уже наклонной.
-        
-        // Вычисляем угол наклона в локальных координатах
-        // Локальная высота подъема = 1.0 (так как scale.y = levelHeight, а мы хотим подняться на levelHeight)
-        // Локальная длина = 1.0 (так как scale.z = cellSize)
-        // Угол = atan(1 / 1) = 45 градусов? Нет.
-        // В chunkGenerator scale: { x: cellSize, y: levelHeight, z: cellSize }.
-        // Если мы сделаем геометрию длиной 1 по Z и высотой 1 по Y, то после scale она станет cellSize x levelHeight.
-        // Нам нужно, чтобы при Z=0.5 (конец) Y был 1.0 (верх). При Z=-0.5 (начало) Y был 0.
-        // Это линейная зависимость Y = Z + 0.5.
-        // Three.js не имеет встроенного shear для BufferGeometry легко.
-        // Но мы можем просто повернуть бокс и растянуть его? Нет, это исказит толщину.
-        
-        // АЛЬТЕРНАТИВА: Не использовать поворот в геометрии. Использовать поворот в InstancedMesh.
-        // Но InstancedMesh поворачивает весь объект.
-        // Давайте сделаем геометрию просто длинной балкой, а наклон зададим в chunkManager через rotation?
-        // Нет, в chunkGenerator rotation для лестниц {0,0,0}.
-        
-        // САМОЕ ПРОСТОЕ РЕШЕНИЕ ДЛЯ РАМПЫ:
-        // Создать бокс, и вручную сдвинуть вершины (shear).
-        const pos = geo.attributes.position;
-        for (let i = 0; i < pos.count; i++) {
-            const z = pos.getZ(i);
-            const y = pos.getY(i);
-            // Сдвигаем Y в зависимости от Z. 
-            // z идет от -0.55 до 0.55 (length 1.1).
-            // Нам нужно, чтобы при z > 0 y увеличивался.
-            // Коэффициент наклона: 1.0 (подъем на 1 локальную единицу при длине 1)
-            // newY = y + z * 1.0; 
-            // Но это поднимет центр. Нам нужно, чтобы низ остался на 0.
-            // При z = -0.55, сдвиг = -0.55. newY = y - 0.55.
-            // При z = 0.55, сдвиг = 0.55. newY = y + 0.55.
-            // Это создаст наклон.
-            pos.setY(i, y + z * 0.9); // 0.9 - коэффициент наклона
-        }
-        pos.needsUpdate = true;
-        geo.computeVertexNormals();
+        // Поворачиваем вокруг центра платформы (0,0)
+        if (type === 'stair_west') geo.rotateY(Math.PI);
+        else if (type === 'stair_north') geo.rotateY(-Math.PI / 2);
+        else if (type === 'stair_south') geo.rotateY(Math.PI / 2);
     }
     
     if (!geo) {
