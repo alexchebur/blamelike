@@ -199,7 +199,7 @@ class ChunkManager {
 
         // 2. Физический слой - ГИБРИДНЫЙ ПОДХОД
         if (this.sceneManager.collisionLayer) {
-            // Разделяем примитивы на простые (платформы, мосты) и сложные (лестницы)
+            // Разделяем примитивы на простые и сложные
             const simplePrims = [];
             const stairPrims = [];
             
@@ -227,7 +227,6 @@ class ChunkManager {
                 const physicsMesh = new THREE.InstancedMesh(geometry, physicsMaterial, simplePrims.length);
                 physicsMesh.name = `Physics_Simple_${key}`;
                 physicsMesh.frustumCulled = false;
-                physicsMesh.userData.isSimplePhysics = true; // Метка для PlayerController
                 
                 const dummy = new THREE.Object3D();
 
@@ -253,7 +252,7 @@ class ChunkManager {
                     }
 
                     dummy.position.set(physPos.x, physPos.y, physPos.z);
-                    dummy.rotation.set(0, 0, 0); // Без поворотов для простых объектов
+                    dummy.rotation.set(0, 0, 0);
                     dummy.scale.set(
                         Math.abs(physScale.x), 
                         Math.abs(physScale.y), 
@@ -269,7 +268,7 @@ class ChunkManager {
                 group.userData.simplePhysicsMesh = physicsMesh;
             }
 
-            // === B. Отдельные Mesh для лестниц (честные рампы) ===
+            // === B. Отдельные Mesh для лестниц (честные рампы из stairFactory) ===
             if (stairPrims.length > 0) {
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
@@ -280,7 +279,6 @@ class ChunkManager {
 
                 const stairGroup = new THREE.Group();
                 stairGroup.name = `Physics_Stairs_${key}`;
-                stairGroup.userData.isStairPhysics = true; // Метка для PlayerController
 
                 // Используем ту же геометрию, что и для визуала (наклонный бокс)
                 const geometry = new THREE.BoxGeometry(rampWidth, rampThickness, rampLength);
@@ -301,21 +299,16 @@ class ChunkManager {
                     mesh.position.set(prim.position.x, midY, prim.position.z);
                     
                     // Повороты: сначала направление (Y), потом наклон (X)
-                    // Используем кватернионы для правильного порядка вращения
                     const quat = new THREE.Quaternion();
                     const euler = new THREE.Euler();
                     
                     if (prim.type === 'stair_north') {
-                        // Подъем на +Z: наклон вокруг X на -angle
                         euler.set(-rampAngleRad, 0, 0, 'YXZ');
                     } else if (prim.type === 'stair_south') {
-                        // Подъем на -Z: поворот на 180 вокруг Y, потом наклон
                         euler.set(-rampAngleRad, Math.PI, 0, 'YXZ');
                     } else if (prim.type === 'stair_east') {
-                        // Подъем на +X: поворот на -90 вокруг Y, потом наклон
                         euler.set(-rampAngleRad, -Math.PI / 2, 0, 'YXZ');
                     } else if (prim.type === 'stair_west') {
-                        // Подъем на -X: поворот на +90 вокруг Y, потом наклон
                         euler.set(-rampAngleRad, Math.PI / 2, 0, 'YXZ');
                     }
                     
