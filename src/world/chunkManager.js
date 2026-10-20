@@ -220,13 +220,12 @@ class ChunkManager {
                 physicsMesh.name = `Physics_${key}`;
                 physicsMesh.frustumCulled = false;
                 
-                const primTypes = [];
+                const primTypes = []; // Здесь будем хранить либо тип, либо данные рампы
                 const dummy = new THREE.Object3D();
 
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const halfCell = cellSize / 2;
-                const railWidth = cellSize * 0.6; // Ширина коридора лестницы
 
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
@@ -239,87 +238,56 @@ class ChunkManager {
                         twistZ: prim.rotation?.twistZ || 0 
                     };
 
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (РЕЛЬСА) ===
+                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ТРИГГЕР + МАТЕМАТИКА) ===
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
                         // Создаем ПЛОСКИЙ бокс-триггер на всю клетку
                         physScale.x = cellSize;
-                        physScale.y = 0.5; 
+                        physScale.y = 0.5; // Толщина триггера
                         physScale.z = cellSize;
                         
-                        // Центр триггера посередине высоты яруса
+                        // Центр триггера посередине высоты яруса (чтобы луч попадал в него сверху)
                         physPos.y = prim.position.y + (levelHeight / 2);
                         
-                        // Сбрасываем повороты - нам нужен ровный бокс
+                        // Сбрасываем повороты - нам нужен ровный бокс без наклона
                         physRot.tiltX = 0;
                         physRot.tiltY = 0;
                         physRot.twistZ = 0;
 
-                        // Вычисляем координаты начала и конца "рельсы"
+                        // Вычисляем параметры для линейной интерполяции в PlayerController
                         const startY = prim.position.y;
                         const endY = prim.position.y + levelHeight;
                         
+                        let dir = '';
+                        let startCoord = 0;
+                        let endCoord = 0;
+                        
+                        // Координаты центра клетки
                         const centerX = prim.position.x;
                         const centerZ = prim.position.z;
                         
-                        let sx, sz, ex, ez;
-
-                        // ИСПРАВЛЕНИЕ: Точное соответствие направлению ступенек
+                        // Определяем направление и границы интерполяции
                         if (prim.type === 'stair_north') {
-                            // Подъем на Север (+Z). Начало внизу у южного края, конец вверху у северного
-                            sx = centerX; sz = centerZ - halfCell; 
-                            ex = centerX; ez = centerZ + halfCell;
+                            dir = 'z';
+                            startCoord = centerZ - halfCell; // Начало в -Z от центра
+                            endCoord = centerZ + halfCell;   // Конец в +Z от центра
                         } else if (prim.type === 'stair_south') {
-                            // Подъем на Юг (-Z). Начало внизу у северного края, конец вверху у южного
-                            sx = centerX; sz = centerZ + halfCell; 
-                            ex = centerX; ez = centerZ - halfCell;
+                            dir = 'z';
+                            startCoord = centerZ + halfCell; // Начало в +Z
+                            endCoord = centerZ - halfCell;   // Конец в -Z
                         } else if (prim.type === 'stair_east') {
-                            // Подъем на Восток (+X). Начало внизу у западного края, конец вверху у восточного
-                            sx = centerX - halfCell; sz = centerZ; 
-                            ex = centerX + halfCell; ez = centerZ;
+                            dir = 'x';
+                            startCoord = centerX - halfCell;
+                            endCoord = centerX + halfCell;
                         } else if (prim.type === 'stair_west') {
-                            // Подъем на Запад (-X). Начало внизу у восточного края, конец вверху у западного
-                            sx = centerX + halfCell; sz = centerZ; 
-                            ex = centerX - halfCell; ez = centerZ;
+                            dir = 'x';
+                            startCoord = centerX + halfCell;
+                            endCoord = centerX - halfCell;
                         }
                         
-                        // Кодируем данные рельсы в строку
-                        const railData = `rail_${sx.toFixed(2)}_${sz.toFixed(2)}_${ex.toFixed(2)}_${ez.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}_${railWidth.toFixed(2)}`;
-                        primTypes.push(railData);
-
-                        // === ОТЛАДКА: ВИЗУАЛИЗАЦИЯ РЕЛЬСЫ ===
-                        if (config.debugPhysics) {
-                            // Ось рельсы (Красная линия)
-                            const points = [
-                                new THREE.Vector3(sx, startY + 0.1, sz),
-                                new THREE.Vector3(ex, endY - 0.1, ez)
-                            ];
-                            const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-                            const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
-                            const axisLine = new THREE.Line(lineGeo, lineMat);
-                            axisLine.renderOrder = 998;
-                            
-                            // Коридор безопасности (Полупрозрачный зеленый бокс)
-                            const length = Math.sqrt(Math.pow(ex-sx, 2) + Math.pow(ez-sz, 2));
-                            const corridorGeo = new THREE.BoxGeometry(railWidth, levelHeight, 0.5);
-                            const angle = Math.atan2(ez - sz, ex - sx);
-                            const midX = (sx + ex) / 2;
-                            const midZ = (sz + ez) / 2;
-                            const midY = (startY + endY) / 2;
-                            
-                            const corridorMat = new THREE.MeshBasicMaterial({ 
-                                color: 0x00ff00, transparent: true, opacity: 0.15, depthWrite: false
-                            });
-                            const corridorMesh = new THREE.Mesh(corridorGeo, corridorMat);
-                            corridorMesh.position.set(midX, midY, midZ);
-                            corridorMesh.rotation.y = -angle;
-                            corridorMesh.renderOrder = 997;
-
-                            this.sceneManager.scene.add(axisLine);
-                            this.sceneManager.scene.add(corridorMesh);
-                            
-                            if (!group.userData.debugObjects) group.userData.debugObjects = [];
-                            group.userData.debugObjects.push(axisLine, corridorMesh);
-                        }
+                        // Кодируем данные рампы в строку для передачи в контроллер
+                        // Формат: ramp_dir_startCoord_endCoord_startY_endY
+                        const rampData = `ramp_${dir}_${startCoord.toFixed(2)}_${endCoord.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}`;
+                        primTypes.push(rampData);
                     } 
                     // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
