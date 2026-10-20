@@ -94,26 +94,17 @@ updateVerticalPhysics(dt, nextX, nextZ) {
 
     let hitFloorY = -Infinity;
     let hasHit = false;
-    let isOnStair = false;
 
-    // Проверяем все объекты в collisionLayer
     for (const offset of offsets) {
         const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
         this.raycaster.set(origin, this.downVector);
         this.raycaster.far = rayDistance;
         this.raycaster.near = 0;
 
-        // recursive: true, чтобы проверять и InstancedMesh, и обычные Mesh внутри Group
-        const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
+        const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
 
         if (intersects.length > 0) {
             const hit = intersects[0];
-            
-            // Проверяем, лестница это или нет
-            if (hit.object.userData && hit.object.userData.type === 'stair') {
-                isOnStair = true;
-            }
-
             if (hit.point.y > hitFloorY) {
                 hitFloorY = hit.point.y;
                 hasHit = true;
@@ -121,7 +112,6 @@ updateVerticalPhysics(dt, nextX, nextZ) {
         }
     }
 
-    // Обработка результатов
     const floorLevel = hitFloorY + (this.playerHeight / 2);
 
     if (hasHit) {
@@ -142,12 +132,8 @@ updateVerticalPhysics(dt, nextX, nextZ) {
             this.onGround = false;
             this.isFalling = true;
         }
-        
-        this.onLadder = isOnStair;
-        
     } else {
         this.onGround = false;
-        this.onLadder = false;
         this.isFalling = true;
         this.velocity.y -= this.gravity * dt;
         if (this.velocity.y < -this.maxFallSpeed) {
@@ -160,7 +146,6 @@ updateVerticalPhysics(dt, nextX, nextZ) {
         }
     }
 }
-
     onMouseMove(movementX, movementY) {
         const sensitivity = 0.002;
         this.cameraEuler.y -= movementX * sensitivity;
