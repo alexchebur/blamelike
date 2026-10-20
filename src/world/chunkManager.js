@@ -334,7 +334,7 @@ class ChunkManager {
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
-                // Удаляем данные из HeightMap (без изменений)
+                // Удаляем данные из HeightMap
                 if (chunk.userData.primitives && this.config) {
                     const cellSize = this.config.chunkSize / this.config.gridSize;
                     for (const prim of chunk.userData.primitives) {
