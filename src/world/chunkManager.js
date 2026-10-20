@@ -179,246 +179,221 @@ class ChunkManager {
 // src/world/chunkManager.js
 // ... импорты остаются без изменений ...
 
-    loadChunk(cx, cy, cz, config, cameraPos) {
-        const key = createChunkKey(cx, cy, cz);
-        let chunkData = this.cache.get(key);
+loadChunk(cx, cy, cz, config, cameraPos) {
+    const key = createChunkKey(cx, cy, cz);
+    let chunkData = this.cache.get(key);
+    
+    if (!chunkData) {
+        chunkData = generateChunk(cx, cy, cz, config.seed, config);
+        this.cache.set(key, chunkData);
+    }
+
+    this.updateHeightMapForChunk(chunkData);
+
+    // 1. Визуальный слой
+    const group = this.createChunkMesh(chunkData, config);
+    group.userData.primitives = chunkData; 
+    
+    this.activeChunks.set(key, group);
+    this.sceneManager.scene.add(group);
+
+    // 2. Физический слой - ГИБРИДНЫЙ ПОДХОД
+    if (this.sceneManager.collisionLayer) {
+        // Разделяем примитивы на простые (платформы, мосты) и сложные (лестницы)
+        const simplePrims = [];
+        const stairPrims = [];
         
-        if (!chunkData) {
-            chunkData = generateChunk(cx, cy, cz, config.seed, config);
-            this.cache.set(key, chunkData);
-        }
-
-        this.updateHeightMapForChunk(chunkData);
-
-        // 1. Визуальный слой
-        const group = this.createChunkMesh(chunkData, config);
-        group.userData.primitives = chunkData; 
-        
-        this.activeChunks.set(key, group);
-        this.sceneManager.scene.add(group);
-
-        // 2. Физический слой (RAYCAST + INSTANCED MESH)
-        if (this.sceneManager.collisionLayer) {
-            const walkablePrims = chunkData.filter(p => {
-                if (p.role === 'decor' || p.role === 'micro') return false;
-                if (p.type === 'screen' || p.type === 'torus') return false;
-                if (p.type.includes('cable')) return false;
-                return p.type === 'box' || p.type.includes('stair') || 
-                       p.type.includes('bridge') || p.type === 'platform_stair';
-            });
-
-            if (walkablePrims.length > 0) {
-                const geometry = new THREE.BoxGeometry(1, 1, 1);
-                
-                const physicsMaterial = new THREE.MeshBasicMaterial({ 
-                    visible: false,
-                    colorWrite: false,
-                    depthWrite: true
-                });
-
-                const physicsMesh = new THREE.InstancedMesh(geometry, physicsMaterial, walkablePrims.length);
-                physicsMesh.name = `Physics_${key}`;
-                physicsMesh.frustumCulled = false;
-                
-                const primTypes = []; // Здесь будем хранить либо тип, либо данные рампы
-                const dummy = new THREE.Object3D();
-
-                const cellSize = config.chunkSize / config.gridSize;
-                const levelHeight = config.levelHeight || 20;
-                const halfCell = cellSize / 2;
-
-                for (let i = 0; i < walkablePrims.length; i++) {
-                    const prim = walkablePrims[i];
-                    
-                    let physScale = { ...prim.scale };
-                    let physPos = { ...prim.position };
-                    let physRot = { 
-                        tiltX: prim.rotation?.tiltX || 0, 
-                        tiltY: prim.rotation?.tiltY || 0, 
-                        twistZ: prim.rotation?.twistZ || 0 
-                    };
-
-                    // === ЛОГИКА ДЛЯ ЛЕСТНИЦ (ТРИГГЕР + МАТЕМАТИКА) ===
-                    if (prim.type.includes('stair') || prim.type === 'platform_stair') {
-                        // Создаем ПЛОСКИЙ бокс-триггер на всю клетку
-                        physScale.x = cellSize;
-                        physScale.y = 0.5; // Толщина триггера
-                        physScale.z = cellSize;
-                        
-                        // Центр триггера посередине высоты яруса (чтобы луч попадал в него сверху)
-                        physPos.y = prim.position.y + (levelHeight / 2);
-                        
-                        // Сбрасываем повороты - нам нужен ровный бокс без наклона
-                        physRot.tiltX = 0;
-                        physRot.tiltY = 0;
-                        physRot.twistZ = 0;
-
-                        // Вычисляем параметры для линейной интерполяции в PlayerController
-                        const startY = prim.position.y;
-                        const endY = prim.position.y + levelHeight;
-                        
-                        let dir = '';
-                        let startCoord = 0;
-                        let endCoord = 0;
-                        
-                        // Координаты центра клетки
-                        const centerX = prim.position.x;
-                        const centerZ = prim.position.z;
-                        
-                        // Определяем направление и границы интерполяции
-                        if (prim.type === 'stair_north') {
-                            dir = 'z';
-                            startCoord = centerZ - halfCell; // Начало в -Z от центра
-                            endCoord = centerZ + halfCell;   // Конец в +Z от центра
-                        } else if (prim.type === 'stair_south') {
-                            dir = 'z';
-                            startCoord = centerZ + halfCell; // Начало в +Z
-                            endCoord = centerZ - halfCell;   // Конец в -Z
-                        } else if (prim.type === 'stair_east') {
-                            dir = 'x';
-                            startCoord = centerX - halfCell;
-                            endCoord = centerX + halfCell;
-                        } else if (prim.type === 'stair_west') {
-                            dir = 'x';
-                            startCoord = centerX + halfCell;
-                            endCoord = centerX - halfCell;
-                        }
-                        
-                        // Кодируем данные рампы в строку для передачи в контроллер
-                        // Формат: ramp_dir_startCoord_endCoord_startY_endY
-                        const rampData = `ramp_${dir}_${startCoord.toFixed(2)}_${endCoord.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}`;
-                        primTypes.push(rampData);
-                    } 
-                    // === ЛОГИКА ДЛЯ МОСТОВ ===
-                    else if (prim.type === 'bridge_ns') {
-                        const bridgeWidth = 0.2 * prim.scale.x;
-                        const bridgeLength = 1.0 * prim.scale.z;
-                        const bridgeThickness = 0.5; 
-                        
-                        physScale.x = bridgeWidth;
-                        physScale.z = bridgeLength;
-                        physScale.y = bridgeThickness;
-                        
-                        const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
-                        physPos.y = visualTopY - (bridgeThickness / 2);
-                        
-                        primTypes.push(prim.type);
-                    }
-                    else if (prim.type === 'bridge_ew') {
-                        const bridgeLength = 1.0 * prim.scale.x;
-                        const bridgeWidth = 0.2 * prim.scale.z;
-                        const bridgeThickness = 0.5;
-                        
-                        physScale.x = bridgeLength;
-                        physScale.z = bridgeWidth;
-                        physScale.y = bridgeThickness;
-                        
-                        const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
-                        physPos.y = visualTopY - (bridgeThickness / 2);
-                        
-                        primTypes.push(prim.type);
-                    }
-                    // === ОБЫЧНЫЕ ПЛАТФОРМЫ ===
-                    else {
-                        primTypes.push(prim.type);
-                    }
-
-                    // Применяем трансформации для ФИЗИКИ
-                    dummy.position.set(physPos.x, physPos.y, physPos.z);
-                    dummy.rotation.set(
-                        THREE.MathUtils.degToRad(physRot.tiltX),
-                        THREE.MathUtils.degToRad(physRot.tiltY),
-                        THREE.MathUtils.degToRad(physRot.twistZ)
-                    );
-                    dummy.scale.set(
-                        Math.abs(physScale.x), 
-                        Math.abs(physScale.y), 
-                        Math.abs(physScale.z)
-                    );
-                    dummy.updateMatrix();
-                    
-                    physicsMesh.setMatrixAt(i, dummy.matrix);
-                }
-                
-                physicsMesh.instanceMatrix.needsUpdate = true;
-                physicsMesh.userData.primTypes = primTypes; 
-
-                this.sceneManager.collisionLayer.add(physicsMesh);
-                
-                group.userData.physicsMesh = physicsMesh;
+        for (const p of chunkData) {
+            if (p.role === 'decor' || p.role === 'micro') continue;
+            if (p.type === 'screen' || p.type === 'torus') continue;
+            if (p.type.includes('cable')) continue;
+            
+            if (p.type.includes('stair') || p.type === 'platform_stair') {
+                stairPrims.push(p);
+            } else if (p.type === 'box' || p.type.includes('bridge')) {
+                simplePrims.push(p);
             }
         }
 
-        // 3. Экраны
-        if (this.sceneManager.screenManager) {
-            this.registerScreens(chunkData, key, config);
+        // === A. InstancedMesh для простых примитивов (платформы и мосты) ===
+        if (simplePrims.length > 0) {
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const physicsMaterial = new THREE.MeshBasicMaterial({ 
+                visible: false,
+                colorWrite: false,
+                depthWrite: true
+            });
+
+            const physicsMesh = new THREE.InstancedMesh(geometry, physicsMaterial, simplePrims.length);
+            physicsMesh.name = `Physics_Simple_${key}`;
+            physicsMesh.frustumCulled = false;
+            physicsMesh.userData.isSimplePhysics = true; // Метка для PlayerController
+            
+            const dummy = new THREE.Object3D();
+
+            for (let i = 0; i < simplePrims.length; i++) {
+                const prim = simplePrims[i];
+                
+                let physScale = { ...prim.scale };
+                let physPos = { ...prim.position };
+
+                // Для мостов корректируем размеры
+                if (prim.type === 'bridge_ns') {
+                    physScale.x = 0.2 * prim.scale.x;
+                    physScale.z = 1.0 * prim.scale.z;
+                    physScale.y = 0.5;
+                    const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
+                    physPos.y = visualTopY - 0.25;
+                } else if (prim.type === 'bridge_ew') {
+                    physScale.x = 1.0 * prim.scale.x;
+                    physScale.z = 0.2 * prim.scale.z;
+                    physScale.y = 0.5;
+                    const visualTopY = prim.position.y + (0.1 * prim.scale.y / 2);
+                    physPos.y = visualTopY - 0.25;
+                }
+
+                dummy.position.set(physPos.x, physPos.y, physPos.z);
+                dummy.rotation.set(0, 0, 0); // Без поворотов
+                dummy.scale.set(
+                    Math.abs(physScale.x), 
+                    Math.abs(physScale.y), 
+                    Math.abs(physScale.z)
+                );
+                dummy.updateMatrix();
+                
+                physicsMesh.setMatrixAt(i, dummy.matrix);
+            }
+            
+            physicsMesh.instanceMatrix.needsUpdate = true;
+            this.sceneManager.collisionLayer.add(physicsMesh);
+            group.userData.simplePhysicsMesh = physicsMesh;
+        }
+
+        // === B. Отдельные Mesh для лестниц (наклонные рампы) ===
+        if (stairPrims.length > 0) {
+            const cellSize = config.chunkSize / config.gridSize;
+            const levelHeight = config.levelHeight || 20;
+            const rampAngleRad = Math.atan2(levelHeight, cellSize);
+            const rampLength = Math.sqrt(cellSize * cellSize + levelHeight * levelHeight);
+            const rampWidth = cellSize * 0.8;
+            const rampThickness = 0.5;
+
+            const stairGroup = new THREE.Group();
+            stairGroup.name = `Physics_Stairs_${key}`;
+            stairGroup.userData.isStairPhysics = true; // Метка для PlayerController
+
+            const geometry = new THREE.BoxGeometry(rampWidth, rampThickness, rampLength);
+            const physicsMaterial = new THREE.MeshBasicMaterial({ 
+                visible: false,
+                colorWrite: false,
+                depthWrite: true
+            });
+
+            for (const prim of stairPrims) {
+                const mesh = new THREE.Mesh(geometry, physicsMaterial);
+                
+                // Позиция: центр рампы посередине между startY и endY
+                const startY = prim.position.y;
+                const endY = prim.position.y + levelHeight;
+                const midY = (startY + endY) / 2;
+                
+                mesh.position.set(prim.position.x, midY, prim.position.z);
+                
+                // Повороты: сначала направление (Y), потом наклон (X)
+                // Используем кватернионы для правильного порядка
+                const quat = new THREE.Quaternion();
+                const euler = new THREE.Euler();
+                
+                if (prim.type === 'stair_north') {
+                    // Подъем на +Z: наклон вокруг X на -angle
+                    euler.set(-rampAngleRad, 0, 0, 'YXZ');
+                } else if (prim.type === 'stair_south') {
+                    // Подъем на -Z: поворот на 180 вокруг Y, потом наклон
+                    euler.set(-rampAngleRad, Math.PI, 0, 'YXZ');
+                } else if (prim.type === 'stair_east') {
+                    // Подъем на +X: поворот на -90 вокруг Y, потом наклон
+                    euler.set(-rampAngleRad, -Math.PI / 2, 0, 'YXZ');
+                } else if (prim.type === 'stair_west') {
+                    // Подъем на -X: поворот на +90 вокруг Y, потом наклон
+                    euler.set(-rampAngleRad, Math.PI / 2, 0, 'YXZ');
+                }
+                
+                quat.setFromEuler(euler);
+                mesh.quaternion.copy(quat);
+                
+                mesh.userData.type = 'stair';
+                mesh.userData.stairType = prim.type;
+                
+                stairGroup.add(mesh);
+            }
+            
+            this.sceneManager.collisionLayer.add(stairGroup);
+            group.userData.stairPhysicsGroup = stairGroup;
         }
     }
 
-    unloadUnusedChunks(desiredKeys) {
-        for (const [key, chunk] of this.activeChunks) {
-            if (!desiredKeys.has(key)) {
-                // === ОЧИСТКА ДЕБАГ-ОБЪЕКТОВ ===
-                if (chunk.userData.debugObjects) {
-                    for (const obj of chunk.userData.debugObjects) {
-                        this.sceneManager.scene.remove(obj);
-                        if (obj.geometry) obj.geometry.dispose();
-                        if (obj.material) obj.material.dispose();
-                    }
-                    chunk.userData.debugObjects = null;
-                }
-                // ================================
-
-                // Удаляем данные из HeightMap
-                if (chunk.userData.primitives && this.config) {
-                    const cellSize = this.config.chunkSize / this.config.gridSize;
-                    for (const prim of chunk.userData.primitives) {
-                        if (!isWalkablePrimitive(prim)) continue;
-                        const sx = prim.scale?.x ?? 1;
-                        const sz = prim.scale?.z ?? 1;
-                        const halfW = Math.abs(sx) / 2;
-                        const halfD = Math.abs(sz) / 2;
-                        const minX = Math.floor((prim.position.x - halfW) / cellSize);
-                        const maxX = Math.floor((prim.position.x + halfW) / cellSize);
-                        const minZ = Math.floor((prim.position.z - halfD) / cellSize);
-                        const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
-                        const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
-                        
-                        for (let x = minX; x <= maxX; x++) {
-                            for (let z = minZ; z <= maxZ; z++) {
-                                const mapKey = `${x},${z}`;
-                                const existing = this.heightMap.get(mapKey);
-                                if (existing && Math.abs(existing.y - topY) < 0.1) {
-                                    this.heightMap.delete(mapKey);
-                                }
+    // 3. Экраны
+    if (this.sceneManager.screenManager) {
+        this.registerScreens(chunkData, key, config);
+    }
+}
+unloadUnusedChunks(desiredKeys) {
+    for (const [key, chunk] of this.activeChunks) {
+        if (!desiredKeys.has(key)) {
+            // Удаляем данные из HeightMap
+            if (chunk.userData.primitives && this.config) {
+                const cellSize = this.config.chunkSize / this.config.gridSize;
+                for (const prim of chunk.userData.primitives) {
+                    if (!isWalkablePrimitive(prim)) continue;
+                    const sx = prim.scale?.x ?? 1;
+                    const sz = prim.scale?.z ?? 1;
+                    const halfW = Math.abs(sx) / 2;
+                    const halfD = Math.abs(sz) / 2;
+                    const minX = Math.floor((prim.position.x - halfW) / cellSize);
+                    const maxX = Math.floor((prim.position.x + halfW) / cellSize);
+                    const minZ = Math.floor((prim.position.z - halfD) / cellSize);
+                    const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
+                    const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
+                    
+                    for (let x = minX; x <= maxX; x++) {
+                        for (let z = minZ; z <= maxZ; z++) {
+                            const mapKey = `${x},${z}`;
+                            const existing = this.heightMap.get(mapKey);
+                            if (existing && Math.abs(existing.y - topY) < 0.1) {
+                                this.heightMap.delete(mapKey);
                             }
                         }
                     }
                 }
-
-                this.sceneManager.scene.remove(chunk);
-                this.disposeChunk(chunk);
-                
-                if (chunk.userData.physicsMesh && this.sceneManager.collisionLayer) {
-                    this.sceneManager.collisionLayer.remove(chunk.userData.physicsMesh);
-                    chunk.userData.physicsMesh.geometry.dispose();
-                    chunk.userData.physicsMesh.material.dispose();
-                }
-                
-                if (chunk.userData.debugMesh) {
-                    this.sceneManager.scene.remove(chunk.userData.debugMesh);
-                    chunk.userData.debugMesh.geometry.dispose();
-                    chunk.userData.debugMesh.material.dispose();
-                }
-                
-                if (this.sceneManager.screenManager) {
-                    this.unregisterScreens(key);
-                }
-                
-                this.activeChunks.delete(key);
             }
+
+            this.sceneManager.scene.remove(chunk);
+            this.disposeChunk(chunk);
+            
+            // Удаляем InstancedMesh для простых примитивов
+            if (chunk.userData.simplePhysicsMesh && this.sceneManager.collisionLayer) {
+                this.sceneManager.collisionLayer.remove(chunk.userData.simplePhysicsMesh);
+                chunk.userData.simplePhysicsMesh.geometry.dispose();
+                chunk.userData.simplePhysicsMesh.material.dispose();
+            }
+            
+            // Удаляем Group для лестниц
+            if (chunk.userData.stairPhysicsGroup && this.sceneManager.collisionLayer) {
+                this.sceneManager.collisionLayer.remove(chunk.userData.stairPhysicsGroup);
+                chunk.userData.stairPhysicsGroup.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+            }
+            
+            if (this.sceneManager.screenManager) {
+                this.unregisterScreens(key);
+            }
+            
+            this.activeChunks.delete(key);
         }
     }
+}
 
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
