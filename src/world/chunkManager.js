@@ -249,7 +249,7 @@ class ChunkManager {
                         // Центр триггера посередине высоты яруса
                         physPos.y = prim.position.y + (levelHeight / 2);
                         
-                        // Сбрасываем повороты
+                        // Сбрасываем повороты - нам нужен ровный бокс
                         physRot.tiltX = 0;
                         physRot.tiltY = 0;
                         physRot.twistZ = 0;
@@ -263,17 +263,22 @@ class ChunkManager {
                         
                         let sx, sz, ex, ez;
 
+                        // ИСПРАВЛЕНИЕ: Точное соответствие направлению ступенек
                         if (prim.type === 'stair_north') {
-                            sx = centerX; sz = centerZ - halfCell;
+                            // Подъем на Север (+Z). Начало внизу у южного края, конец вверху у северного
+                            sx = centerX; sz = centerZ - halfCell; 
                             ex = centerX; ez = centerZ + halfCell;
                         } else if (prim.type === 'stair_south') {
-                            sx = centerX; sz = centerZ + halfCell;
+                            // Подъем на Юг (-Z). Начало внизу у северного края, конец вверху у южного
+                            sx = centerX; sz = centerZ + halfCell; 
                             ex = centerX; ez = centerZ - halfCell;
                         } else if (prim.type === 'stair_east') {
-                            sx = centerX - halfCell; sz = centerZ;
+                            // Подъем на Восток (+X). Начало внизу у западного края, конец вверху у восточного
+                            sx = centerX - halfCell; sz = centerZ; 
                             ex = centerX + halfCell; ez = centerZ;
                         } else if (prim.type === 'stair_west') {
-                            sx = centerX + halfCell; sz = centerZ;
+                            // Подъем на Запад (-X). Начало внизу у восточного края, конец вверху у западного
+                            sx = centerX + halfCell; sz = centerZ; 
                             ex = centerX - halfCell; ez = centerZ;
                         }
                         
