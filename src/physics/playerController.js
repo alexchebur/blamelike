@@ -95,8 +95,8 @@ class PlayerController {
 
         let hitFloorY = -Infinity;
         let hasHit = false;
-        let isOnRail = false;
-        let railTargetY = -Infinity;
+        let isLadderHit = false;
+        let calculatedFloorY = -Infinity; // Для математической физики лестниц
 
         for (const offset of offsets) {
             const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
@@ -104,94 +104,62 @@ class PlayerController {
             this.raycaster.far = rayDistance;
             this.raycaster.near = 0;
 
+            // recursive: false, т.к. дети collisionLayer - это уже InstancedMesh
             const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
 
             if (intersects.length > 0) {
                 const hit = intersects[0];
                 
-                // === ПРОВЕРКА РЕЛЬСЫ ===
+                // === ПРОВЕРКА ТИПА И МАТЕМАТИЧЕСКАЯ ФИЗИКА ЛЕСТНИЦ ===
                 if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
                     const typeStr = hit.object.userData.primTypes[hit.instanceId];
                     
-                    if (typeStr && typeStr.startsWith('rail_')) {
+                    // Проверяем, является ли это рампой (лестницей-триггером)
+                    if (typeStr && typeStr.startsWith('ramp_')) {
+                        isLadderHit = true;
+                        
+                        // Парсим данные рампы: ramp_dir_startCoord_endCoord_startY_endY
                         const parts = typeStr.split('_');
-                        // rail_sx_sz_ex_ey_sy_ey_width
-                        const sx = parseFloat(parts[1]);
-                        const sz = parseFloat(parts[2]);
-                        const ex = parseFloat(parts[3]);
-                        const ez = parseFloat(parts[4]);
-                        const sy = parseFloat(parts[5]);
-                        const ey = parseFloat(parts[6]);
-                        const width = parseFloat(parts[7]);
-
-                        // Вектор направления рельсы
-                        const dx = ex - sx;
-                        const dz = ez - sz;
-                        const lenSq = dx*dx + dz*dz;
-
-                        if (lenSq > 0.001) {
-                            // Проекция игрока на линию рельсы
-                            const t = ((nextX - sx) * dx + (nextZ - sz) * dz) / lenSq;
-                            const clampedT = Math.max(0, Math.min(1, t));
-                            
-                            // Точка на линии, ближайшая к игроку
-                            const projX = sx + clampedT * dx;
-                            const projZ = sz + clampedT * dz;
-                            
-                            // Расстояние от игрока до линии (только X/Z)
-                            const distToRail = Math.sqrt(Math.pow(nextX - projX, 2) + Math.pow(nextZ - projZ, 2));
-
-                            // Если игрок в пределах ширины коридора
-                            if (distToRail <= width / 2) {
-                                isOnRail = true;
-                                // Высота на рельсе
-                                const targetY = sy + clampedT * (ey - sy);
-                                if (targetY > railTargetY) {
-                                    railTargetY = targetY;
-                                }
-                            }
+                        const dir = parts[1]; // 'x' или 'z'
+                        const startCoord = parseFloat(parts[2]);
+                        const endCoord = parseFloat(parts[3]);
+                        const startY = parseFloat(parts[4]);
+                        const endY = parseFloat(parts[5]);
+                        
+                        // Текущая координата игрока в направлении рампы
+                        const currentCoord = dir === 'x' ? nextX : nextZ;
+                        
+                        // Линейная интерполяция (clamp между 0 и 1)
+                        let t = (currentCoord - startCoord) / (endCoord - startCoord);
+                        t = Math.max(0, Math.min(1, t)); 
+                        
+                        // Вычисляем идеальную высоту пола математически
+                        const mathFloorY = startY + (endY - startY) * t;
+                        
+                        // Используем математическую высоту вместо точки удара луча
+                        if (mathFloorY > calculatedFloorY) {
+                            calculatedFloorY = mathFloorY;
+                            hitFloorY = mathFloorY; // Переопределяем для общей логики
                         }
+                    } else if (typeStr && typeStr.includes('stair')) {
+                        // Фолбэк для старых типов лестниц (если вдруг остались)
+                        isLadderHit = true;
                     }
                 }
 
-                // Стандартная проверка пола (если не на рельсе или рельса ниже обычного пола)
-                if (!isOnRail && hit.point.y > hitFloorY) {
+                // Если это не рампа, используем стандартную точку удара
+                if (calculatedFloorY === -Infinity && hit.point.y > hitFloorY) {
                     hitFloorY = hit.point.y;
-                    hasHit = true;
                 }
+                
+                hasHit = true;
             }
         }
 
         // === ОБРАБОТКА РЕЗУЛЬТАТОВ ===
-        
-        // Приоритет рельсы над обычным полом
-        if (isOnRail && railTargetY > -Infinity) {
-            this.onLadder = true;
-            this.onGround = false; // На рельсе мы не "на земле"
-            this.isFalling = false;
-            this.velocity.y = 0;
-            
-            // Плавное притяжение к высоте рельсы
-            const targetY = railTargetY + (this.playerHeight / 2);
-            this.position.y += (targetY - this.position.y) * 0.3; // Быстрое притяжение
-            
-            // Если очень близко, фиксируем точно
-            if (Math.abs(this.position.y - targetY) < 0.02) {
-                this.position.y = targetY;
-            }
-            
-            // Управление движением вдоль рельсы через W/S
-            // Мы не меняем Y напрямую, а позволяем игроку двигаться по X/Z,
-            // а рельса сама подтянет его по Y. Но можно добавить ускорение:
-            if (this.moveForward || this.moveBackward) {
-                // Небольшой толчок в направлении движения, чтобы чувствовать контроль
-                // (опционально, т.к. рельса и так держит высоту)
-            }
-            
-        } else if (hasHit) {
-            // Обычный пол
-            this.onLadder = false;
-            const floorLevel = hitFloorY + (this.playerHeight / 2);
+        const floorLevel = hitFloorY + (this.playerHeight / 2);
+
+        if (hasHit) {
             const isAboveOrAtFloor = this.position.y >= floorLevel - 0.05;
 
             if (isAboveOrAtFloor) {
@@ -199,18 +167,22 @@ class PlayerController {
                 this.isFalling = false;
                 this.velocity.y = 0;
                 
+                // Плавная коррекция позиции (LERP)
                 const targetY = floorLevel;
                 this.position.y += (targetY - this.position.y) * 0.2;
                 if (Math.abs(this.position.y - targetY) < 0.01) {
                     this.position.y = targetY;
                 }
             } else {
+                // Мы ниже пола (застряли в геометрии). Мягко выталкиваем вверх.
                 this.position.y += 0.5;
                 this.onGround = false;
                 this.isFalling = true;
             }
+            
+            this.onLadder = isLadderHit;
+            
         } else {
-            // Падение
             this.onGround = false;
             this.onLadder = false;
             this.isFalling = true;
