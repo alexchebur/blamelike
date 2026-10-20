@@ -226,8 +226,7 @@ class ChunkManager {
                 const cellSize = config.chunkSize / config.gridSize;
                 const levelHeight = config.levelHeight || 20;
                 const halfCell = cellSize / 2;
-                // Ширина "коридора" лестницы (60% от размера клетки)
-                const railWidth = cellSize * 0.6; 
+                const railWidth = cellSize * 0.6; // Ширина коридора лестницы
 
                 for (let i = 0; i < walkablePrims.length; i++) {
                     const prim = walkablePrims[i];
@@ -244,13 +243,13 @@ class ChunkManager {
                     if (prim.type.includes('stair') || prim.type === 'platform_stair') {
                         // Создаем ПЛОСКИЙ бокс-триггер на всю клетку
                         physScale.x = cellSize;
-                        physScale.y = 0.5; // Толщина триггера
+                        physScale.y = 0.5; 
                         physScale.z = cellSize;
                         
-                        // Центр триггера посередине высоты яруса (чтобы луч попадал в него сверху)
+                        // Центр триггера посередине высоты яруса
                         physPos.y = prim.position.y + (levelHeight / 2);
                         
-                        // Сбрасываем повороты - нам нужен ровный бокс без наклона
+                        // Сбрасываем повороты
                         physRot.tiltX = 0;
                         physRot.tiltY = 0;
                         physRot.twistZ = 0;
@@ -279,9 +278,43 @@ class ChunkManager {
                         }
                         
                         // Кодируем данные рельсы в строку
-                        // Формат: rail_sx_sz_ex_ez_sy_ey_width
                         const railData = `rail_${sx.toFixed(2)}_${sz.toFixed(2)}_${ex.toFixed(2)}_${ez.toFixed(2)}_${startY.toFixed(2)}_${endY.toFixed(2)}_${railWidth.toFixed(2)}`;
                         primTypes.push(railData);
+
+                        // === ОТЛАДКА: ВИЗУАЛИЗАЦИЯ РЕЛЬСЫ ===
+                        if (config.debugPhysics) {
+                            // Ось рельсы (Красная линия)
+                            const points = [
+                                new THREE.Vector3(sx, startY + 0.1, sz),
+                                new THREE.Vector3(ex, endY - 0.1, ez)
+                            ];
+                            const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+                            const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+                            const axisLine = new THREE.Line(lineGeo, lineMat);
+                            axisLine.renderOrder = 998;
+                            
+                            // Коридор безопасности (Полупрозрачный зеленый бокс)
+                            const length = Math.sqrt(Math.pow(ex-sx, 2) + Math.pow(ez-sz, 2));
+                            const corridorGeo = new THREE.BoxGeometry(railWidth, levelHeight, 0.5);
+                            const angle = Math.atan2(ez - sz, ex - sx);
+                            const midX = (sx + ex) / 2;
+                            const midZ = (sz + ez) / 2;
+                            const midY = (startY + endY) / 2;
+                            
+                            const corridorMat = new THREE.MeshBasicMaterial({ 
+                                color: 0x00ff00, transparent: true, opacity: 0.15, depthWrite: false
+                            });
+                            const corridorMesh = new THREE.Mesh(corridorGeo, corridorMat);
+                            corridorMesh.position.set(midX, midY, midZ);
+                            corridorMesh.rotation.y = -angle;
+                            corridorMesh.renderOrder = 997;
+
+                            this.sceneManager.scene.add(axisLine);
+                            this.sceneManager.scene.add(corridorMesh);
+                            
+                            if (!group.userData.debugObjects) group.userData.debugObjects = [];
+                            group.userData.debugObjects.push(axisLine, corridorMesh);
+                        }
                     } 
                     // === ЛОГИКА ДЛЯ МОСТОВ ===
                     else if (prim.type === 'bridge_ns') {
@@ -348,10 +381,21 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
-// ... остальные методы (unloadUnusedChunks и т.д.) остаются без изменений ...
+
     unloadUnusedChunks(desiredKeys) {
         for (const [key, chunk] of this.activeChunks) {
             if (!desiredKeys.has(key)) {
+                // === ОЧИСТКА ДЕБАГ-ОБЪЕКТОВ ===
+                if (chunk.userData.debugObjects) {
+                    for (const obj of chunk.userData.debugObjects) {
+                        this.sceneManager.scene.remove(obj);
+                        if (obj.geometry) obj.geometry.dispose();
+                        if (obj.material) obj.material.dispose();
+                    }
+                    chunk.userData.debugObjects = null;
+                }
+                // ================================
+
                 // Удаляем данные из HeightMap
                 if (chunk.userData.primitives && this.config) {
                     const cellSize = this.config.chunkSize / this.config.gridSize;
