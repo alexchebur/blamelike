@@ -70,82 +70,94 @@ class PlayerController {
         camera.quaternion.setFromEuler(this.cameraEuler);
     }
 
-updateVerticalPhysics(dt, nextX, nextZ) {
-    const collisionLayer = this.sceneManager.collisionLayer;
-    if (!collisionLayer) return;
+    updateVerticalPhysics(dt, nextX, nextZ) {
+        const collisionLayer = this.sceneManager.collisionLayer;
+        if (!collisionLayer) return;
 
-    const feetY = this.position.y - (this.playerHeight / 2);
-    let rayOriginY = feetY;
-    let rayDistance = this.playerHeight + 1.0;
+        const feetY = this.position.y - (this.playerHeight / 2);
+        let rayOriginY = feetY;
+        let rayDistance = this.playerHeight + 1.0;
 
-    if (this.isFalling) {
-        const fallDistance = Math.abs(this.velocity.y * dt);
-        rayOriginY = feetY + fallDistance + 0.5;
-        rayDistance = fallDistance + this.playerHeight + 1.0;
-    }
+        if (this.isFalling) {
+            const fallDistance = Math.abs(this.velocity.y * dt);
+            rayOriginY = feetY + fallDistance + 0.5;
+            rayDistance = fallDistance + this.playerHeight + 1.0;
+        }
 
-    const offsets = [
-        { x: 0, z: 0 },
-        { x: this.playerRadius, z: this.playerRadius },
-        { x: -this.playerRadius, z: this.playerRadius },
-        { x: this.playerRadius, z: -this.playerRadius },
-        { x: -this.playerRadius, z: -this.playerRadius }
-    ];
+        const offsets = [
+            { x: 0, z: 0 },
+            { x: this.playerRadius, z: this.playerRadius },
+            { x: -this.playerRadius, z: this.playerRadius },
+            { x: this.playerRadius, z: -this.playerRadius },
+            { x: -this.playerRadius, z: -this.playerRadius }
+        ];
 
-    let hitFloorY = -Infinity;
-    let hasHit = false;
+        let hitFloorY = -Infinity;
+        let hasHit = false;
+        let isOnStair = false;
 
-    for (const offset of offsets) {
-        const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
-        this.raycaster.set(origin, this.downVector);
-        this.raycaster.far = rayDistance;
-        this.raycaster.near = 0;
+        for (const offset of offsets) {
+            const origin = new THREE.Vector3(nextX + offset.x, rayOriginY, nextZ + offset.z);
+            this.raycaster.set(origin, this.downVector);
+            this.raycaster.far = rayDistance;
+            this.raycaster.near = 0;
 
-        const intersects = this.raycaster.intersectObjects(collisionLayer.children, false);
+            // recursive: true, чтобы проверять и InstancedMesh, и обычные Mesh внутри Group
+            const intersects = this.raycaster.intersectObjects(collisionLayer.children, true);
 
-        if (intersects.length > 0) {
-            const hit = intersects[0];
-            if (hit.point.y > hitFloorY) {
-                hitFloorY = hit.point.y;
-                hasHit = true;
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                
+                // Проверяем, лестница это или нет
+                if (hit.object.userData && hit.object.userData.type === 'stair') {
+                    isOnStair = true;
+                }
+
+                if (hit.point.y > hitFloorY) {
+                    hitFloorY = hit.point.y;
+                    hasHit = true;
+                }
             }
         }
-    }
 
-    const floorLevel = hitFloorY + (this.playerHeight / 2);
+        const floorLevel = hitFloorY + (this.playerHeight / 2);
 
-    if (hasHit) {
-        const isAboveOrAtFloor = this.position.y >= floorLevel - 0.05;
+        if (hasHit) {
+            const isAboveOrAtFloor = this.position.y >= floorLevel - 0.05;
 
-        if (isAboveOrAtFloor) {
-            this.onGround = true;
-            this.isFalling = false;
-            this.velocity.y = 0;
+            if (isAboveOrAtFloor) {
+                this.onGround = true;
+                this.isFalling = false;
+                this.velocity.y = 0;
+                
+                const targetY = floorLevel;
+                this.position.y += (targetY - this.position.y) * 0.2;
+                if (Math.abs(this.position.y - targetY) < 0.01) {
+                    this.position.y = targetY;
+                }
+            } else {
+                this.position.y += 0.5;
+                this.onGround = false;
+                this.isFalling = true;
+            }
             
-            const targetY = floorLevel;
-            this.position.y += (targetY - this.position.y) * 0.2;
-            if (Math.abs(this.position.y - targetY) < 0.01) {
-                this.position.y = targetY;
-            }
+            this.onLadder = isOnStair;
+            
         } else {
-            this.position.y += 0.5;
             this.onGround = false;
+            this.onLadder = false;
             this.isFalling = true;
-        }
-    } else {
-        this.onGround = false;
-        this.isFalling = true;
-        this.velocity.y -= this.gravity * dt;
-        if (this.velocity.y < -this.maxFallSpeed) {
-            this.velocity.y = -this.maxFallSpeed;
-        }
-        this.position.y += this.velocity.y * dt;
-        if (this.position.y < -100) {
-            this.position.set(0, 50, 0);
-            this.velocity.set(0, 0, 0);
+            this.velocity.y -= this.gravity * dt;
+            if (this.velocity.y < -this.maxFallSpeed) {
+                this.velocity.y = -this.maxFallSpeed;
+            }
+            this.position.y += this.velocity.y * dt;
+            if (this.position.y < -100) {
+                this.position.set(0, 50, 0);
+                this.velocity.set(0, 0, 0);
+            }
         }
     }
-}
     onMouseMove(movementX, movementY) {
         const sensitivity = 0.002;
         this.cameraEuler.y -= movementX * sensitivity;
