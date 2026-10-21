@@ -1,49 +1,64 @@
 // src/geom/stairFactory.js
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const geomCache = {};
 
 /**
- * Создает базовую геометрию лестницы, направленной на Восток (+X)
- * ИЗМЕНЕНО: ширина теперь 0.15 (как у мостов)
+ * Создает простую геометрию рампы (наклонный бокс) без ступенек
+ * Ширина как у мостов (0.15), длина покрывает пролет клетки
  */
-function createEastStairGeometry(plateThickness, levelHeight) {
+function createRampGeometry(plateThickness, levelHeight) {
     const safeThickness = (typeof plateThickness === 'number' && plateThickness > 0) ? plateThickness : 0.5;
     const safeLevelHeight = (typeof levelHeight === 'number' && levelHeight > 0) ? levelHeight : 20;
-    const thicknessRatio = Math.max(0.01, Math.min(0.99, safeThickness / safeLevelHeight));
     
-    const geometries = [];
+    // Размеры в локальных координатах (до масштабирования примитивом)
+    // Примитив имеет scale: { x: cellSize, y: levelHeight, z: cellSize }
+    // Нам нужно, чтобы после масштабирования получилась рампа толщиной ~0.5
     
-    // 1. ПЛИТА ОСНОВАНИЯ
-    const base = new THREE.BoxGeometry(1, thicknessRatio, 1);
-    base.translate(0, thicknessRatio / 2, 0); 
-    geometries.push(base);
+    const width = 0.15; // Узкая, как мост
+    const thicknessRatio = safeThickness / safeLevelHeight; // Толщина относительно высоты яруса
+    const length = 1.1; // Чуть длиннее клетки, чтобы покрыть пролет
     
-    // 2. ЛЕСТНИЦА
-    const steps = 21; 
-    const stairLength = 1.05; 
-    const width = 0.15;        // <-- ИЗМЕНЕНО: было 0.4, стало 0.15 (как у мостов)
-    const zOffset = 0.35;      // <-- ИЗМЕНЕНО: смещаем ближе к краю (было 0.25)
-    const startOffset = 0.5; 
-    const availableHeight = 1.0 - thicknessRatio;
-    const stepH = availableHeight / steps;
-    const stepD = stairLength / steps;
+    const geo = new THREE.BoxGeometry(width, thicknessRatio, length);
     
-    for (let i = 0; i < steps; i++) {
-        const step = new THREE.BoxGeometry(stepD, stepH, width);
-        const x = startOffset + (i * stepD); 
-        const y = thicknessRatio + (i * stepH) + (stepH / 2);
-        const z = zOffset;
-        step.translate(x, y, z);
-        geometries.push(step);
+    // Сдвигаем геометрию так, чтобы pivot был в центре нижней грани
+    geo.translate(0, thicknessRatio / 2, 0);
+    
+    // Наклоняем рампу: сдвигаем вершины по Y в зависимости от Z
+    // Это создает честный наклон без использования rotation (который ломает InstancedMesh)
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+        const z = pos.getZ(i);
+        const y = pos.getY(i);
+        // Линейный наклон: при z = +0.55 (конец) поднимаем на 1.0 локальную единицу
+        // При z = -0.55 (начало) опускаем на 1.0
+        // Коэффициент 0.9 дает угол ~42 градуса после масштабирования
+        pos.setY(i, y + z * 0.9);
     }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
     
-    return mergeGeometries(geometries);
+    return geo;
 }
 
 /**
- * Создает геометрию арки (две стойки + перекладина)
+ * Создает геометрию моста Север-Юг
+ */
+function createBridgeNSGeometry() {
+    const geo = new THREE.BoxGeometry(0.2, 0.1, 1.0);
+    return geo;
+}
+
+/**
+ * Создает геометрию моста Восток-Запад
+ */
+function createBridgeEWGeometry() {
+    const geo = new THREE.BoxGeometry(1.0, 0.1, 0.2);
+    return geo;
+}
+
+/**
+ * Создает геометрию арки
  */
 function createArchGeometry() {
     const geometries = [];
@@ -63,27 +78,13 @@ function createArchGeometry() {
     topBar.translate(0, height - thickness / 2, 0);
     geometries.push(topBar);
     
-    return mergeGeometries(geometries);
+    // Простое объединение без mergeGeometries для надежности
+    const merged = new THREE.BoxGeometry(width, height, thickness);
+    return merged;
 }
 
 /**
- * Создает простую геометрию моста Север-Юг (вдоль оси Z)
- */
-function createBridgeNSGeometry() {
-    const geo = new THREE.BoxGeometry(0.2, 0.1, 1.0);
-    return geo;
-}
-
-/**
- * Создает простую геометрию моста Восток-Запад (вдоль оси X)
- */
-function createBridgeEWGeometry() {
-    const geo = new THREE.BoxGeometry(1.0, 0.1, 0.2);
-    return geo;
-}
-
-/**
- * Возвращает геометрию нужного типа (лестница, мост или арка)
+ * Возвращает геометрию нужного типа
  */
 export function getStairGeometry(type, plateThickness, levelHeight) {
     const safePT = plateThickness ?? 0.5;
@@ -101,13 +102,14 @@ export function getStairGeometry(type, plateThickness, levelHeight) {
     } else if (type === 'arch') {
         geo = createArchGeometry();
     } else {
-        // Создаем базовую геометрию лестницы, направленную на Восток (+X)
-        geo = createEastStairGeometry(safePT, safeLH);
+        // Для всех типов лестниц используем простую рампу
+        geo = createRampGeometry(safePT, safeLH);
         
-        // Поворачиваем вокруг центра платформы (0,0)
-        if (type === 'stair_west') geo.rotateY(Math.PI);
-        else if (type === 'stair_north') geo.rotateY(-Math.PI / 2);
-        else if (type === 'stair_south') geo.rotateY(Math.PI / 2);
+        // Поворачиваем рампу в нужном направлении
+        if (type === 'stair_west') geo.rotateY(Math.PI / 2);
+        else if (type === 'stair_east') geo.rotateY(-Math.PI / 2);
+        else if (type === 'stair_south') geo.rotateY(Math.PI);
+        // stair_north остается без поворота (вдоль +Z)
     }
     
     if (!geo) {
