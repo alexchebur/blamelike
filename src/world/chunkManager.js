@@ -315,56 +315,63 @@ class ChunkManager {
             this.registerScreens(chunkData, key, config);
         }
     }
-unloadUnusedChunks(desiredKeys) {
-    for (const [key, chunk] of this.activeChunks) {
-        if (!desiredKeys.has(key)) {
-            // Удаляем данные из HeightMap
-            if (chunk.userData.primitives && this.config) {
-                const cellSize = this.config.chunkSize / this.config.gridSize;
-                for (const prim of chunk.userData.primitives) {
-                    if (!isWalkablePrimitive(prim)) continue;
-                    const sx = prim.scale?.x ?? 1;
-                    const sz = prim.scale?.z ?? 1;
-                    const halfW = Math.abs(sx) / 2;
-                    const halfD = Math.abs(sz) / 2;
-                    const minX = Math.floor((prim.position.x - halfW) / cellSize);
-                    const maxX = Math.floor((prim.position.x + halfW) / cellSize);
-                    const minZ = Math.floor((prim.position.z - halfD) / cellSize);
-                    const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
-                    const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
-                    
-                    for (let x = minX; x <= maxX; x++) {
-                        for (let z = minZ; z <= maxZ; z++) {
-                            const mapKey = `${x},${z}`;
-                            const existing = this.heightMap.get(mapKey);
-                            if (existing && Math.abs(existing.y - topY) < 0.1) {
-                                this.heightMap.delete(mapKey);
+    unloadUnusedChunks(desiredKeys) {
+        for (const [key, chunk] of this.activeChunks) {
+            if (!desiredKeys.has(key)) {
+                // Удаляем данные из HeightMap
+                if (chunk.userData.primitives && this.config) {
+                    const cellSize = this.config.chunkSize / this.config.gridSize;
+                    for (const prim of chunk.userData.primitives) {
+                        if (!isWalkablePrimitive(prim)) continue;
+                        const sx = prim.scale?.x ?? 1;
+                        const sz = prim.scale?.z ?? 1;
+                        const halfW = Math.abs(sx) / 2;
+                        const halfD = Math.abs(sz) / 2;
+                        const minX = Math.floor((prim.position.x - halfW) / cellSize);
+                        const maxX = Math.floor((prim.position.x + halfW) / cellSize);
+                        const minZ = Math.floor((prim.position.z - halfD) / cellSize);
+                        const maxZ = Math.floor((prim.position.z + halfD) / cellSize);
+                        const topY = prim.position.y + (Math.abs(prim.scale?.y ?? 1) / 2);
+                        
+                        for (let x = minX; x <= maxX; x++) {
+                            for (let z = minZ; z <= maxZ; z++) {
+                                const mapKey = `${x},${z}`;
+                                const existing = this.heightMap.get(mapKey);
+                                if (existing && Math.abs(existing.y - topY) < 0.1) {
+                                    this.heightMap.delete(mapKey);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            this.sceneManager.scene.remove(chunk);
-            this.disposeChunk(chunk);
-            
-            // Удаляем все физические меши
-            if (chunk.userData.physicsMeshes && this.sceneManager.collisionLayer) {
-                for (const mesh of chunk.userData.physicsMeshes) {
-                    this.sceneManager.collisionLayer.remove(mesh);
-                    mesh.geometry.dispose();
-                    mesh.material.dispose();
+                this.sceneManager.scene.remove(chunk);
+                this.disposeChunk(chunk);
+                
+                // Удаляем InstancedMesh для простых примитивов
+                if (chunk.userData.simplePhysicsMesh && this.sceneManager.collisionLayer) {
+                    this.sceneManager.collisionLayer.remove(chunk.userData.simplePhysicsMesh);
+                    chunk.userData.simplePhysicsMesh.geometry.dispose();
+                    chunk.userData.simplePhysicsMesh.material.dispose();
                 }
+                
+                // Удаляем Group для лестниц
+                if (chunk.userData.stairPhysicsGroup && this.sceneManager.collisionLayer) {
+                    this.sceneManager.collisionLayer.remove(chunk.userData.stairPhysicsGroup);
+                    chunk.userData.stairPhysicsGroup.traverse(child => {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) child.material.dispose();
+                    });
+                }
+                
+                if (this.sceneManager.screenManager) {
+                    this.unregisterScreens(key);
+                }
+                
+                this.activeChunks.delete(key);
             }
-            
-            if (this.sceneManager.screenManager) {
-                this.unregisterScreens(key);
-            }
-            
-            this.activeChunks.delete(key);
         }
     }
-}
     registerScreens(primitives, chunkKey, config) {
         const screenManager = this.sceneManager.screenManager;
         if (!screenManager || !primitives) return;
